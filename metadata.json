@@ -1,0 +1,6 @@
+{
+  "name": "Mythic Clash 2D - Torneo de Dioses",
+  "description": "Videojuego de peleas en 2D de alta precisión con físicas reales, mitologías griega, egipcia, mexicana y japonesa, combates 1v1 y versus IA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
