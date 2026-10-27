@@ -22,6 +22,9 @@ const THIEF_MAX_DROPS = 3; // Objetos que suelta el duende ladrón
 const MAX_MAGIC = 6;       // Vasijas de magia que caben en el HUD
 const RESPAWN_MAGIC = 2;   // Vasijas que regala cada vida perdida
 const REINFORCEMENT_HEAL = 20; // Vida por cada refuerzo del jefe derrotado (además de 1 vasija)
+const COOP_HP_MUL = 1.3;       // Monstruos más resistentes cuando juegan dos
+const COOP_BOSS_HP_MUL = 1.5;
+const PLAYER_COLORS = ['#fbbf24', '#38bdf8']; // Distintivo de cada jugador (1P dorado, 2P celeste)
 
 export interface ArcadeInput {
   left: boolean;
@@ -35,6 +38,10 @@ export interface ArcadeInput {
   tapLeft: boolean;
   tapRight: boolean;
 }
+
+const EMPTY_INPUT: ArcadeInput = {
+  left: false, right: false, up: false, down: false, attack: false, jump: false, magic: false, tapLeft: false, tapRight: false
+};
 
 export interface HitInfo {
   damage: number;
@@ -241,6 +248,7 @@ function godFrame(actor: Actor, cfg: SpriteSheetConfig, clock: number, attackDur
 // HÉROE: el dios elegido, con combo, salto, ataque aéreo, embestida, giro y magia
 // --------------------------------------------------------------------------
 export class Hero extends Actor {
+  public index: number; // 0 = jugador 1, 1 = jugador 2
   public deity: DeityData;
   public cfg: SpriteSheetConfig;
   public sheet: SpriteSheetEntry;
@@ -263,8 +271,9 @@ export class Hero extends Actor {
   private lastJumpPress: number = -100;
   private animClock: number = 0;
 
-  constructor(deity: DeityData) {
+  constructor(deity: DeityData, index: number = 0) {
     super(220, DEPTH * 0.6, 100, 60, 170);
+    this.index = index;
     this.deity = deity;
     this.cfg = getSpriteSheetConfig(deity);
     this.sheet = loadSpriteSheet(this.cfg.src);
@@ -328,7 +337,7 @@ export class Hero extends Actor {
       if (this.stateTimer >= 40) {
         this.lives--;
         if (this.lives > 0) {
-          world.respawnHero();
+          world.respawnHero(this);
         } else {
           this.gameOver = true;
           this.setState('dead');
@@ -488,9 +497,23 @@ export class Hero extends Actor {
     this.animClock++;
   }
 
-  public render(ctx: CanvasRenderingContext2D) {
+  public render(ctx: CanvasRenderingContext2D, showTag: boolean = false) {
     const blink = this.invuln > 0 && this.state !== 'spin' && this.state !== 'magic' && Math.floor(this.invuln / 4) % 2 === 0;
     const feetY = screenY(this.z, this.y);
+
+    // En cooperativo, distintivo 1P / 2P sobre la cabeza para no confundirse
+    if (showTag && !this.isDown) {
+      const tagY = feetY - this.height - 34;
+      ctx.fillStyle = PLAYER_COLORS[this.index];
+      ctx.beginPath();
+      ctx.moveTo(this.x - 7, tagY + 14);
+      ctx.lineTo(this.x + 7, tagY + 14);
+      ctx.lineTo(this.x, tagY + 22);
+      ctx.fill();
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${this.index + 1}P`, this.x, tagY + 10);
+    }
 
     // Aura del dios al canalizar la magia
     if (this.state === 'magic') {
@@ -530,6 +553,7 @@ export class Monster extends Actor {
   public scored: boolean = false;
   public drops: number = 0;
   public reinforcement: boolean = false; // Invocado por un jefe: da vida y magia al derrotarlo
+  public target: Hero | null = null; // Héroe al que persigue (en cooperativo, el más cercano)
   private entered: boolean = false;
   private cooldown: number = 40;
   private animT: number = Math.floor(Math.random() * 100);
@@ -622,7 +646,7 @@ export class Monster extends Actor {
       return;
     }
 
-    const hero = world.hero;
+    const hero = this.target ?? world.pickTarget(this, null);
     switch (this.state) {
       case 'windup':
         this.vx = 0;
@@ -776,6 +800,7 @@ export class Boss extends Actor {
   private comboHits: number = 0;
   private summoned: boolean = false;
   private animClock: number = 0;
+  private target: Hero | null = null;
 
   constructor(deity: DeityData, x: number, z: number, hp: number, dmgMul: number, introTargetX: number) {
     super(x, z, hp, 80, 200);
@@ -811,7 +836,8 @@ export class Boss extends Actor {
     if (this.displayHp > this.hp) this.displayHp = Math.max(this.hp, this.displayHp - 1.2);
     if (this.updateDownStates()) return;
 
-    const hero = world.hero;
+    this.target = world.pickTarget(this, this.target);
+    const hero = this.target;
     switch (this.state) {
       case 'intro':
         this.facing = -1;
@@ -863,7 +889,7 @@ export class Boss extends Actor {
         }
         return;
       case 'special':
-        this.updateSpecial(world);
+        this.updateSpecial(world, hero);
         return;
     }
 
@@ -903,9 +929,8 @@ export class Boss extends Actor {
     }
   }
 
-  private updateSpecial(world: ArcadeGame) {
+  private updateSpecial(world: ArcadeGame, hero: Hero) {
     const t = this.stateTimer;
-    const hero = world.hero;
     switch (this.currentSpecial) {
       case 'charge': {
         // Embestida a través de la arena tras un aviso parpadeante
@@ -1056,7 +1081,8 @@ interface Banner {
 // PARTIDA ARCADE: niveles, cámara, oleadas, combate, magia y HUD
 // --------------------------------------------------------------------------
 export class ArcadeGame {
-  public hero: Hero;
+  public heroes: Hero[];
+  public coop: boolean;
   public monsters: Monster[] = [];
   public boss: Boss | null = null;
   public orbs: Orb[] = [];
@@ -1087,23 +1113,44 @@ export class ArcadeGame {
   private shakeTicks: number = 0;
   private shakeDuration: number = 1;
   private shakeIntensity: number = 0;
-  private magicCast: { t: number; color: string; name: string; power: number } | null = null;
+  private magicCast: { t: number; color: string; name: string; power: number; caster: Hero } | null = null;
   private thiefHintShown: boolean = false;
   private art: { background: SpriteSheetEntry | null; floor: SpriteSheetEntry | null } = { background: null, floor: null };
-  // Pulsaciones hechas durante la pausa de impacto: se aplican al reanudar para que no se pierdan
-  private carriedPresses: Pick<ArcadeInput, 'attack' | 'jump' | 'magic' | 'tapLeft' | 'tapRight'> = {
-    attack: false,
-    jump: false,
-    magic: false,
-    tapLeft: false,
-    tapRight: false
-  };
+  // Pulsaciones hechas durante la pausa de impacto (una por jugador): se aplican al reanudar para que no se pierdan
+  private carriedPresses: Pick<ArcadeInput, 'attack' | 'jump' | 'magic' | 'tapLeft' | 'tapRight'>[];
 
-  constructor(deity: DeityData, difficulty: Difficulty) {
+  // Uno o dos dioses: con dos se juega en cooperativo
+  constructor(deities: DeityData | DeityData[], difficulty: Difficulty) {
+    const list = Array.isArray(deities) ? deities : [deities];
     this.difficulty = difficulty;
     this.calmFactor = difficulty === 'FACIL' ? 1.6 : difficulty === 'DIFICIL' ? 0.5 : 1;
-    this.hero = new Hero(deity);
+    this.heroes = list.map((d, i) => new Hero(d, i));
+    this.coop = this.heroes.length > 1;
+    this.carriedPresses = this.heroes.map(() => ({ attack: false, jump: false, magic: false, tapLeft: false, tapRight: false }));
     this.startLevel(0);
+  }
+
+  // Jugador 1 (las pruebas y el modo de un jugador lo usan directamente)
+  public get hero(): Hero {
+    return this.heroes[0];
+  }
+
+  // Héroes que siguen en partida (los que agotaron sus vidas esperan a continuar)
+  public get activeHeroes(): Hero[] {
+    return this.heroes.filter(h => !h.gameOver);
+  }
+
+  // Elige a quién persigue un enemigo: el héroe disponible más cercano, sin cambiar de presa
+  // por poca diferencia para que no titubee entre los dos jugadores
+  public pickTarget(actor: Actor, current: Hero | null): Hero {
+    const active = this.activeHeroes;
+    if (active.length === 0) return this.heroes[0];
+    const available = active.filter(h => !h.isDown && h.invuln < 100);
+    const pool = available.length > 0 ? available : active;
+    const dist = (h: Hero) => Math.abs(h.x - actor.x) + Math.abs(h.z - actor.z);
+    const best = pool.reduce((a, b) => (dist(b) < dist(a) ? b : a));
+    if (current && pool.includes(current) && dist(current) < dist(best) + 150) return current;
+    return best;
   }
 
   // --- FLUJO DE NIVELES ---
@@ -1127,15 +1174,19 @@ export class ArcadeGame {
     this.phaseTimer = 0;
     this.goTimer = 240;
 
-    const hero = this.hero;
-    hero.x = 220;
-    hero.z = DEPTH * 0.6;
-    hero.y = 0;
-    hero.vx = hero.vz = hero.vy = 0;
-    hero.setState('idle');
-    hero.invuln = 60;
+    // En cooperativo, el 2P entra un poco atrás y más al frente
+    for (const hero of this.heroes) {
+      hero.x = this.coop ? (hero.index === 0 ? 260 : 170) : 220;
+      hero.z = DEPTH * (this.coop ? (hero.index === 0 ? 0.4 : 0.85) : 0.6);
+      hero.y = 0;
+      hero.vx = hero.vz = hero.vy = 0;
+      if (!hero.gameOver) hero.setState('idle');
+      hero.invuln = 60;
+    }
 
-    const bossId = this.level.bossOrder.find(id => id !== hero.deity.id) ?? this.level.bossOrder[0];
+    // El jefe nunca es el dios que controla alguno de los jugadores
+    const playerIds = this.heroes.map(h => h.deity.id);
+    const bossId = this.level.bossOrder.find(id => !playerIds.includes(id)) ?? this.level.bossOrder[0];
     this.bossDeity = DEITIES.find(d => d.id === bossId) ?? DEITIES[0];
     loadSpriteSheet(getSpriteSheetConfig(this.bossDeity).src);
     // Escenario pintado del nivel, si lo tiene (se carga con la misma caché que los sprites)
@@ -1162,7 +1213,7 @@ export class ArcadeGame {
   }
 
   private get hpMul(): number {
-    return (0.85 + 0.15 * this.levelIndex) * DIFFICULTY_HP[this.difficulty];
+    return (0.85 + 0.15 * this.levelIndex) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_HP_MUL : 1);
   }
 
   private get dmgMul(): number {
@@ -1216,8 +1267,13 @@ export class ArcadeGame {
 
   private updateCamera() {
     if (this.waveActive || this.phase !== 'play') return;
+    const active = this.activeHeroes;
+    if (active.length === 0) return;
     const nextStop = this.waveIndex < this.waves.length ? this.waves[this.waveIndex].camX : BOSS_CAM_X;
-    const target = clamp(this.hero.x - VIEW_W * 0.45, 0, nextStop);
+    // Sigue al que va delante, pero sin dejar fuera de cuadro al que se quedó atrás
+    const lead = Math.max(...active.map(h => h.x));
+    const trail = Math.min(...active.map(h => h.x));
+    const target = clamp(Math.min(lead - VIEW_W * 0.45, trail - 50), 0, nextStop);
     if (target > this.camX) this.camX = Math.min(nextStop, this.camX + Math.max(1, (target - this.camX) * 0.12));
     if (this.camX >= nextStop - 0.5) {
       this.camX = nextStop;
@@ -1230,13 +1286,13 @@ export class ArcadeGame {
     this.phase = 'bossIntro';
     this.phaseTimer = 0;
     this.camX = BOSS_CAM_X;
-    const hp = Math.round(300 * (1 + 0.2 * this.levelIndex) * DIFFICULTY_HP[this.difficulty]);
+    const hp = Math.round(300 * (1 + 0.2 * this.levelIndex) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_BOSS_HP_MUL : 1));
     this.boss = new Boss(this.bossDeity, this.camX + VIEW_W + 120, DEPTH * 0.5, hp, this.dmgMul, this.camX + VIEW_W * 0.72);
     this.showBanner(`JEFE · ${this.bossDeity.name.toUpperCase()}`, this.bossDeity.title, this.bossDeity.accentColor, 180);
 
-    // Bendición divina: el héroe siempre enfrenta al jefe con la vida completa
-    const hero = this.hero;
-    if (hero.hp < hero.maxHp) {
+    // Bendición divina: los héroes siempre enfrentan al jefe con la vida completa
+    for (const hero of this.activeHeroes) {
+      if (hero.hp >= hero.maxHp) continue;
       hero.hp = hero.maxHp;
       this.floatingText(hero.x, screenY(hero.z) - 210, '¡BENDICIÓN DIVINA! VIDA COMPLETA', '#4ade80');
       this.particles.push({ x: hero.x, y: screenY(hero.z), vx: 0, vy: 0, radius: 30, color: '#4ade80', alpha: 1, decay: 0.02, type: 'ring' });
@@ -1272,7 +1328,9 @@ export class ArcadeGame {
     this.particles.push({ x, y, vx: 0, vy: -1.2, radius: 0, color, alpha: 1, decay: 0.02, type: 'text', text });
   }
 
-  private applyHit(target: Actor, hit: HitInfo, fromHero: boolean): boolean {
+  // source: el héroe que golpea (se lleva los puntos); null si el golpe es de un enemigo
+  private applyHit(target: Actor, hit: HitInfo, source: Hero | null): boolean {
+    const fromHero = source !== null;
     if (!target.receiveHit(hit)) return false;
 
     const ix = target.x - hit.dir * target.width * 0.3;
@@ -1303,7 +1361,7 @@ export class ArcadeGame {
     }
     if (!fromHero) sounds.playHurt();
 
-    if (fromHero && target instanceof Monster) {
+    if (source && target instanceof Monster) {
       // El duende suelta sus objetos con cada golpe
       // El duende suelta un objeto por golpe; si cae, suelta todo lo que le quedaba
       if (target.kind === 'thief') {
@@ -1313,7 +1371,7 @@ export class ArcadeGame {
           this.spawnItem(Math.random() < 0.65 ? 'pot' : 'food', target.x, target.z);
         }
       }
-      if (target.hp <= 0) this.defeatMonster(target);
+      if (target.hp <= 0) this.defeatMonster(target, source);
     }
     return true;
   }
@@ -1329,19 +1387,21 @@ export class ArcadeGame {
       if (t.x + t.width / 2 < x0 || t.x - t.width / 2 > x1) continue;
       hero.hitTargets.add(t);
       const dir: 1 | -1 = spec.back > 50 ? (t.x >= hero.x ? 1 : -1) : hero.facing;
-      this.applyHit(t, { damage: spec.damage, knockdown: spec.knockdown, heavy: spec.heavy, dir }, true);
+      this.applyHit(t, { damage: spec.damage, knockdown: spec.knockdown, heavy: spec.heavy, dir }, hero);
     }
   }
 
+  // Los golpes enemigos alcanzan a cualquier jugador que esté en su trayectoria
   public enemyStrike(attacker: Actor, spec: StrikeSpec) {
-    const hero = this.hero;
-    if (attacker.hitTargets.has(hero) || !hero.canBeHit() || hero.y > 80) return;
-    if (Math.abs(hero.z - attacker.z) > Z_REACH + 6) return;
     const x0 = attacker.facing === 1 ? attacker.x - spec.back : attacker.x - spec.front;
     const x1 = attacker.facing === 1 ? attacker.x + spec.front : attacker.x + spec.back;
-    if (hero.x + hero.width / 2 < x0 || hero.x - hero.width / 2 > x1) return;
-    attacker.hitTargets.add(hero);
-    this.applyHit(hero, { damage: spec.damage, knockdown: spec.knockdown, heavy: spec.heavy, dir: attacker.facing }, false);
+    for (const hero of this.activeHeroes) {
+      if (attacker.hitTargets.has(hero) || !hero.canBeHit() || hero.y > 80) continue;
+      if (Math.abs(hero.z - attacker.z) > Z_REACH + 6) continue;
+      if (hero.x + hero.width / 2 < x0 || hero.x - hero.width / 2 > x1) continue;
+      attacker.hitTargets.add(hero);
+      this.applyHit(hero, { damage: spec.damage, knockdown: spec.knockdown, heavy: spec.heavy, dir: attacker.facing }, null);
+    }
   }
 
   public spawnItem(kind: 'pot' | 'food', x: number, z: number) {
@@ -1372,9 +1432,10 @@ export class ArcadeGame {
     this.dust(boss.x, boss.z, 16);
     sounds.playHitHeavy();
     this.shake(14, 12);
-    const hero = this.hero;
-    if (hero.canBeHit() && hero.y < 20 && Math.abs(hero.x - boss.x) < 240 && Math.abs(hero.z - boss.z) < 75) {
-      this.applyHit(hero, { damage: boss.damage * 1.4, knockdown: true, heavy: true, dir: hero.x >= boss.x ? 1 : -1 }, false);
+    for (const hero of this.activeHeroes) {
+      if (hero.canBeHit() && hero.y < 20 && Math.abs(hero.x - boss.x) < 240 && Math.abs(hero.z - boss.z) < 75) {
+        this.applyHit(hero, { damage: boss.damage * 1.4, knockdown: true, heavy: true, dir: hero.x >= boss.x ? 1 : -1 }, null);
+      }
     }
   }
 
@@ -1385,11 +1446,10 @@ export class ArcadeGame {
     for (const m of minions) m.reinforcement = true;
   }
 
-  // Puntos, comida ocasional y, si era un refuerzo del jefe, vida y magia al momento
-  private defeatMonster(m: Monster) {
+  // Puntos, comida ocasional y, si era un refuerzo del jefe, vida y magia al momento (para quien lo derrotó)
+  private defeatMonster(m: Monster, hero: Hero) {
     if (m.scored) return;
     m.scored = true;
-    const hero = this.hero;
     const labelY = screenY(m.z, m.y) - m.height - 20;
     hero.score += m.stats.score;
     this.floatingText(m.x, labelY, `+${m.stats.score}`, '#fde68a');
@@ -1403,8 +1463,7 @@ export class ArcadeGame {
     }
   }
 
-  public respawnHero() {
-    const hero = this.hero;
+  public respawnHero(hero: Hero) {
     hero.hp = hero.maxHp;
     hero.displayHp = hero.maxHp;
     hero.y = 0;
@@ -1428,7 +1487,7 @@ export class ArcadeGame {
 
   public castMagic(hero: Hero): boolean {
     if (hero.magic <= 0 || this.magicCast) return false;
-    this.magicCast = { t: 0, color: hero.deity.accentColor, name: hero.deity.specialName, power: hero.magic };
+    this.magicCast = { t: 0, color: hero.deity.accentColor, name: hero.deity.specialName, power: hero.magic, caster: hero };
     hero.magic = 0;
     sounds.playSuperActivation();
     return true;
@@ -1438,17 +1497,18 @@ export class ArcadeGame {
     const cast = this.magicCast;
     if (!cast) return;
     cast.t++;
-    this.hero.advanceMagicPose();
+    const caster = cast.caster;
+    caster.advanceMagicPose();
     if (cast.t === 40) {
       // La magia golpea a todos los enemigos en pantalla; más vasijas = más daño
-      const damage = (12 + 10 * cast.power) * this.hero.dmgMul;
+      const damage = (12 + 10 * cast.power) * caster.dmgMul;
       sounds.playThunder();
       this.shake(16, 18);
       const targets: Actor[] = this.monsters.filter(m => m.x > this.camX - 20 && m.x < this.camX + VIEW_W + 20);
       if (this.boss && this.boss.state !== 'intro') targets.push(this.boss);
       for (const t of targets) {
         const dmg = t instanceof Boss ? damage * 0.6 : damage;
-        t.receiveHit({ damage: dmg, knockdown: true, heavy: true, dir: t.x >= this.hero.x ? 1 : -1, magic: true });
+        t.receiveHit({ damage: dmg, knockdown: true, heavy: true, dir: t.x >= caster.x ? 1 : -1, magic: true });
         const baseY = screenY(t.z);
         for (let i = 0; i < 26; i++) {
           this.particles.push({
@@ -1464,21 +1524,24 @@ export class ArcadeGame {
           });
         }
         this.particles.push({ x: t.x, y: baseY, vx: 0, vy: 0, radius: 26, color: cast.color, alpha: 1, decay: 0.03, type: 'ring' });
-        spawnBloodBurst(this.particles, t.x, baseY - t.height * 0.6, t.x >= this.hero.x ? 1 : -1, baseY);
-        if (t instanceof Monster && t.hp <= 0) this.defeatMonster(t);
+        spawnBloodBurst(this.particles, t.x, baseY - t.height * 0.6, t.x >= caster.x ? 1 : -1, baseY);
+        if (t instanceof Monster && t.hp <= 0) this.defeatMonster(t, caster);
       }
     }
     updateParticles(this.particles);
     if (cast.t >= 80) {
       this.magicCast = null;
-      this.hero.finishMagic();
+      caster.finishMagic();
     }
   }
 
   // --- PASO DE SIMULACIÓN (60 Hz) ---
 
-  public step(input: ArcadeInput) {
+  // Una entrada por jugador (o una sola en el modo de un jugador)
+  public step(inputs: ArcadeInput | ArcadeInput[]) {
     if (this.paused) return;
+    const list = Array.isArray(inputs) ? inputs : [inputs];
+    const inputFor = (hero: Hero) => list[hero.index] ?? EMPTY_INPUT;
     this.tick++;
     if (this.banner && ++this.banner.t >= this.banner.duration) this.banner = null;
     if (this.shakeTicks > 0) this.shakeTicks--;
@@ -1486,41 +1549,57 @@ export class ArcadeGame {
 
     if (this.phase === 'gameOver') {
       updateParticles(this.particles);
-      if (input.attack) this.continueGame();
+      if (list.some(i => i.attack)) this.continueGame();
       return;
     }
     if (this.phase === 'victory') {
       updateParticles(this.particles);
       this.phaseTimer++;
-      if (input.attack && this.phaseTimer > 60) this.exitRequested = true;
+      if (list.some(i => i.attack) && this.phaseTimer > 60) this.exitRequested = true;
       return;
     }
-    const carried = this.carriedPresses;
     if (this.hitstop > 0) {
       this.hitstop--;
-      carried.attack ||= input.attack;
-      carried.jump ||= input.jump;
-      carried.magic ||= input.magic;
-      carried.tapLeft ||= input.tapLeft;
-      carried.tapRight ||= input.tapRight;
+      for (const hero of this.heroes) {
+        const carried = this.carriedPresses[hero.index];
+        const input = inputFor(hero);
+        carried.attack ||= input.attack;
+        carried.jump ||= input.jump;
+        carried.magic ||= input.magic;
+        carried.tapLeft ||= input.tapLeft;
+        carried.tapRight ||= input.tapRight;
+      }
       return;
     }
-    input = {
-      ...input,
-      attack: input.attack || carried.attack,
-      jump: input.jump || carried.jump,
-      magic: input.magic || carried.magic,
-      tapLeft: input.tapLeft || carried.tapLeft,
-      tapRight: input.tapRight || carried.tapRight
-    };
-    carried.attack = carried.jump = carried.magic = carried.tapLeft = carried.tapRight = false;
+    const merged = this.heroes.map(hero => {
+      const carried = this.carriedPresses[hero.index];
+      const input = inputFor(hero);
+      const result: ArcadeInput = {
+        ...input,
+        attack: input.attack || carried.attack,
+        jump: input.jump || carried.jump,
+        magic: input.magic || carried.magic,
+        tapLeft: input.tapLeft || carried.tapLeft,
+        tapRight: input.tapRight || carried.tapRight
+      };
+      carried.attack = carried.jump = carried.magic = carried.tapLeft = carried.tapRight = false;
+      return result;
+    });
     if (this.magicCast) {
       this.updateMagic();
       return;
     }
 
-    this.hero.update(input, this, this.tick);
-    if (this.hero.gameOver) {
+    for (const hero of this.heroes) {
+      const input = merged[hero.index];
+      // Quien agotó sus vidas vuelve a la partida con su botón de ataque, como en las máquinas
+      if (hero.gameOver) {
+        if (input.attack && this.coop) this.continueHero(hero);
+        continue;
+      }
+      hero.update(input, this, this.tick);
+    }
+    if (this.heroes.every(h => h.gameOver)) {
       this.phase = 'gameOver';
       sounds.playKO();
       return;
@@ -1529,14 +1608,18 @@ export class ArcadeGame {
     this.updateCamera();
     this.updateWaves();
 
-    // Solo los más cercanos atacan a la vez; el resto rodea al héroe
+    // Cada enemigo elige al héroe más cercano; solo los más próximos a cada héroe atacan a la vez
     const maxEngaged = 2 + (this.levelIndex >= 2 ? 1 : 0);
-    this.monsters
-      .filter(m => m.kind !== 'thief' && !m.isDown)
-      .sort((a, b) => Math.abs(a.x - this.hero.x) - Math.abs(b.x - this.hero.x))
-      .forEach((m, i) => {
-        m.engaged = i < maxEngaged;
-      });
+    const fighters = this.monsters.filter(m => m.kind !== 'thief' && !m.isDown);
+    for (const m of fighters) m.target = this.pickTarget(m, m.target);
+    for (const hero of this.heroes) {
+      fighters
+        .filter(m => m.target === hero)
+        .sort((a, b) => Math.abs(a.x - hero.x) - Math.abs(b.x - hero.x))
+        .forEach((m, i) => {
+          m.engaged = i < maxEngaged;
+        });
+    }
     this.monsters.forEach(m => m.update(this));
     this.separateMonsters();
     this.boss?.update(this);
@@ -1554,20 +1637,22 @@ export class ArcadeGame {
       this.bossDown = true;
       this.phase = 'levelClear';
       this.phaseTimer = 0;
-      this.hero.score += 5000;
+      for (const hero of this.activeHeroes) hero.score += 5000;
       this.hitstop = 24;
       this.shake(18, 30);
       sounds.playKO();
       sounds.playVictory();
       this.showBanner(`¡${this.boss.deity.name.toUpperCase()} HA CAÍDO!`, this.levelIndex + 1 < LEVELS.length ? 'Nivel completado · +5000 puntos' : 'El torneo de los dioses es tuyo', '#fbbf24', 240);
-      for (const m of this.monsters) m.receiveHit({ damage: 999, knockdown: true, heavy: true, dir: m.x >= this.hero.x ? 1 : -1, magic: true });
+      for (const m of this.monsters) m.receiveHit({ damage: 999, knockdown: true, heavy: true, dir: m.x >= this.boss.x ? 1 : -1, magic: true });
       this.orbs = [];
       this.thunders = [];
     } else if (this.phase === 'levelClear' && this.phaseTimer >= 270) {
       if (this.levelIndex + 1 < LEVELS.length) {
         // Recompensa entre niveles: media vida y una vasija de magia
-        this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + this.hero.maxHp * 0.5);
-        this.hero.magic = Math.min(MAX_MAGIC, this.hero.magic + 1);
+        for (const hero of this.activeHeroes) {
+          hero.hp = Math.min(hero.maxHp, hero.hp + hero.maxHp * 0.5);
+          hero.magic = Math.min(MAX_MAGIC, hero.magic + 1);
+        }
         this.startLevel(this.levelIndex + 1);
       } else {
         this.phase = 'victory';
@@ -1578,11 +1663,18 @@ export class ArcadeGame {
   }
 
   private continueGame() {
-    const hero = this.hero;
+    for (const hero of this.heroes) this.continueHero(hero);
+    this.phase = this.boss ? (this.bossDown ? 'levelClear' : 'boss') : 'play';
+  }
+
+  // Continuación: 3 vidas nuevas, de vuelta en pantalla junto al compañero si lo hay
+  private continueHero(hero: Hero) {
+    const partner = this.activeHeroes.find(h => h !== hero);
     hero.lives = 3;
     hero.gameOver = false;
-    this.respawnHero();
-    this.phase = this.boss ? (this.bossDown ? 'levelClear' : 'boss') : 'play';
+    hero.x = clamp(partner ? partner.x - 90 : hero.x, this.camX + 60, this.camX + VIEW_W - 60);
+    hero.z = partner ? clamp(partner.z + 40, 0, DEPTH) : hero.z;
+    this.respawnHero(hero);
   }
 
   private separateMonsters() {
@@ -1602,15 +1694,15 @@ export class ArcadeGame {
   }
 
   private updateOrbs() {
-    const hero = this.hero;
     for (const orb of this.orbs) {
       orb.t++;
       orb.x += orb.vx;
       if (orb.t % 2 === 0) {
         this.particles.push({ x: orb.x, y: screenY(orb.z, orb.y), vx: -orb.vx * 0.2, vy: (Math.random() - 0.5) * 2, radius: 4 + Math.random() * 3, color: orb.color, alpha: 0.8, decay: 0.06, type: 'spark' });
       }
-      if (hero.canBeHit() && hero.y < 110 && Math.abs(hero.z - orb.z) <= Z_REACH && Math.abs(hero.x - orb.x) < 40) {
-        this.applyHit(hero, { damage: orb.damage, knockdown: true, heavy: true, dir: orb.vx > 0 ? 1 : -1 }, false);
+      const hero = this.activeHeroes.find(h => h.canBeHit() && h.y < 110 && Math.abs(h.z - orb.z) <= Z_REACH && Math.abs(h.x - orb.x) < 40);
+      if (hero) {
+        this.applyHit(hero, { damage: orb.damage, knockdown: true, heavy: true, dir: orb.vx > 0 ? 1 : -1 }, null);
         orb.t = 9999;
       }
     }
@@ -1618,7 +1710,6 @@ export class ArcadeGame {
   }
 
   private updateThunders() {
-    const hero = this.hero;
     for (const th of this.thunders) {
       th.t++;
       if (th.t === THUNDER_DELAY) {
@@ -1639,8 +1730,10 @@ export class ArcadeGame {
           });
         }
         this.particles.push({ x: th.x, y: baseY, vx: 0, vy: 0, radius: 30, color: th.color, alpha: 1, decay: 0.04, type: 'ring' });
-        if (hero.canBeHit() && hero.y < 60 && Math.abs(hero.x - th.x) < THUNDER_RADIUS && Math.abs(hero.z - th.z) < THUNDER_RADIUS * 0.4) {
-          this.applyHit(hero, { damage: th.damage, knockdown: true, heavy: true, dir: hero.x >= th.x ? 1 : -1 }, false);
+        for (const hero of this.activeHeroes) {
+          if (hero.canBeHit() && hero.y < 60 && Math.abs(hero.x - th.x) < THUNDER_RADIUS && Math.abs(hero.z - th.z) < THUNDER_RADIUS * 0.4) {
+            this.applyHit(hero, { damage: th.damage, knockdown: true, heavy: true, dir: hero.x >= th.x ? 1 : -1 }, null);
+          }
         }
       }
     }
@@ -1648,7 +1741,6 @@ export class ArcadeGame {
   }
 
   private updateItems() {
-    const hero = this.hero;
     for (const item of this.items) {
       item.t++;
       if (item.y > 0 || item.vy > 0) {
@@ -1659,7 +1751,10 @@ export class ArcadeGame {
           item.vy = Math.abs(item.vy) > 2 ? Math.abs(item.vy) * 0.35 : 0;
         }
       }
-      if (item.t > 20 && !hero.isDown && Math.abs(hero.x - item.x) < 45 && Math.abs(hero.z - item.z) < 30 && hero.y < 30) {
+      const hero = item.t > 20
+        ? this.activeHeroes.find(h => !h.isDown && Math.abs(h.x - item.x) < 45 && Math.abs(h.z - item.z) < 30 && h.y < 30)
+        : undefined;
+      if (hero) {
         if (item.kind === 'pot') {
           hero.magic = Math.min(MAX_MAGIC, hero.magic + 1);
           this.floatingText(item.x, screenY(item.z) - 60, '+MAGIA', '#60a5fa');
@@ -1695,7 +1790,8 @@ export class ArcadeGame {
     ctx.translate(-Math.round(this.camX), 0);
 
     // Sombras en el suelo (se encogen con la altura del salto)
-    const actors: Actor[] = [this.hero, ...this.monsters];
+    // En cooperativo el que agotó sus vidas desaparece hasta que continúe
+    const actors: Actor[] = [...(this.coop ? this.activeHeroes : this.heroes), ...this.monsters];
     if (this.boss && !this.boss.removed) actors.push(this.boss);
     for (const a of actors) {
       const s = Math.max(0.4, 1 - a.y / 200);
@@ -1716,7 +1812,7 @@ export class ArcadeGame {
     // Orden por profundidad: lo del fondo primero
     actors.sort((a, b) => a.z - b.z);
     for (const a of actors) {
-      if (a instanceof Hero) a.render(ctx);
+      if (a instanceof Hero) a.render(ctx, this.coop);
       else if (a instanceof Monster) a.render(ctx);
       else if (a instanceof Boss) a.render(ctx);
     }
@@ -1738,42 +1834,55 @@ export class ArcadeGame {
     this.renderHud(ctx);
   }
 
-  private renderHud(ctx: CanvasRenderingContext2D) {
-    const hero = this.hero;
-    ctx.save();
-
-    // Panel del jugador
+  // Panel de un jugador: retrato, vidas, vida, vasijas de magia (o aviso para continuar)
+  private renderHeroPanel(ctx: CanvasRenderingContext2D, hero: Hero, px: number) {
+    const color = PLAYER_COLORS[hero.index];
     ctx.fillStyle = 'rgba(2, 6, 23, 0.7)';
     ctx.beginPath();
-    ctx.roundRect(16, 14, 380, 96, 12);
+    ctx.roundRect(px, 14, 380, 96, 12);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+    ctx.strokeStyle = this.coop ? color : 'rgba(251, 191, 36, 0.4)';
+    ctx.globalAlpha = this.coop ? 0.6 : 1;
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    drawDeityPortraitIcon(ctx, hero.deity.id, 62, 62, 72);
+    ctx.globalAlpha = 1;
 
+    if (this.coop && hero.gameOver) {
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 22px "Cinzel", serif';
+      ctx.fillStyle = color;
+      ctx.fillText(`${hero.index + 1}P · ${hero.deity.name.toUpperCase()}`, px + 190, 50);
+      if (this.tick % 60 < 40) {
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillText(`¡PULSA ${hero.index === 0 ? 'J' : '1'} PARA CONTINUAR!`, px + 190, 82);
+      }
+      return;
+    }
+
+    drawDeityPortraitIcon(ctx, hero.deity.id, px + 46, 62, 72);
     ctx.font = 'bold 20px "Cinzel", serif';
-    ctx.fillStyle = '#fde68a';
+    ctx.fillStyle = this.coop ? color : '#fde68a';
     ctx.textAlign = 'left';
-    ctx.fillText(hero.deity.name.toUpperCase(), 108, 40);
+    ctx.fillText(this.coop ? `${hero.index + 1}P ${hero.deity.name.toUpperCase()}` : hero.deity.name.toUpperCase(), px + 92, 40);
     ctx.font = 'bold 14px sans-serif';
     ctx.fillStyle = '#e2e8f0';
-    ctx.fillText(`×${hero.lives}`, 350, 40);
+    ctx.fillText(`×${hero.lives}`, px + 334, 40);
 
     // Barra de vida con daño reciente en rojo
     ctx.fillStyle = '#1e293b';
-    ctx.fillRect(108, 50, 270, 14);
+    ctx.fillRect(px + 92, 50, 270, 14);
     ctx.fillStyle = '#b91c1c';
-    ctx.fillRect(108, 50, 270 * (hero.displayHp / hero.maxHp), 14);
-    const hpGrad = ctx.createLinearGradient(108, 0, 378, 0);
+    ctx.fillRect(px + 92, 50, 270 * (hero.displayHp / hero.maxHp), 14);
+    const hpGrad = ctx.createLinearGradient(px + 92, 0, px + 362, 0);
     hpGrad.addColorStop(0, '#22c55e');
     hpGrad.addColorStop(1, '#facc15');
     ctx.fillStyle = hpGrad;
-    ctx.fillRect(108, 50, 270 * (hero.hp / hero.maxHp), 14);
+    ctx.fillRect(px + 92, 50, 270 * (hero.hp / hero.maxHp), 14);
 
     // Vasijas de magia
     for (let i = 0; i < MAX_MAGIC; i++) {
-      const x = 118 + i * 26;
+      const x = px + 102 + i * 26;
       ctx.fillStyle = i < hero.magic ? '#2563eb' : 'rgba(148, 163, 184, 0.25)';
       ctx.beginPath();
       ctx.ellipse(x, 88, 8, 10, 0, 0, Math.PI * 2);
@@ -1782,16 +1891,25 @@ export class ArcadeGame {
     }
     ctx.font = '11px sans-serif';
     ctx.fillStyle = '#94a3b8';
-    ctx.fillText('MAGIA (L)', 278, 92);
+    ctx.fillText(hero.index === 0 ? 'MAGIA (L)' : 'MAGIA (3)', px + 262, 92);
+  }
 
-    // Puntos y nivel
+  private renderHud(ctx: CanvasRenderingContext2D) {
+    const hero = this.hero;
+    ctx.save();
+
+    this.heroes.forEach((h, i) => this.renderHeroPanel(ctx, h, 16 + i * 396));
+
+    // Puntos (uno por jugador) y nivel
     ctx.textAlign = 'right';
     ctx.font = 'bold 18px "Cinzel", serif';
-    ctx.fillStyle = '#fde68a';
-    ctx.fillText(`PUNTOS ${String(hero.score).padStart(6, '0')}`, VIEW_W - 24, 40);
+    this.heroes.forEach((h, i) => {
+      ctx.fillStyle = this.coop ? PLAYER_COLORS[h.index] : '#fde68a';
+      ctx.fillText(`${this.coop ? `${h.index + 1}P ` : 'PUNTOS '}${String(h.score).padStart(6, '0')}`, VIEW_W - 24, 40 + i * 24);
+    });
     ctx.font = '13px sans-serif';
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillText(`NIVEL ${this.levelIndex + 1} · ${this.level.title.toUpperCase()}`, VIEW_W - 24, 62);
+    ctx.fillText(`NIVEL ${this.levelIndex + 1} · ${this.level.title.toUpperCase()}`, VIEW_W - 24, 62 + (this.heroes.length - 1) * 24);
 
     // Barra del jefe
     const boss = this.boss;
@@ -1825,13 +1943,22 @@ export class ArcadeGame {
 
     // Ayuda de controles al empezar
     if (this.levelIndex === 0 && this.tick < 900) {
+      const lines = this.coop
+        ? [
+            '1P · WASD: mover · J: combo · K: saltar · J+K: giro · L: magia · doble toque A/D: correr',
+            '2P · Flechas: mover · 1 (o ,): combo · 2 (o .): saltar · 1+2: giro · 3 (o -): magia · doble toque ←/→: correr'
+          ]
+        : ['WASD / Flechas: mover · J: combo · K: saltar (J en el aire: tajo) · Doble toque ←/→: correr (J: embestida) · J+K: giro · L: magia · Esc: pausa'];
+      const h = 12 + lines.length * 22;
       ctx.globalAlpha = Math.min(1, (900 - this.tick) / 120);
       ctx.fillStyle = 'rgba(2, 6, 23, 0.7)';
-      ctx.fillRect(0, VIEW_H - 34, VIEW_W, 34);
+      ctx.fillRect(0, VIEW_H - h, VIEW_W, h);
       ctx.textAlign = 'center';
       ctx.font = '14px sans-serif';
-      ctx.fillStyle = '#e2e8f0';
-      ctx.fillText('WASD / Flechas: mover · J: combo · K: saltar (J en el aire: tajo) · Doble toque ←/→: correr (J: embestida) · J+K: giro · L: magia · Esc: pausa', VIEW_W / 2, VIEW_H - 12);
+      lines.forEach((line, i) => {
+        ctx.fillStyle = this.coop ? PLAYER_COLORS[i] : '#e2e8f0';
+        ctx.fillText(line, VIEW_W / 2, VIEW_H - h + 24 + i * 22);
+      });
       ctx.globalAlpha = 1;
     }
 
@@ -1880,13 +2007,16 @@ export class ArcadeGame {
       lines.forEach((line, i) => ctx.fillText(line, VIEW_W / 2, 360 + i * 34));
     };
 
+    const scores = this.heroes.map(h => (this.coop ? `${h.index + 1}P ${h.score}` : `${h.score}`)).join('  ·  ');
     if (this.phase === 'gameOver') {
-      overlay('GAME OVER', '#ef4444', [`Puntos: ${hero.score}`, 'J: continuar con 3 vidas  ·  Esc: salir al menú']);
+      overlay('GAME OVER', '#ef4444', [`Puntos: ${scores}`, `${this.coop ? 'J o 1' : 'J'}: continuar con 3 vidas  ·  Esc: salir al menú`]);
     } else if (this.phase === 'victory') {
-      overlay('¡CAMPEÓN DEL TORNEO!', '#fbbf24', [
-        `${hero.deity.name} venció a los cuatro panteones`,
-        `Puntos finales: ${hero.score}`,
-        'J: volver al menú'
+      overlay(this.coop ? '¡CAMPEONES DEL TORNEO!' : '¡CAMPEÓN DEL TORNEO!', '#fbbf24', [
+        this.coop
+          ? `${this.heroes.map(h => h.deity.name).join(' y ')} vencieron a los cuatro panteones`
+          : `${hero.deity.name} venció a los cuatro panteones`,
+        `Puntos finales: ${scores}`,
+        `${this.coop ? 'J o 1' : 'J'}: volver al menú`
       ]);
     } else if (this.paused) {
       overlay('PAUSA', '#fbbf24', ['Esc: continuar  ·  Q: salir al menú']);

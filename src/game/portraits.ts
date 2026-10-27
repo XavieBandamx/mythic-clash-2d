@@ -1,7 +1,43 @@
+import { loadSpriteSheet } from './sprites';
+import type { SpriteSheetEntry } from './sprites';
+
+// Medallones de piedra tallada en public/portraits (originales en art-src/portraits; brillo igualado
+// por panteón y aro de bronce común). Un dios sin el suyo se dibuja con el retrato por código de abajo.
+const PORTRAIT_IDS = new Set([
+  'zeus', 'hades', 'poseidon',
+  'ra', 'anubis', 'osiris',
+  'quetzalcoatl', 'huitzilopochtli', 'mictlantecuhtli',
+  'amaterasu', 'susanoo', 'raijin'
+]);
+
+function getDeityPortrait(deityId: string): SpriteSheetEntry | null {
+  return PORTRAIT_IDS.has(deityId) ? loadSpriteSheet(`${import.meta.env.BASE_URL}portraits/${deityId}.png`) : null;
+}
+
+// Para los lienzos de React que dibujan una sola vez: avisa cuando el medallón termina de cargar.
+// Devuelve la función para dejar de escuchar.
+export function onPortraitLoad(deityId: string, callback: () => void): () => void {
+  const entry = getDeityPortrait(deityId);
+  if (!entry || entry.status !== 'loading') return () => {};
+  entry.image.addEventListener('load', callback);
+  return () => entry.image.removeEventListener('load', callback);
+}
+
 // ==========================================================================
 // FUNCIÓN RENDERIZADORA DE ICONOS DE ROSTROS MITOLÓGICOS (CANVAS PURO)
 // ==========================================================================
 export function drawDeityPortraitIcon(ctx: CanvasRenderingContext2D, deityId: string, cx: number, cy: number, size: number) {
+  const portrait = getDeityPortrait(deityId);
+  if (portrait && portrait.status === 'ready') {
+    // El aro de piedra ya es el marco: se dibuja un poco más grande para ocupar el sitio del aro dorado
+    const d = size * 1.1;
+    ctx.save();
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(portrait.image, cx - d / 2, cy - d / 2, d, d);
+    ctx.restore();
+    return;
+  }
+
   ctx.save();
   ctx.translate(cx, cy);
 

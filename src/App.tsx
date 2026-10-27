@@ -12,7 +12,7 @@ import type { DeityData, Pantheon } from './game/deities';
 import { sounds } from './game/sound';
 import { SIM_STEP_MS, checkAABB, spawnBloodBurst, renderParticles, updateParticles as updateParticlesList } from './game/core';
 import type { Box, Difficulty, Particle } from './game/core';
-import { drawDeityPortraitIcon } from './game/portraits';
+import { drawDeityPortraitIcon, onPortraitLoad } from './game/portraits';
 import { getSpriteSheetConfig, loadSpriteSheet } from './game/sprites';
 import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from './game/sprites';
 
@@ -23,7 +23,7 @@ import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from '.
    ========================================================================== */
 
 export type GameState = 'MAIN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
-export type GameMode = 'PVP' | 'PVE' | 'ARCADE';
+export type GameMode = 'PVP' | 'PVE' | 'ARCADE' | 'ARCADE_COOP';
 
 // ==========================================================================
 // COMPONENTE REACT: TARJETA DE VISTA PREVIA GRANDE DE PERSONAJE
@@ -305,8 +305,12 @@ function DeityGridSlot({ deity, isP1, isP2, onClick, onMouseEnter }: GridSlotPro
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawDeityPortraitIcon(ctx, deity.id, canvas.width / 2, canvas.height / 2, 68);
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawDeityPortraitIcon(ctx, deity.id, canvas.width / 2, canvas.height / 2, 68);
+    };
+    draw();
+    return onPortraitLoad(deity.id, draw);
   }, [deity]);
 
   return (
@@ -1466,13 +1470,13 @@ export default function App() {
       if (gameState === 'MAIN_MENU') {
         if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
           setMainMenuSelected(prev => {
-            const next = prev > 0 ? prev - 1 : 3;
+            const next = prev > 0 ? prev - 1 : 4;
             sounds.playNav();
             return next;
           });
         } else if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') {
           setMainMenuSelected(prev => {
-            const next = prev < 3 ? prev + 1 : 0;
+            const next = prev < 4 ? prev + 1 : 0;
             sounds.playNav();
             return next;
           });
@@ -1485,6 +1489,8 @@ export default function App() {
           } else if (mainMenuSelected === 2) {
             openCharSelect('ARCADE');
           } else if (mainMenuSelected === 3) {
+            openCharSelect('ARCADE_COOP');
+          } else if (mainMenuSelected === 4) {
             setGameState('DIFFICULTY_MENU');
           }
         }
@@ -1539,7 +1545,8 @@ export default function App() {
           }
         }
 
-        if (gameMode === 'PVP' && !p2Ready) {
+        // En el arcade cooperativo el 2P también elige (y confirma además con su tecla de ataque)
+        if ((gameMode === 'PVP' || gameMode === 'ARCADE_COOP') && !p2Ready) {
           if (e.key === 'ArrowLeft') {
             setP2DeityIndex(i => (i > 0 ? i - 1 : DEITIES.length - 1));
             sounds.playNav();
@@ -1552,7 +1559,7 @@ export default function App() {
           } else if (e.key === 'ArrowDown') {
             setP2DeityIndex(i => (i <= 8 ? i + 3 : i - 9));
             sounds.playNav();
-          } else if (e.key === 'u' || e.key === 'U') {
+          } else if (e.key === 'u' || e.key === 'U' || (gameMode === 'ARCADE_COOP' && (e.code === 'Numpad1' || e.code === 'Comma'))) {
             sounds.playSelect();
             setP2Ready(true);
           }
@@ -1599,7 +1606,7 @@ export default function App() {
 
   const startFight = () => {
     sounds.init();
-    if (gameMode === 'ARCADE') {
+    if (gameMode === 'ARCADE' || gameMode === 'ARCADE_COOP') {
       setGameState('ARCADE');
       return;
     }
@@ -2416,6 +2423,7 @@ export default function App() {
                 { label: 'Jugar Modo Versus Local (P1 vs P2)', mode: 'PVP' as GameMode },
                 { label: `Jugar contra la IA (${difficulty})`, mode: 'PVE' as GameMode },
                 { label: 'Modo Arcade: Camino de los Dioses', mode: 'ARCADE' as GameMode },
+                { label: 'Arcade Cooperativo (2 Jugadores)', mode: 'ARCADE_COOP' as GameMode },
                 { label: `Opciones de Dificultad: ${difficulty}`, mode: null }
               ].map((item, idx) => {
                 const isSelected = mainMenuSelected === idx;
@@ -2552,6 +2560,8 @@ export default function App() {
                   ? 'Modo Versus Local (2 Jugadores)'
                   : gameMode === 'ARCADE'
                   ? `Modo Arcade · Camino de los Dioses (${difficulty})`
+                  : gameMode === 'ARCADE_COOP'
+                  ? `Arcade Cooperativo · 2 Jugadores (${difficulty})`
                   : `Modo Solitario vs IA (${difficulty})`}
               </span>
               <h2 className="font-cinzel text-2xl md:text-3xl font-extrabold text-slate-100">
@@ -2603,7 +2613,7 @@ export default function App() {
                                 if (!p1Ready) {
                                   setP1DeityIndex(globalIdx);
                                   sounds.playSelect();
-                                } else if (gameMode === 'PVP' && !p2Ready) {
+                                } else if ((gameMode === 'PVP' || gameMode === 'ARCADE_COOP') && !p2Ready) {
                                   setP2DeityIndex(globalIdx);
                                   sounds.playSelect();
                                 }
@@ -2639,6 +2649,9 @@ export default function App() {
                 {gameMode === 'PVP' && (
                   <div>P2: <b className="text-slate-200">Flechas</b> · <b className="text-red-400">U</b> confirmar</div>
                 )}
+                {gameMode === 'ARCADE_COOP' && (
+                  <div>P2: <b className="text-slate-200">Flechas</b> · <b className="text-red-400">1</b> o <b className="text-red-400">U</b> confirmar</div>
+                )}
               </div>
 
               <div className="flex gap-3">
@@ -2659,7 +2672,7 @@ export default function App() {
                   }}
                   className="px-6 py-2 rounded font-semibold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black shadow-lg shadow-amber-900/40"
                 >
-                  {gameMode === 'ARCADE' ? '¡Comenzar Aventura!' : '¡Comenzar Combate!'}
+                  {gameMode === 'ARCADE' || gameMode === 'ARCADE_COOP' ? '¡Comenzar Aventura!' : '¡Comenzar Combate!'}
                 </button>
               </div>
             </div>
@@ -2669,7 +2682,7 @@ export default function App() {
         {/* --- ESCENA 4B: MODO ARCADE --- */}
         {gameState === 'ARCADE' && (
           <ArcadeMode
-            deity={DEITIES[p1DeityIndex]}
+            deities={gameMode === 'ARCADE_COOP' ? [DEITIES[p1DeityIndex], DEITIES[p2DeityIndex]] : [DEITIES[p1DeityIndex]]}
             difficulty={difficulty}
             onExit={() => {
               setP1Ready(false);

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { DEITIES } from '../game/deities';
 import type { DeityData } from '../game/deities';
-import { drawDeityPortraitIcon } from '../game/portraits';
+import { drawDeityPortraitIcon, onPortraitLoad } from '../game/portraits';
 import { LEVELS } from './levels';
 
 function BossPortrait({ deityId }: { deityId: string }) {
@@ -9,8 +9,12 @@ function BossPortrait({ deityId }: { deityId: string }) {
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, 56, 56);
-    drawDeityPortraitIcon(ctx, deityId, 28, 28, 50);
+    const draw = () => {
+      ctx.clearRect(0, 0, 56, 56);
+      drawDeityPortraitIcon(ctx, deityId, 28, 28, 50);
+    };
+    draw();
+    return onPortraitLoad(deityId, draw);
   }, [deityId]);
   return <canvas ref={canvasRef} width={56} height={56} className="w-11 h-11 shrink-0" />;
 }

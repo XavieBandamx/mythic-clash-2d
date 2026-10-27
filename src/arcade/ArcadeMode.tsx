@@ -8,17 +8,51 @@ import type { ArcadeInput } from './engine';
 import { VIEW_H, VIEW_W } from './draw';
 
 interface ArcadeModeProps {
-  deity: DeityData;
+  deities: DeityData[]; // Uno por jugador: con dos se juega en cooperativo
   difficulty: Difficulty;
   onExit: () => void;
 }
 
-const GAME_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
+interface KeyMap {
+  left: string[];
+  right: string[];
+  up: string[];
+  down: string[];
+  attack: string[];
+  jump: string[];
+  magic: string[];
+}
+
+// Un jugador: WASD o flechas. Cooperativo: 1P con WASD + J/K/L, 2P con flechas + teclado numérico
+// (o , . - en laptops sin teclado numérico)
+const SOLO_KEYS: KeyMap = {
+  left: ['KeyA', 'ArrowLeft'],
+  right: ['KeyD', 'ArrowRight'],
+  up: ['KeyW', 'ArrowUp'],
+  down: ['KeyS', 'ArrowDown'],
+  attack: ['KeyJ'],
+  jump: ['KeyK', 'Space'],
+  magic: ['KeyL']
+};
+const COOP_KEYS: KeyMap[] = [
+  { ...SOLO_KEYS, left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'] },
+  {
+    left: ['ArrowLeft'],
+    right: ['ArrowRight'],
+    up: ['ArrowUp'],
+    down: ['ArrowDown'],
+    attack: ['Numpad1', 'Comma'],
+    jump: ['Numpad2', 'Period'],
+    magic: ['Numpad3', 'Slash']
+  }
+];
+
+const GAME_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Slash', 'Quote'];
 
 // ==========================================================================
 // COMPONENTE DEL MODO ARCADE: canvas propio, teclado y bucle a paso fijo
 // ==========================================================================
-export default function ArcadeMode({ deity, difficulty, onExit }: ArcadeModeProps) {
+export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
@@ -29,7 +63,8 @@ export default function ArcadeMode({ deity, difficulty, onExit }: ArcadeModeProp
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const game = new ArcadeGame(deity, difficulty);
+    const game = new ArcadeGame(deities, difficulty);
+    const keyMaps = deities.length > 1 ? COOP_KEYS : [SOLO_KEYS];
     const held = new Set<string>();
     const pressed = new Set<string>(); // Pulsadas desde el último paso de simulación
     let exited = false;
@@ -65,19 +100,19 @@ export default function ArcadeMode({ deity, difficulty, onExit }: ArcadeModeProp
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleBlur);
 
-    const readInput = (): ArcadeInput => {
-      const isHeld = (...codes: string[]) => codes.some(c => held.has(c));
-      const wasPressed = (...codes: string[]) => codes.some(c => pressed.has(c));
+    const readInput = (keys: KeyMap): ArcadeInput => {
+      const isHeld = (codes: string[]) => codes.some(c => held.has(c));
+      const wasPressed = (codes: string[]) => codes.some(c => pressed.has(c));
       return {
-        left: isHeld('KeyA', 'ArrowLeft'),
-        right: isHeld('KeyD', 'ArrowRight'),
-        up: isHeld('KeyW', 'ArrowUp'),
-        down: isHeld('KeyS', 'ArrowDown'),
-        attack: wasPressed('KeyJ'),
-        jump: wasPressed('KeyK', 'Space'),
-        magic: wasPressed('KeyL'),
-        tapLeft: wasPressed('KeyA', 'ArrowLeft'),
-        tapRight: wasPressed('KeyD', 'ArrowRight')
+        left: isHeld(keys.left),
+        right: isHeld(keys.right),
+        up: isHeld(keys.up),
+        down: isHeld(keys.down),
+        attack: wasPressed(keys.attack),
+        jump: wasPressed(keys.jump),
+        magic: wasPressed(keys.magic),
+        tapLeft: wasPressed(keys.left),
+        tapRight: wasPressed(keys.right)
       };
     };
 
@@ -90,7 +125,7 @@ export default function ArcadeMode({ deity, difficulty, onExit }: ArcadeModeProp
       accumulator += Math.min(now - lastTime, 250);
       lastTime = now;
       while (accumulator >= SIM_STEP_MS) {
-        game.step(readInput());
+        game.step(keyMaps.map(readInput));
         pressed.clear(); // Cada pulsación se consume en un solo paso
         accumulator -= SIM_STEP_MS;
       }
@@ -109,7 +144,8 @@ export default function ArcadeMode({ deity, difficulty, onExit }: ArcadeModeProp
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [deity, difficulty]);
+    // La lista se recrea en cada render de App: se reinicia la partida solo si cambian los dioses
+  }, [deities.map(d => d.id).join(','), difficulty]);
 
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
