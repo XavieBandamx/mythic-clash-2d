@@ -25,6 +25,17 @@ const REINFORCEMENT_HEAL = 20; // Vida por cada refuerzo del jefe derrotado (ade
 const COOP_HP_MUL = 1.3;       // Monstruos más resistentes cuando juegan dos
 const COOP_BOSS_HP_MUL = 1.5;
 const PLAYER_COLORS = ['#fbbf24', '#38bdf8']; // Distintivo de cada jugador (1P dorado, 2P celeste)
+const LAND_SQUASH_TICKS = 8;
+const TRAIL_LENGTH = 6; // Poses guardadas para las imágenes fantasma (se dibuja una de cada dos)
+
+interface TrailPoint {
+  x: number;
+  y: number;
+  z: number;
+  facing: 1 | -1;
+  row: number;
+  frame: number;
+}
 
 export interface ArcadeInput {
   left: boolean;
@@ -90,6 +101,8 @@ abstract class Actor {
   public flash: number = 0;
   public removed: boolean = false;
   public hitTargets = new Set<Actor>(); // Golpeados por el ataque en curso
+  public landTimer: number = 0;          // Ticks de "aplastamiento" tras aterrizar
+  public trail: TrailPoint[] = [];       // Últimas poses, para las imágenes fantasma de los ataques rápidos
 
   constructor(x: number, z: number, hp: number, width: number, height: number) {
     this.x = x;
@@ -128,6 +141,7 @@ abstract class Actor {
       if (this.y <= 0) {
         this.y = 0;
         this.vy = 0;
+        this.landTimer = LAND_SQUASH_TICKS;
         return true;
       }
     }
@@ -199,6 +213,17 @@ abstract class Actor {
     this.stateTimer++;
     if (this.invuln > 0) this.invuln--;
     if (this.flash > 0) this.flash--;
+    if (this.landTimer > 0) this.landTimer--;
+  }
+
+  // Guarda la pose actual mientras dura un ataque rápido; si no, la estela se va apagando
+  protected recordTrail(active: boolean, row: number, frame: number) {
+    if (active) {
+      this.trail.push({ x: this.x, y: this.y, z: this.z, facing: this.facing, row, frame });
+      if (this.trail.length > TRAIL_LENGTH) this.trail.shift();
+    } else if (this.trail.length > 0) {
+      this.trail.shift();
+    }
   }
 }
 
@@ -207,6 +232,7 @@ function godFrame(actor: Actor, cfg: SpriteSheetConfig, clock: number, attackDur
   const a = cfg.animations;
   const cycle = (anim: typeof a.idle, speed: number = 1) => Math.floor((clock * speed) / anim.frameDuration) % anim.frames;
   const progress = (duration: number) => Math.min(a.attack.frames - 1, Math.floor((actor.stateTimer / duration) * a.attack.frames));
+  const lying = cfg.lyingFrame ?? a.hit.frames - 1;
   switch (actor.state) {
     case 'walk':
     case 'intro':
@@ -233,15 +259,66 @@ function godFrame(actor: Actor, cfg: SpriteSheetConfig, clock: number, attackDur
     case 'hurt':
       return { row: a.hit.row, frame: 0 };
     case 'knockdown':
-      return { row: a.hit.row, frame: actor.vy > 0 ? 1 : 2 };
+      return { row: a.hit.row, frame: actor.vy > 0 ? 1 : lying };
     case 'down':
     case 'dead':
-      return { row: a.hit.row, frame: a.hit.frames - 1 };
+      return { row: a.hit.row, frame: lying };
     case 'getup':
-      return { row: actor.stateTimer < 9 ? a.hit.row : a.idle.row, frame: actor.stateTimer < 9 ? a.hit.frames - 1 : 0 };
+      // Con cuadro propio de levantarse se usa; si no, se pasa del suelo a la pose de reposo
+      if (actor.stateTimer < 6) return { row: a.hit.row, frame: lying };
+      if (cfg.getupFrame !== undefined) return { row: a.hit.row, frame: cfg.getupFrame };
+      return { row: a.idle.row, frame: 0 };
     default:
       return { row: a.idle.row, frame: cycle(a.idle) };
   }
+}
+
+// Deformación de la pose de un dios: estirarse al subir, aplastarse al caer, inclinarse al correr o al recibir.
+// Da vida a las hojas 4x4 sin cuadros extra.
+function godPose(actor: Actor, opts: { dashing?: boolean; finisher?: boolean } = {}): { sx: number; sy: number; rot: number } {
+  let sx = 1;
+  let sy = 1;
+  let rot = 0;
+  const t = actor.stateTimer;
+  switch (actor.state) {
+    case 'run':
+      rot = 0.07;
+      break;
+    case 'hurt':
+      rot = -0.12 * Math.max(0, 1 - t / 16);
+      break;
+    case 'getup':
+      // Se incorpora con un pequeño impulso
+      if (t >= 6) sy = 0.88 + 0.12 * Math.min(1, (t - 6) / 10);
+      break;
+    case 'attack':
+      if (opts.finisher) {
+        rot = 0.1;
+        sx = 1.06;
+      }
+      break;
+  }
+  if (opts.dashing) {
+    rot = 0.15;
+    sx = 1.08;
+    sy = 0.96;
+  }
+  // Salto: se estira al subir y al caer, aplastado justo al tocar el suelo
+  if (actor.y > 0 && actor.state !== 'knockdown') {
+    if (actor.vy > 3) {
+      sx *= 0.92;
+      sy *= 1.1;
+    } else if (actor.vy < -3) {
+      sx *= 0.96;
+      sy *= 1.05;
+    }
+  }
+  if (actor.landTimer > 0 && actor.state !== 'down' && actor.state !== 'dead') {
+    const k = actor.landTimer / LAND_SQUASH_TICKS;
+    sx *= 1 + 0.14 * k;
+    sy *= 1 - 0.16 * k;
+  }
+  return { sx, sy, rot };
 }
 
 // --------------------------------------------------------------------------
@@ -316,6 +393,9 @@ export class Hero extends Actor {
   public update(input: ArcadeInput, world: ArcadeGame, tick: number) {
     this.tickTimers();
     this.animClock++;
+    const fast = this.state === 'dashAttack' || this.state === 'spin' || this.state === 'jumpAttack' || (this.state === 'attack' && this.comboStep === 3);
+    const pose = godFrame(this, this.cfg, this.animClock, this.comboDuration);
+    this.recordTrail(fast, pose.row, pose.frame);
     if (this.comboWindow > 0) this.comboWindow--;
     if (this.displayHp > this.hp) this.displayHp = Math.max(this.hp, this.displayHp - 0.6);
     else this.displayHp = this.hp;
@@ -495,6 +575,7 @@ export class Hero extends Actor {
   public advanceMagicPose() {
     this.stateTimer++;
     this.animClock++;
+    this.trail = [];
   }
 
   public render(ctx: CanvasRenderingContext2D, showTag: boolean = false) {
@@ -531,11 +612,77 @@ export class Hero extends Actor {
       ctx.globalAlpha = 1;
       return;
     }
+    // Imágenes fantasma en los ataques rápidos (embestida, giro, tajo aéreo, remate del combo)
+    for (let i = this.trail.length % 2; i < this.trail.length - 1; i += 2) {
+      const p = this.trail[i];
+      drawSpriteFrame(ctx, this.sheet, this.cfg, p.row, p.frame, p.x, screenY(p.z, p.y), p.facing, {
+        tint: this.deity.accentColor,
+        alpha: 0.15 + 0.25 * (i / this.trail.length)
+      });
+    }
+
     const { row, frame } = godFrame(this, this.cfg, this.animClock, this.comboDuration);
-    drawSpriteFrame(ctx, this.sheet, this.cfg, row, frame, this.x, feetY, this.facing, {
+    const pose = godPose(this, { dashing: this.state === 'dashAttack', finisher: this.comboStep === 3 });
+    let lift = 0;
+    let rotation = pose.rot;
+    let scaleX = pose.sx;
+    if (this.state === 'spin') {
+      // Giro: el cuerpo se "afina" al dar la vuelta, como si girara sobre sí mismo
+      scaleX = 0.2 + 0.8 * Math.abs(Math.cos((Math.PI * this.stateTimer) / 5));
+      this.renderSpinSwoosh(ctx, feetY);
+    } else if (this.state === 'jumpAttack') {
+      rotation = 0.22; // Se lanza hacia delante en el tajo aéreo
+    } else if (this.state === 'magic') {
+      // Se eleva mientras canaliza, con un círculo de runas girando en el suelo
+      lift = Math.min(28, this.stateTimer * 1.4) + Math.sin(this.animClock * 0.2) * 3;
+      this.renderRuneCircle(ctx, feetY);
+    }
+    drawSpriteFrame(ctx, this.sheet, this.cfg, row, frame, this.x, feetY - lift, this.facing, {
       flash: this.flash > 0,
-      alpha: blink ? 0.45 : 1
+      alpha: blink ? 0.45 : 1,
+      scaleX,
+      scaleY: pose.sy,
+      rotation
     });
+    if (this.state === 'spin') this.renderSpinSwoosh(ctx, feetY, true);
+  }
+
+  // Arco de energía alrededor de la cintura durante el giro (mitad trasera antes del cuerpo, delantera después)
+  private renderSpinSwoosh(ctx: CanvasRenderingContext2D, feetY: number, front: boolean = false) {
+    const cy = feetY - this.height * 0.45;
+    const phase = (this.stateTimer * 0.55) % (Math.PI * 2);
+    const fade = Math.max(0, 1 - this.stateTimer / 30);
+    ctx.save();
+    ctx.globalAlpha = 0.85 * fade;
+    ctx.strokeStyle = this.deity.accentColor;
+    ctx.shadowColor = this.deity.accentColor;
+    ctx.shadowBlur = 14;
+    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.ellipse(this.x, cy, 115, 26, 0, front ? phase : phase + Math.PI, (front ? phase : phase + Math.PI) + Math.PI * 0.8);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private renderRuneCircle(ctx: CanvasRenderingContext2D, feetY: number) {
+    const grow = Math.min(1, this.stateTimer / 15);
+    ctx.save();
+    ctx.globalAlpha = 0.8;
+    ctx.strokeStyle = this.deity.accentColor;
+    ctx.shadowColor = this.deity.accentColor;
+    ctx.shadowBlur = 12;
+    ctx.lineWidth = 3;
+    ctx.setLineDash([14, 8]);
+    ctx.lineDashOffset = -this.animClock * 2;
+    ctx.beginPath();
+    ctx.ellipse(this.x, feetY, 85 * grow, 22 * grow, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.ellipse(this.x, feetY, 55 * grow, 14 * grow, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -819,6 +966,11 @@ export class Boss extends Actor {
     return this.hp < this.maxHp * 0.5;
   }
 
+  // Embistiendo a toda velocidad (tras el aviso de la embestida)
+  private get charging(): boolean {
+    return this.state === 'special' && this.currentSpecial === 'charge' && Math.abs(this.vx) > 5;
+  }
+
   // Solo la magia lo derriba; los golpes fuertes a veces lo hacen retroceder
   protected canBeKnockedDown(hit: HitInfo): boolean {
     return hit.magic === true;
@@ -831,6 +983,8 @@ export class Boss extends Actor {
   public update(world: ArcadeGame) {
     this.tickTimers();
     this.animClock++;
+    const pose = godFrame(this, this.cfg, this.animClock, 14);
+    this.recordTrail(this.charging || (this.state === 'special' && this.currentSpecial === 'slam' && this.y > 0), pose.row, pose.frame);
     if (this.cooldown > 0) this.cooldown--;
     if (this.specialCooldown > 0) this.specialCooldown--;
     if (this.displayHp > this.hp) this.displayHp = Math.max(this.hp, this.displayHp - 1.2);
@@ -1025,11 +1179,26 @@ export class Boss extends Actor {
       ctx.fillRect(this.x - 30, feetY - this.height, 60, this.height);
       return;
     }
+    for (let i = this.trail.length % 2; i < this.trail.length - 1; i += 2) {
+      const p = this.trail[i];
+      drawSpriteFrame(ctx, this.sheet, this.cfg, p.row, p.frame, p.x, screenY(p.z, p.y), p.facing, {
+        scale: 1.2,
+        tint: this.deity.accentColor,
+        alpha: (0.15 + 0.25 * (i / this.trail.length)) * alpha
+      });
+    }
     const { row, frame } = godFrame(this, this.cfg, this.animClock, 14);
-    drawSpriteFrame(ctx, this.sheet, this.cfg, row, frame, this.x, feetY, this.facing, {
+    const pose = godPose(this, { dashing: this.charging });
+    // Al canalizar sus esferas o rayos se eleva un poco, como el héroe con su magia
+    const casting = this.state === 'special' && (this.currentSpecial === 'orb' || this.currentSpecial === 'thunder');
+    const lift = casting ? Math.min(22, this.stateTimer * 1.2) : 0;
+    drawSpriteFrame(ctx, this.sheet, this.cfg, row, frame, this.x, feetY - lift, this.facing, {
       scale: 1.2,
       flash: this.flash > 0,
-      alpha
+      alpha,
+      scaleX: pose.sx,
+      scaleY: pose.sy,
+      rotation: pose.rot
     });
   }
 }

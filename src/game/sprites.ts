@@ -20,6 +20,9 @@ export interface SpriteSheetConfig {
   footOffset: number; // Píxeles transparentes bajo los pies dentro del cuadro
   pixelArt: boolean;  // Desactiva el suavizado para sprites pixel art
   animations: Record<SpriteAnimationName, SpriteAnimation>;
+  // Fila de golpe: cuadro tendido en el suelo y, si la hoja lo trae, cuadro levantándose
+  lyingFrame?: number;
+  getupFrame?: number;
 }
 
 // Plantilla común: una hoja por deidad en public/sprites/<id>.png, una fila por animación
@@ -48,21 +51,22 @@ export const GRID_4X4_ANIMATIONS: SpriteSheetConfig['animations'] = {
 
 // Ajustes por deidad. Las hojas de public/sprites se generan con tools/process_sprites.py, que deja los pies
 // pegados al borde inferior de cada celda (footOffset 0) y el cuerpo centrado en horizontal.
+// La fila de golpe varía según la hoja: unas terminan tendidas (cuadro 3) y otras traen tendido (2) + levantándose (3).
 // scale = 175 px de altura en idle / altura medida del idle, × 1.08 para Poseidón y Hades y × 1.2 para Raijin
 // (dioses corpulentos; el aro de tambores de Raijin infla su altura medida).
 export const SPRITE_SHEET_OVERRIDES: Record<string, Partial<SpriteSheetConfig>> = {
   amaterasu: { frameWidth: 236, frameHeight: 137, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  anubis: { frameWidth: 284, frameHeight: 138, scale: 1.38, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  anubis: { frameWidth: 284, frameHeight: 138, scale: 1.38, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
   hades: { frameWidth: 222, frameHeight: 133, scale: 1.5, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  huitzilopochtli: { frameWidth: 286, frameHeight: 140, scale: 1.31, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  huitzilopochtli: { frameWidth: 286, frameHeight: 140, scale: 1.31, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
   mictlantecuhtli: { frameWidth: 292, frameHeight: 138, scale: 1.32, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  osiris: { frameWidth: 292, frameHeight: 149, scale: 1.29, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  osiris: { frameWidth: 292, frameHeight: 149, scale: 1.29, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
   poseidon: { frameWidth: 318, frameHeight: 127, scale: 1.54, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
   quetzalcoatl: { frameWidth: 202, frameHeight: 127, scale: 1.43, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
   ra: { frameWidth: 306, frameHeight: 136, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
   raijin: { frameWidth: 252, frameHeight: 162, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
   susanoo: { frameWidth: 306, frameHeight: 136, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  zeus: { frameWidth: 316, frameHeight: 117, scale: 1.64, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS }
+  zeus: { frameWidth: 316, frameHeight: 117, scale: 1.64, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 }
 };
 
 export function getSpriteSheetConfig(deity: DeityData): SpriteSheetConfig {
@@ -104,7 +108,13 @@ const flashCanvases = new Map<string, HTMLCanvasElement>();
 export interface SpriteDrawOptions {
   scale?: number;  // Multiplicador sobre la escala de la hoja
   flash?: boolean; // Pinta el cuadro completamente blanco
+  tint?: string;   // Igual que flash pero del color indicado (imágenes fantasma)
   alpha?: number;
+  // Deformaciones para dar vida a las poses (estirar al saltar, aplastar al caer, inclinarse al correr)
+  scaleX?: number;   // Multiplicador horizontal (desde los pies)
+  scaleY?: number;   // Multiplicador vertical (desde los pies)
+  rotation?: number; // Radianes; positivo = inclinarse hacia donde mira
+  pivot?: number;    // Altura del eje de giro como fracción del cuadro (0 = pies, 0.5 = cintura)
 }
 
 // Dibuja un cuadro de la hoja con los pies en (x, y), mirando a la derecha (facing 1) o a la izquierda (-1)
@@ -129,7 +139,7 @@ export function drawSpriteFrame(
   let source: CanvasImageSource = sheet.image;
   let srcX = sx;
   let srcY = sy;
-  if (options.flash) {
+  if (options.flash || options.tint) {
     let canvas = flashCanvases.get(cfg.src);
     if (!canvas) {
       canvas = document.createElement('canvas');
@@ -143,7 +153,7 @@ export function drawSpriteFrame(
       fctx.clearRect(0, 0, fw, fh);
       fctx.drawImage(sheet.image, sx, sy, fw, fh, 0, 0, fw, fh);
       fctx.globalCompositeOperation = 'source-atop';
-      fctx.fillStyle = '#ffffff';
+      fctx.fillStyle = options.tint ?? '#ffffff';
       fctx.fillRect(0, 0, fw, fh);
       source = canvas;
       srcX = 0;
@@ -153,7 +163,13 @@ export function drawSpriteFrame(
 
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(facing, 1);
+  if (options.rotation) {
+    const pivotY = -drawH * (options.pivot ?? 0.45);
+    ctx.translate(0, pivotY);
+    ctx.rotate(options.rotation * facing);
+    ctx.translate(0, -pivotY);
+  }
+  ctx.scale(facing * (options.scaleX ?? 1), options.scaleY ?? 1);
   ctx.globalAlpha *= options.alpha ?? 1;
   ctx.imageSmoothingEnabled = !cfg.pixelArt;
   ctx.drawImage(source, srcX, srcY, fw, fh, -drawW / 2, -drawH + cfg.footOffset * scale, drawW, drawH);

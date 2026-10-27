@@ -13,6 +13,7 @@ import { sounds } from './game/sound';
 import { SIM_STEP_MS, checkAABB, spawnBloodBurst, renderParticles, updateParticles as updateParticlesList } from './game/core';
 import type { Box, Difficulty, Particle } from './game/core';
 import { drawDeityPortraitIcon, onPortraitLoad } from './game/portraits';
+import { startGamepadBridge } from './game/gamepad';
 import { getSpriteSheetConfig, loadSpriteSheet } from './game/sprites';
 import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from './game/sprites';
 
@@ -1290,10 +1291,12 @@ export class CanvasFighter extends Fighter {
       return;
     }
 
+    // La fila de golpe se detiene en el cuadro tendido (algunas hojas traen después uno levantándose)
+    const lastFrame = this.currentAnimation === 'hit' ? (this.spriteConfig.lyingFrame ?? anim.frames - 1) : anim.frames - 1;
     this.frameTick++;
     if (this.frameTick >= anim.frameDuration) {
       this.frameTick = 0;
-      this.frameIndex = anim.loop ? (this.frameIndex + 1) % anim.frames : Math.min(this.frameIndex + 1, anim.frames - 1);
+      this.frameIndex = anim.loop ? (this.frameIndex + 1) % anim.frames : Math.min(this.frameIndex + 1, lastFrame);
     }
   }
 
@@ -1450,6 +1453,9 @@ export default function App() {
     setP2Ready(false);
     setGameState('CHAR_SELECT');
   };
+
+  // Mandos: se traducen a las mismas teclas (1.er mando = P1, 2.º = P2)
+  useEffect(() => startGamepadBridge(), []);
 
   // Teclado Dual Controls
   useEffect(() => {
