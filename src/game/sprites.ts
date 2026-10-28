@@ -55,20 +55,20 @@ export const GRID_4X4_ANIMATIONS: SpriteSheetConfig['animations'] = {
 // scale = 175 px de altura en idle / altura medida del idle, × 1.08 para Poseidón y Hades y × 1.2 para Raijin
 // (dioses corpulentos; el aro de tambores de Raijin infla su altura medida).
 export const SPRITE_SHEET_OVERRIDES: Record<string, Partial<SpriteSheetConfig>> = {
-  amaterasu: { frameWidth: 236, frameHeight: 137, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  anubis: { frameWidth: 284, frameHeight: 138, scale: 1.38, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
-  hades: { frameWidth: 222, frameHeight: 133, scale: 1.5, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  huitzilopochtli: { frameWidth: 286, frameHeight: 140, scale: 1.31, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
-  mictlantecuhtli: { frameWidth: 292, frameHeight: 138, scale: 1.32, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  osiris: { frameWidth: 292, frameHeight: 149, scale: 1.29, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
-  poseidon: { frameWidth: 318, frameHeight: 127, scale: 1.54, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  quetzalcoatl: { frameWidth: 202, frameHeight: 127, scale: 1.43, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  ra: { frameWidth: 306, frameHeight: 136, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  raijin: { frameWidth: 252, frameHeight: 162, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  susanoo: { frameWidth: 306, frameHeight: 136, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  amaterasu: { frameWidth: 496, frameHeight: 272, scale: 0.65, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  anubis: { frameWidth: 498, frameHeight: 272, scale: 0.68, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
+  hades: { frameWidth: 494, frameHeight: 270, scale: 0.74, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  huitzilopochtli: { frameWidth: 496, frameHeight: 274, scale: 0.66, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
+  mictlantecuhtli: { frameWidth: 492, frameHeight: 268, scale: 0.66, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  osiris: { frameWidth: 496, frameHeight: 274, scale: 0.68, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
+  poseidon: { frameWidth: 696, frameHeight: 272, scale: 0.7, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  quetzalcoatl: { frameWidth: 498, frameHeight: 273, scale: 0.66, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  ra: { frameWidth: 622, frameHeight: 272, scale: 0.65, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  raijin: { frameWidth: 462, frameHeight: 302, scale: 0.71, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  susanoo: { frameWidth: 614, frameHeight: 277, scale: 0.64, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
   // Jefe final: mide el doble que un dios (≈350 px en idle con la escala ×1.2 de los jefes)
   origen: { frameWidth: 376, frameHeight: 208, scale: 1.45, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
-  zeus: { frameWidth: 316, frameHeight: 117, scale: 1.64, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 }
+  zeus: { frameWidth: 760, frameHeight: 268, scale: 0.7, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 }
 };
 
 export function getSpriteSheetConfig(deity: DeityData): SpriteSheetConfig {
