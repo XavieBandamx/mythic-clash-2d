@@ -61,7 +61,8 @@ export interface HitInfo {
   heavy: boolean;
   dir: 1 | -1;
   magic?: boolean;
-  pierce?: boolean; // Atraviesa la armadura de los monstruos (Susanoo)
+  pierce?: boolean;     // Atraviesa la armadura de los monstruos y el bloqueo de los jefes (Susanoo)
+  guardBreak?: boolean; // Golpe fuerte de un dios de Poder: rompe el bloqueo de los jefes
 }
 
 interface StrikeSpec {
@@ -70,12 +71,13 @@ interface StrikeSpec {
   damage: number;
   knockdown: boolean;
   heavy: boolean;
+  antiAir?: boolean; // Alcanza también a héroes en el aire
 }
 
 type ActorState =
   | 'idle' | 'walk' | 'run' | 'attack' | 'jump' | 'jumpAttack' | 'dashAttack' | 'spin' | 'magic'
   | 'windup' | 'strike' | 'recover' | 'special' | 'hurt' | 'knockdown' | 'down' | 'getup' | 'dead'
-  | 'flee' | 'intro' | 'mountAttack';
+  | 'flee' | 'intro' | 'mountAttack' | 'guard';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -263,6 +265,7 @@ function godFrame(actor: Actor, cfg: SpriteSheetConfig, clock: number, attackDur
     case 'strike':
       return { row: a.attack.row, frame: progress(attackDuration) };
     case 'windup':
+    case 'guard':
       return { row: a.attack.row, frame: 0 };
     case 'jumpAttack':
     case 'dashAttack':
@@ -1285,6 +1288,18 @@ export class Boss extends Actor {
   public colossal: boolean;
   public safeZone: { x: number; z: number } | null = null;
 
+  // Astucia: 0 = bruto, 1 = lee todo lo que haces (sube con el nivel y la dificultad)
+  public iq: number = 0.5;
+  private recentHits: number[] = [];   // Golpes recibidos hace poco (para zafarse de los combos)
+  private escapePending: boolean = false;
+  private guardedHits: number = 0;
+  private lunge: number = 0;           // Impulso al castigar un golpe fallado
+  private antiAir: boolean = false;    // El golpe en curso alcanza a héroes en el aire
+  private airRead: boolean = false;    // Ya decidió qué hacer con este salto
+  // Origen aprende: cuenta lo que más hace el jugador y lo contrarresta
+  private habits = { jumps: 0, spam: 0, magic: 0 };
+  public counter: 'jumps' | 'spam' | 'magic' | null = null;
+
   constructor(deity: DeityData, x: number, z: number, hp: number, dmgMul: number, introTargetX: number) {
     super(x, z, hp, deity.id === ORIGEN.id ? 140 : 80, deity.id === ORIGEN.id ? 340 : 200);
     this.colossal = deity.id === ORIGEN.id;
@@ -1314,13 +1329,157 @@ export class Boss extends Actor {
   }
 
   protected flinchesFrom(hit: HitInfo): boolean {
-    return this.state !== 'special' && hit.heavy && Math.random() < 0.4;
+    return this.state !== 'special' && this.state !== 'guard' && hit.heavy && Math.random() < 0.4;
   }
 
   // Al canalizar un poder Origen descubre su máscara: recibe el doble de daño
   public receiveHit(hit: HitInfo): boolean {
+    if (this.state === 'guard' && !hit.magic && !hit.pierce) {
+      if (hit.guardBreak) {
+        // Un golpe de Poder le rompe la guardia y lo deja abierto
+        this.setState('recover');
+        this.stateTimer = 0;
+        this.vx = hit.dir * 3;
+        return super.receiveHit({ ...hit, damage: hit.damage * 0.6 });
+      }
+      this.guardedHits++;
+      this.vx = hit.dir * 1.5;
+      if (this.invuln > 0) return false;
+      this.hp = Math.max(1, this.hp - hit.damage * 0.15);
+      return true;
+    }
     const exposed = this.colossal && this.state === 'special';
-    return super.receiveHit(exposed ? { ...hit, damage: hit.damage * 2 } : hit);
+    if (this.counter === 'magic' && hit.magic) hit = { ...hit, damage: hit.damage * 0.6, knockdown: false };
+    const landed = super.receiveHit(exposed ? { ...hit, damage: hit.damage * 2 } : hit);
+    // Demasiados golpes seguidos: se zafa del combo
+    if (landed && this.state !== 'special' && !this.isDown) {
+      this.recentHits = this.recentHits.filter(t => this.animClock - t < 90);
+      this.recentHits.push(this.animClock);
+      if (this.recentHits.length >= (this.iq >= 0.7 ? 3 : 4) && Math.random() < 0.4 + this.iq * 0.6) this.escapePending = true;
+    }
+    return landed;
+  }
+
+  private get attackingStates(): ActorState[] {
+    return ['attack', 'dashAttack', 'spin'];
+  }
+
+  // En cooperativo los jefes listos van por el héroe más débil
+  private chooseTarget(world: ArcadeGame): Hero {
+    const fallback = world.pickTarget(this, this.target);
+    if (!world.coop || this.iq < 0.6) return fallback;
+    const pool = world.activeHeroes.filter(h => !h.isDown && h.invuln < 100);
+    if (pool.length < 2) return fallback;
+    const ratio = (h: Hero) => h.hp / h.maxHp;
+    const weakest = pool.reduce((a, b) => (ratio(b) < ratio(a) ? b : a));
+    if (this.target && pool.includes(this.target) && ratio(this.target) - ratio(weakest) < 0.2) return this.target;
+    return weakest;
+  }
+
+  // Elige el poder que mejor sirve según dónde está el héroe y qué hace
+  private pickSpecial(pool: BossSpecial[], hero: Hero): BossSpecial {
+    const dist = Math.abs(hero.x - this.x);
+    const far = dist > 260;
+    const still = Math.abs(hero.vx) < 0.5 && Math.abs(hero.vz) < 0.5;
+    const fit: Record<BossSpecial, number> = {
+      orb: far ? 3 : 1,
+      charge: far && Math.abs(hero.z - this.z) < 40 ? 3 : 0.6,
+      thunder: still ? 3 : 1.4,
+      slam: dist < 220 ? 3 : 0.8,
+      teleport: far ? 3 : 1.2,
+      collapse: 3
+    };
+    if (this.counter === 'jumps') fit.thunder += 1.5; // Los rayos castigan a quien vive en el aire
+    const weights = pool.map(sp => 1 + (fit[sp] - 1) * this.iq);
+    let roll = Math.random() * weights.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < pool.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0) return pool[i];
+    }
+    return pool[pool.length - 1];
+  }
+
+  // Origen: cada 10 s revisa qué hace más el jugador y se adapta
+  private learn(world: ArcadeGame, hero: Hero) {
+    if (hero.state === 'jump' && hero.stateTimer === 1) this.habits.jumps++;
+    if (hero.state === 'attack' && hero.stateTimer === 1) this.habits.spam += 0.25;
+    if (hero.state === 'magic' && hero.stateTimer === 1) this.habits.magic += 4;
+    if (this.animClock % 600 !== 0) return;
+    const entries = Object.entries(this.habits) as ['jumps' | 'spam' | 'magic', number][];
+    const [top, amount] = entries.reduce((a, b) => (b[1] > a[1] ? b : a));
+    this.habits = { jumps: 0, spam: 0, magic: 0 };
+    if (amount < 4 || top === this.counter) return;
+    this.counter = top;
+  }
+
+  // Lee al héroe: antiaéreo, bloqueo del spam y castigo de golpes fallados. true si reaccionó
+  private readHero(world: ArcadeGame, hero: Hero): boolean {
+    const dx = hero.x - this.x;
+    const dist = Math.abs(dx);
+    const sameLane = Math.abs(hero.z - this.z) <= Z_REACH + 10;
+    if (hero.y <= 0) this.airRead = false;
+
+    // Antiaéreo: recibe con un golpe a quien le cae encima
+    if (hero.y > 20 && !this.airRead && sameLane && dist < 230 * this.reach) {
+      this.airRead = true;
+      const chance = this.counter === 'jumps' ? 1 : this.iq * 0.8;
+      if (Math.random() < chance) {
+        this.facing = dx >= 0 ? 1 : -1;
+        this.comboHits = 1; // Golpe de remate: derriba
+        this.antiAir = true;
+        this.setState('strike');
+        sounds.playHeavySwing();
+        return true;
+      }
+    }
+
+    if (!sameLane || hero.isDown) return false;
+    const attacking = this.attackingStates.includes(hero.state);
+
+    // Bloqueo: ve venir el golpe y se cubre; tras dos golpes bloqueados contraataca
+    if (attacking && hero.stateTimer === 1 && dist <= 170 * this.reach && (hero.x < this.x) === (this.facing === -1)) {
+      const chance = this.iq * 0.45 + (this.counter === 'spam' ? 0.45 : 0);
+      if (Math.random() < chance) {
+        this.guardedHits = 0;
+        this.vx = 0;
+        this.setState('guard');
+        return true;
+      }
+    }
+
+    // Castigo: si el golpe del héroe no conecta y quedó cerca, se lanza sobre él
+    if (attacking && hero.stateTimer === 8 && hero.hitTargets.size === 0 && dist > 120 * this.reach && dist < 330 && this.cooldown < 40) {
+      if (Math.random() < this.iq * 0.7) {
+        this.facing = dx >= 0 ? 1 : -1;
+        this.lunge = this.facing * 11;
+        this.comboHits = 1;
+        this.setState('windup');
+        this.stateTimer = 9;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Se zafa del combo: salta hacia atrás (Origen se teletransporta) y aparta a los héroes
+  private escape(world: ArcadeGame, hero: Hero) {
+    this.escapePending = false;
+    this.recentHits = [];
+    if (this.colossal) {
+      this.currentSpecial = 'teleport';
+      this.setState('special');
+      return;
+    }
+    const away: 1 | -1 = hero.x >= this.x ? -1 : 1;
+    for (const h of world.activeHeroes) {
+      if (Math.abs(h.x - this.x) < 160 && Math.abs(h.z - this.z) < 50 && !h.isDown) h.vx = -away * 7;
+    }
+    this.vx = away * 11;
+    this.invuln = 24;
+    this.setState('recover');
+    this.stateTimer = 12;
+    world.dust(this.x, this.z, 10);
+    sounds.playJump();
   }
 
   private get reach(): number {
@@ -1337,8 +1496,13 @@ export class Boss extends Actor {
     if (this.displayHp > this.hp) this.displayHp = Math.max(this.hp, this.displayHp - 1.2);
     if (this.updateDownStates()) return;
 
-    this.target = world.pickTarget(this, this.target);
+    this.target = this.chooseTarget(world);
     const hero = this.target;
+    if (this.colossal && this.state !== 'intro') this.learn(world, hero);
+    if (this.escapePending && this.state !== 'intro' && this.state !== 'special') {
+      this.escape(world, hero);
+      return;
+    }
     switch (this.state) {
       case 'intro':
         this.facing = -1;
@@ -1350,11 +1514,31 @@ export class Boss extends Actor {
         }
         return;
       case 'windup':
-        this.vx = 0;
+        // Al castigar llega deslizándose; si no, se planta
+        this.vx = this.lunge;
         this.vz = 0;
+        this.lunge *= 0.8;
+        if (Math.abs(this.lunge) > 0.5) {
+          this.integrate();
+          world.clampToView(this);
+        }
         if (this.stateTimer >= 16) {
+          this.lunge = 0;
           this.setState('strike');
           sounds.playHeavySwing();
+        }
+        return;
+      case 'guard':
+        this.vx *= 0.8;
+        this.integrate();
+        this.facing = hero.x >= this.x ? 1 : -1;
+        if (this.guardedHits >= 2 || (this.stateTimer >= 45 && this.guardedHits > 0)) {
+          // Contraataque inmediato tras aguantar el combo
+          this.comboHits = 1;
+          this.setState('windup');
+          this.stateTimer = 10;
+        } else if (this.stateTimer >= 45) {
+          this.setState('idle');
         }
         return;
       case 'strike': {
@@ -1367,10 +1551,12 @@ export class Boss extends Actor {
             back: 20,
             damage: this.damage * (finisher ? 1.5 : 1),
             knockdown: finisher,
-            heavy: finisher
+            heavy: finisher,
+            antiAir: this.antiAir
           });
         }
         if (this.stateTimer >= 14) {
+          this.antiAir = false;
           this.comboHits++;
           if (this.comboHits < 2) {
             this.setState('windup');
@@ -1401,9 +1587,10 @@ export class Boss extends Actor {
     }
 
     const heroAvailable = !hero.isDown && hero.invuln < 100;
+    if (heroAvailable && this.readHero(world, hero)) return;
     if (heroAvailable && this.specialCooldown <= 0) {
       const pool = this.colossal ? origenSpecials(this.hp / this.maxHp) : this.specials;
-      this.currentSpecial = pool[Math.floor(Math.random() * pool.length)];
+      this.currentSpecial = this.pickSpecial(pool, hero);
       this.facing = hero.x >= this.x ? 1 : -1;
       this.setState('special');
       this.specialCooldown = (this.enraged ? 240 : 360) * (this.colossal ? 0.7 : 1);
@@ -1581,6 +1768,16 @@ export class Boss extends Actor {
       scaleY: pose.sy,
       rotation: pose.rot
     });
+    if (this.state === 'guard') {
+      ctx.save();
+      ctx.globalAlpha = 0.45 + (this.guardedHits > 0 && this.stateTimer % 6 < 3 ? 0.4 : 0);
+      ctx.strokeStyle = '#93c5fd';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.ellipse(this.x + this.facing * this.width * 0.55, feetY - this.height * 0.55, 18, this.height * 0.45, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 
@@ -1860,6 +2057,8 @@ export class ArcadeGame {
     const final = this.bossDeity === ORIGEN;
     const hp = Math.round(300 * (1 + 0.2 * this.levelIndex) * (final ? 1.6 : 1) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_BOSS_HP_MUL : 1));
     this.boss = new Boss(this.bossDeity, this.camX + VIEW_W + 120, DEPTH * 0.5, hp, this.dmgMul, this.camX + VIEW_W * 0.72);
+    // Hades (nivel 1) apenas te lee; el jefe de Japón casi todo; Origen todo. Fácil los vuelve más torpes
+    this.boss.iq = clamp((final ? 1 : 0.4 + 0.15 * this.levelIndex) / this.calmFactor, 0.15, 1);
     this.showBanner(`${final ? 'JEFE FINAL' : 'JEFE'} · ${this.bossDeity.name.toUpperCase()}`, this.bossDeity.title, this.bossDeity.accentColor, 180);
 
     // Bendición divina: los héroes siempre enfrentan al jefe con la vida completa
@@ -1910,7 +2109,9 @@ export class ArcadeGame {
       return false;
     }
     if (source) hit = this.heroPassiveHit(source, target, hit);
+    const bossGuarding = target instanceof Boss && target.state === 'guard';
     if (!target.receiveHit(hit)) return false;
+    if (bossGuarding && target.state === 'guard') return true; // Bloqueado: sin sangre ni chispas
 
     if (source) {
       if (source.deity.id === 'hades') source.hp = Math.min(source.maxHp, source.hp + hit.damage * PASSIVE.lifesteal);
@@ -1964,6 +2165,7 @@ export class ArcadeGame {
   // Remates de Zeus con rayo y tajos de Susanoo que atraviesan armaduras
   private heroPassiveHit(source: Hero, target: Actor, hit: HitInfo): HitInfo {
     if (!hit.heavy || hit.magic) return hit;
+    if (source.deity.style === 'Poder') hit = { ...hit, guardBreak: true };
     if (source.deity.id === 'zeus') {
       for (let k = 0; k < 14; k++) {
         this.particles.push({ x: target.x + (Math.random() - 0.5) * 30, y: screenY(target.z) - Math.random() * 300, vx: (Math.random() - 0.5) * 3, vy: 9 + Math.random() * 6, radius: 3, color: k % 2 ? '#38bdf8' : '#ffffff', alpha: 1, decay: 0.05, type: 'lightning' });
@@ -1995,7 +2197,7 @@ export class ArcadeGame {
     const x0 = attacker.facing === 1 ? attacker.x - spec.back : attacker.x - spec.front;
     const x1 = attacker.facing === 1 ? attacker.x + spec.front : attacker.x + spec.back;
     for (const hero of this.activeHeroes) {
-      if (attacker.hitTargets.has(hero) || !hero.canBeHit() || hero.y > 80) continue;
+      if (attacker.hitTargets.has(hero) || !hero.canBeHit() || (hero.y > 80 && !spec.antiAir)) continue;
       if (Math.abs(hero.z - attacker.z) > Z_REACH + 6) continue;
       if (hero.x + hero.width / 2 < x0 || hero.x - hero.width / 2 > x1) continue;
       attacker.hitTargets.add(hero);
