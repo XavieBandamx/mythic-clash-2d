@@ -14,6 +14,8 @@ import { SIM_STEP_MS, checkAABB, spawnBloodBurst, renderParticles, updateParticl
 import type { Box, Difficulty, Particle } from './game/core';
 import { drawDeityPortraitIcon, onPortraitLoad } from './game/portraits';
 import { startGamepadBridge } from './game/gamepad';
+import { ARENAS, drawArena } from './game/arenas';
+import type { ArenaDef } from './game/arenas';
 import { getSpriteSheetConfig, loadSpriteSheet } from './game/sprites';
 import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from './game/sprites';
 
@@ -23,7 +25,7 @@ import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from '.
    Retratos Mitológicos Ilustrados y Efectos Visuales de Impacto
    ========================================================================== */
 
-export type GameState = 'MAIN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
+export type GameState = 'MAIN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'STAGE_SELECT' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
 export type GameMode = 'PVP' | 'PVE' | 'ARCADE' | 'ARCADE_COOP';
 
 // ==========================================================================
@@ -1402,6 +1404,8 @@ export default function App() {
   // Menús
   const [mainMenuSelected, setMainMenuSelected] = useState<number>(0);
   const [diffMenuSelected, setDiffMenuSelected] = useState<number>(1);
+  const [stageSelected, setStageSelected] = useState<number>(0); // 0 = aleatorio, 1.. = ARENAS[i - 1]
+  const arenaRef = useRef<ArenaDef>(ARENAS[0]);
 
   // Ganador
   const [winner, setWinner] = useState<DeityData | null>(null);
@@ -1434,10 +1438,11 @@ export default function App() {
   // Precarga todas las hojas de sprites para que la selección no muestre el dibujo procedural mientras descargan
   useEffect(() => {
     DEITIES.forEach(d => loadSpriteSheet(getSpriteSheetConfig(d).src));
+    ARENAS.forEach(a => loadSpriteSheet(a.src));
   }, []);
 
   useEffect(() => {
-    if (gameState === 'MAIN_MENU' || gameState === 'DIFFICULTY_MENU' || gameState === 'CHAR_SELECT') {
+    if (gameState === 'MAIN_MENU' || gameState === 'DIFFICULTY_MENU' || gameState === 'CHAR_SELECT' || gameState === 'STAGE_SELECT') {
       sounds.playBGM('MENU');
     } else if (gameState === 'FIGHT') {
       sounds.playBGM('BATTLE');
@@ -1578,6 +1583,23 @@ export default function App() {
         }
       }
 
+      // Selección de Arena (cualquiera de los dos jugadores puede moverla)
+      else if (gameState === 'STAGE_SELECT') {
+        const count = ARENAS.length + 1;
+        if (['a', 'A', 'ArrowLeft'].includes(e.key)) {
+          setStageSelected(i => (i + count - 1) % count);
+          sounds.playNav();
+        } else if (['d', 'D', 'ArrowRight'].includes(e.key)) {
+          setStageSelected(i => (i + 1) % count);
+          sounds.playNav();
+        } else if (['j', 'J', 'u', 'U', 'Enter', ' '].includes(e.key)) {
+          chooseStage(stageSelected);
+        } else if (e.key === 'Escape') {
+          sounds.playNav();
+          openCharSelect(gameMode);
+        }
+      }
+
       // Game Over
       else if (gameState === 'GAME_OVER') {
         if (e.key === 'Enter' || e.key === 'j' || e.key === 'J' || e.key === ' ') {
@@ -1599,16 +1621,28 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [gameState, gameMode, mainMenuSelected, diffMenuSelected, p1Ready, p2Ready]);
+  }, [gameState, gameMode, mainMenuSelected, diffMenuSelected, stageSelected, p1Ready, p2Ready]);
 
   useEffect(() => {
     if (gameState === 'CHAR_SELECT' && p1Ready && p2Ready) {
       const timeout = setTimeout(() => {
-        startFight();
+        if (gameMode === 'ARCADE' || gameMode === 'ARCADE_COOP') {
+          startFight();
+          return;
+        }
+        // Versus: se elige arena, empezando por la del reino del rival
+        const rival = DEITIES[p2DeityIndex].pantheon;
+        setStageSelected(ARENAS.findIndex(a => a.pantheon === rival) + 1);
+        setGameState('STAGE_SELECT');
       }, 700);
       return () => clearTimeout(timeout);
     }
   }, [p1Ready, p2Ready, gameState]);
+
+  const chooseStage = (index: number) => {
+    arenaRef.current = index === 0 ? ARENAS[Math.floor(Math.random() * ARENAS.length)] : ARENAS[index - 1];
+    startFight();
+  };
 
   const startFight = () => {
     sounds.init();
@@ -2048,6 +2082,21 @@ export default function App() {
       }
     }
 
+    const arenaArt = loadSpriteSheet(arenaRef.current.src);
+    if (arenaArt.status === 'ready') {
+      drawArena(ctx, arenaArt.image, arenaRef.current, w, h, frameCountRef.current);
+    } else {
+      renderFallbackStage(ctx, w, h);
+    }
+
+    // Renderizar Luchadores
+    if (p1Ref.current) p1Ref.current.render(ctx, showHitboxes);
+    if (p2Ref.current) p2Ref.current.render(ctx, showHitboxes);
+    renderFightOverlays(ctx, w, h);
+  };
+
+  // Templo cósmico dibujado por código: se ve mientras carga la arena o si falta la imagen
+  const renderFallbackStage = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
     // Cielo cósmico
     const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
     skyGrad.addColorStop(0, '#020617');
@@ -2127,11 +2176,9 @@ export default function App() {
     ctx.moveTo(0, groundY);
     ctx.lineTo(w, groundY);
     ctx.stroke();
+  };
 
-    // Renderizar Luchadores
-    if (p1Ref.current) p1Ref.current.render(ctx, showHitboxes);
-    if (p2Ref.current) p2Ref.current.render(ctx, showHitboxes);
-
+  const renderFightOverlays = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
     // Partículas y efectos de viento/anillos
     renderParticles(ctx, particlesRef.current);
 
@@ -2686,6 +2733,48 @@ export default function App() {
         )}
 
         {/* --- ESCENA 4B: MODO ARCADE --- */}
+        {gameState === 'STAGE_SELECT' && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-6 text-center">
+            <h2 className="font-cinzel text-3xl md:text-4xl font-bold text-amber-400 mb-1">Elige la Arena</h2>
+            <p className="text-slate-400 text-sm mb-6">
+              {DEITIES[p1DeityIndex].name} vs {DEITIES[p2DeityIndex].name}
+            </p>
+
+            <div className="grid grid-cols-5 gap-3 w-full max-w-5xl">
+              {[null, ...ARENAS].map((arena, idx) => {
+                const isSelected = stageSelected === idx;
+                return (
+                  <button
+                    key={arena?.pantheon ?? 'random'}
+                    onMouseEnter={() => {
+                      if (!isSelected) sounds.playNav();
+                      setStageSelected(idx);
+                    }}
+                    onClick={() => chooseStage(idx)}
+                    className={`rounded-lg overflow-hidden border transition-all ${
+                      isSelected
+                        ? 'border-amber-400 ring-2 ring-amber-400 scale-105 shadow-lg shadow-amber-500/30'
+                        : 'border-slate-700/60 opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    {arena ? (
+                      <img src={arena.src} alt={arena.name} className="w-full aspect-video object-cover" />
+                    ) : (
+                      <div className="w-full aspect-video flex items-center justify-center bg-slate-900 font-cinzel text-5xl text-amber-400">?</div>
+                    )}
+                    <div className="bg-slate-900/90 px-2 py-2">
+                      <div className="font-cinzel font-bold text-sm text-slate-100">{arena?.name ?? 'Aleatoria'}</div>
+                      <div className="text-xs text-slate-400">{arena?.pantheon ?? 'Cualquier reino'}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-6 text-xs text-slate-400">A / D o ← / → para elegir · J o U para pelear · ESC para volver</p>
+          </div>
+        )}
+
         {gameState === 'ARCADE' && (
           <ArcadeMode
             deities={gameMode === 'ARCADE_COOP' ? [DEITIES[p1DeityIndex], DEITIES[p2DeityIndex]] : [DEITIES[p1DeityIndex]]}

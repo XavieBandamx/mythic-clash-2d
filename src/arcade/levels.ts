@@ -49,6 +49,30 @@ export const MONSTER_SPRITES: Record<string, { frameWidth: number; frameHeight: 
   arpia: { frameWidth: 414, frameHeight: 180, idleHeight: 155.5 }
 };
 
+// --- BESTIAS DE MONTA (una por panteón) ---
+// Hojas 4x4 en public/sprites/beasts (quieto, correr, atacar, golpeada) con la montura vacía.
+// seat: centro de la montura medido en la hoja (px desde el eje del cuerpo y desde los pies).
+export type BeastAttack = 'fire' | 'tail' | 'pounce' | 'thunder';
+
+export interface BeastDef {
+  id: string;
+  name: string;
+  frameWidth: number;
+  frameHeight: number;
+  idleHeight: number;
+  height: number; // Altura en pantalla de la pose de reposo
+  seat: { dx: number; dy: number };
+  attack: BeastAttack;
+  color: string;  // Color de su ataque (fuego, rayo...)
+}
+
+export const BEASTS: Record<Pantheon, BeastDef> = {
+  Grecia: { id: 'cerbero', name: 'Cerbero', frameWidth: 326, frameHeight: 225, idleHeight: 175, height: 155, seat: { dx: -8, dy: 100 }, attack: 'fire', color: '#f97316' },
+  Egipto: { id: 'cocodrilo', name: 'Cocodrilo de Sobek', frameWidth: 304, frameHeight: 159, idleHeight: 89, height: 92, seat: { dx: 10, dy: 70 }, attack: 'tail', color: '#d6a75c' },
+  México: { id: 'jaguar', name: 'Jaguar de Guerra', frameWidth: 266, frameHeight: 131, idleHeight: 110, height: 125, seat: { dx: 2, dy: 72 }, attack: 'pounce', color: '#14b8a6' },
+  Japón: { id: 'kirin', name: 'Kirin', frameWidth: 278, frameHeight: 203, idleHeight: 165.5, height: 170, seat: { dx: -2, dy: 92 }, attack: 'thunder', color: '#60a5fa' }
+};
+
 // El duende ladrón es igual en todos los niveles: suelta vasijas de magia y comida al golpearlo
 export const THIEF_SKIN: MonsterSkin = {
   name: 'Duende Ladrón', spriteId: 'duende-ladron',
@@ -203,6 +227,7 @@ export interface WaveSpawn {
   side: 'left' | 'right';
   delay: number; // Ticks desde el inicio de la oleada
   zFrac: number; // Profundidad de aparición (0 = fondo, 1 = frente)
+  mounted?: boolean; // Llega montado en la bestia del panteón
 }
 
 export interface Wave {
@@ -234,6 +259,8 @@ export function buildWaves(levelIndex: number): Wave[] {
     push('grunt', 2 + Math.floor((k + levelIndex) / 2));
     push('runner', (k % 2 === 1 ? 2 : 0) + (levelIndex >= 2 ? 1 : 0));
     push('brute', k >= 2 ? 1 + (levelIndex >= 3 && k === 3 ? 1 : 0) : levelIndex >= 1 && k === 1 ? 1 : 0);
+    // Jinetes: uno en la 2.ª oleada de cada nivel y otro en la última desde el nivel 3
+    if (k === 1 || (k === 3 && levelIndex >= 2)) spawns.push({ kind: 'grunt', side: 'right', delay: 120, zFrac: 0.5, mounted: true });
     // Un duende ladrón por oleada (dos en la última) para ir juntando magia y comida
     spawns.push({ kind: 'thief', side: 'right', delay: 30, zFrac: 0.55 });
     if (k === positions.length - 1) spawns.push({ kind: 'thief', side: 'right', delay: 260, zFrac: 0.25 });

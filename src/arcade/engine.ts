@@ -6,8 +6,8 @@ import type { Difficulty, Particle } from '../game/core';
 import { GRID_4X4_ANIMATIONS, drawSpriteFrame, getSpriteSheetConfig, loadSpriteSheet } from '../game/sprites';
 import type { SpriteSheetConfig, SpriteSheetEntry } from '../game/sprites';
 import { drawDeityPortraitIcon } from '../game/portraits';
-import { BOSS_CAM_X, BOSS_SPECIALS, LEVELS, MONSTER_SPRITES, MONSTER_STATS, THIEF_SKIN, buildWaves } from './levels';
-import type { BossSpecial, LevelDef, MonsterKind, MonsterSkin, MonsterStats, Wave, WaveSpawn } from './levels';
+import { BEASTS, BOSS_CAM_X, BOSS_SPECIALS, LEVELS, MONSTER_SPRITES, MONSTER_STATS, THIEF_SKIN, buildWaves } from './levels';
+import type { BeastAttack, BeastDef, BossSpecial, LevelDef, MonsterKind, MonsterSkin, MonsterStats, Wave, WaveSpawn } from './levels';
 import { DEPTH, VIEW_H, VIEW_W, drawBackground, drawItem, drawMonsterOutlined, drawOrb, drawTelegraph, screenY } from './draw';
 import type { MonsterPose } from './draw';
 
@@ -73,7 +73,7 @@ interface StrikeSpec {
 type ActorState =
   | 'idle' | 'walk' | 'run' | 'attack' | 'jump' | 'jumpAttack' | 'dashAttack' | 'spin' | 'magic'
   | 'windup' | 'strike' | 'recover' | 'special' | 'hurt' | 'knockdown' | 'down' | 'getup' | 'dead'
-  | 'flee' | 'intro';
+  | 'flee' | 'intro' | 'mountAttack';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -103,6 +103,7 @@ abstract class Actor {
   public hitTargets = new Set<Actor>(); // Golpeados por el ataque en curso
   public landTimer: number = 0;          // Ticks de "aplastamiento" tras aterrizar
   public trail: TrailPoint[] = [];       // Últimas poses, para las imágenes fantasma de los ataques rápidos
+  public mount: Beast | null = null;     // Bestia sobre la que va montado
 
   constructor(x: number, z: number, hp: number, width: number, height: number) {
     this.x = x;
@@ -194,6 +195,11 @@ abstract class Actor {
     if (!this.canBeHit()) return false;
     this.hp = Math.max(0, this.hp - hit.damage);
     this.flash = 6;
+    // Montado no se inmuta con golpes ligeros; un derribo lo tira de la bestia
+    if (this.mount) {
+      if (this.hp > 0 && !hit.knockdown) return true;
+      dismount(this);
+    }
     this.facing = (hit.dir === 1 ? -1 : 1);
     if (this.hp <= 0 || (hit.knockdown && this.canBeKnockedDown(hit))) {
       this.setState('knockdown');
@@ -254,6 +260,8 @@ function godFrame(actor: Actor, cfg: SpriteSheetConfig, clock: number, attackDur
     case 'magic':
     case 'special':
       return { row: a.attack.row, frame: actor.stateTimer < 20 ? 1 : 2 };
+    case 'mountAttack':
+      return { row: a.attack.row, frame: progress(28) };
     case 'recover':
       return { row: a.attack.row, frame: a.attack.frames - 1 };
     case 'hurt':
@@ -430,6 +438,11 @@ export class Hero extends Actor {
       world.clampToView(this);
       return;
     }
+    if (this.mount) {
+      this.updateMounted(input, world);
+      world.clampToView(this);
+      return;
+    }
 
     const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     const moveZ = (input.down ? 1 : 0) - (input.up ? 1 : 0);
@@ -568,6 +581,89 @@ export class Hero extends Actor {
     world.clampToView(this);
   }
 
+  // Montado: más rápido, J ataca con la bestia y K salta de ella; sin magia ni giro
+  private updateMounted(input: ArcadeInput, world: ArcadeGame) {
+    const beast = this.mount as Beast;
+    const strike = beast.strike;
+    const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const moveZ = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+
+    if (this.state === 'mountAttack') {
+      const t = this.stateTimer;
+      this.vz = 0;
+      this.vx = strike.lunge > 0 && t >= strike.from - 2 && t <= strike.to ? this.facing * strike.lunge * Math.max(0.2, 1 - (t - strike.from) / 14) : this.vx * 0.7;
+      this.integrate();
+      if (t >= strike.from && t <= strike.to) {
+        world.heroStrike(this, { ...strike, damage: strike.damage * this.dmgMul });
+        world.beastFx(beast);
+      }
+      if (t >= strike.duration) this.setState('idle');
+      return;
+    }
+    if (input.jump) {
+      // Salta de la bestia (se queda quieta esperando a que vuelvas)
+      dismount(this, false);
+      this.setState('jump');
+      this.y = 0.01;
+      this.vy = 11;
+      this.vx = moveX * this.walkSpeed;
+      this.vz = moveZ * this.walkSpeed * 0.5;
+      sounds.playJump();
+      return;
+    }
+    if (input.attack) {
+      this.setState('mountAttack');
+      if (beast.def.attack === 'fire') sounds.playSolarBeam();
+      else if (beast.def.attack === 'thunder') sounds.playThunder();
+      else sounds.playHeavySwing();
+      return;
+    }
+    const speed = this.walkSpeed * MOUNT_SPEED;
+    this.vx = moveX * speed;
+    this.vz = moveZ * speed * 0.75;
+    if (moveX !== 0) this.facing = moveX > 0 ? 1 : -1;
+    const next: ActorState = moveX !== 0 || moveZ !== 0 ? 'walk' : 'idle';
+    if (next !== this.state) this.setState(next);
+    if (next === 'walk' && this.stateTimer % 14 === 0) sounds.playStep();
+    this.integrate();
+  }
+
+  // Distintivo 1P / 2P sobre la cabeza (cooperativo)
+  private drawTag(ctx: CanvasRenderingContext2D, x: number, feetY: number) {
+    const tagY = feetY - this.height - 34;
+    ctx.fillStyle = PLAYER_COLORS[this.index];
+    ctx.beginPath();
+    ctx.moveTo(x - 7, tagY + 14);
+    ctx.lineTo(x + 7, tagY + 14);
+    ctx.lineTo(x, tagY + 22);
+    ctx.fill();
+    ctx.font = 'bold 15px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${this.index + 1}P`, x, tagY + 10);
+  }
+
+  // Montado: la bestia y, encima, el dios de la cintura para arriba sentado en la montura
+  private renderMounted(ctx: CanvasRenderingContext2D, showTag: boolean) {
+    const beast = this.mount as Beast;
+    beast.render(ctx);
+    const seat = beast.seatPoint();
+    const feetY = seat.y + this.height * RIDER_WAIST;
+    const blink = this.invuln > 0 && Math.floor(this.invuln / 4) % 2 === 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(seat.x - 300, seat.y - 400, 600, 410);
+    ctx.clip();
+    if (this.sheet.status === 'ready') {
+      const { row, frame } = godFrame(this, this.cfg, this.animClock, 28);
+      drawSpriteFrame(ctx, this.sheet, this.cfg, row, frame, seat.x, feetY, this.facing, { flash: this.flash > 0, alpha: blink ? 0.45 : 1 });
+    } else {
+      ctx.fillStyle = this.deity.primaryColor;
+      ctx.fillRect(seat.x - 25, feetY - this.height, 50, this.height);
+    }
+    ctx.restore();
+    if (showTag) this.drawTag(ctx, seat.x, feetY);
+  }
+
   public finishMagic() {
     if (this.state === 'magic') this.setState('idle');
   }
@@ -579,22 +675,15 @@ export class Hero extends Actor {
   }
 
   public render(ctx: CanvasRenderingContext2D, showTag: boolean = false) {
+    if (this.mount) {
+      this.renderMounted(ctx, showTag);
+      return;
+    }
     const blink = this.invuln > 0 && this.state !== 'spin' && this.state !== 'magic' && Math.floor(this.invuln / 4) % 2 === 0;
     const feetY = screenY(this.z, this.y);
 
     // En cooperativo, distintivo 1P / 2P sobre la cabeza para no confundirse
-    if (showTag && !this.isDown) {
-      const tagY = feetY - this.height - 34;
-      ctx.fillStyle = PLAYER_COLORS[this.index];
-      ctx.beginPath();
-      ctx.moveTo(this.x - 7, tagY + 14);
-      ctx.lineTo(this.x + 7, tagY + 14);
-      ctx.lineTo(this.x, tagY + 22);
-      ctx.fill();
-      ctx.font = 'bold 15px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${this.index + 1}P`, this.x, tagY + 10);
-    }
+    if (showTag && !this.isDown) this.drawTag(ctx, this.x, feetY);
 
     // Aura del dios al canalizar la magia
     if (this.state === 'magic') {
@@ -794,6 +883,9 @@ export class Monster extends Actor {
     }
 
     const hero = this.target ?? world.pickTarget(this, null);
+    // Montado ataca con la bestia: más alcance y su embestida o salto
+    const beastStrike = this.mount ? this.mount.strike : null;
+    const reach = beastStrike ? beastStrike.front : this.stats.reach;
     switch (this.state) {
       case 'windup':
         this.vx = 0;
@@ -801,6 +893,7 @@ export class Monster extends Actor {
         if (this.stateTimer >= this.stats.windup) {
           this.setState('strike');
           if (this.kind === 'runner') this.vx = this.facing * 7;
+          if (beastStrike && beastStrike.lunge > 0) this.vx = this.facing * beastStrike.lunge;
           if (this.kind === 'brute') sounds.playHeavySwing();
           else sounds.playSwing();
         }
@@ -809,13 +902,18 @@ export class Monster extends Actor {
         this.vx *= 0.85;
         this.integrate();
         if (this.stateTimer >= 3 && this.stateTimer <= 9) {
-          world.enemyStrike(this, {
-            front: this.stats.reach,
-            back: 10,
-            damage: this.damage,
-            knockdown: this.kind === 'brute',
-            heavy: this.kind === 'brute'
-          });
+          if (this.mount && beastStrike) {
+            world.enemyStrike(this, { ...beastStrike, damage: this.damage * 1.6 });
+            world.beastFx(this.mount);
+          } else {
+            world.enemyStrike(this, {
+              front: this.stats.reach,
+              back: 10,
+              damage: this.damage,
+              knockdown: this.kind === 'brute',
+              heavy: this.kind === 'brute'
+            });
+          }
         }
         if (this.stateTimer >= 12) this.setState('recover');
         return;
@@ -839,7 +937,7 @@ export class Monster extends Actor {
       desiredX = hero.x + side * 340;
       desiredZ = this.z;
     } else if (this.engaged) {
-      desiredX = hero.x + side * this.stats.reach * 0.75;
+      desiredX = hero.x + side * reach * 0.75;
       desiredZ = hero.z;
     } else {
       desiredX = hero.x + side * (230 + this.flank * 40);
@@ -849,7 +947,7 @@ export class Monster extends Actor {
     desiredX = clamp(desiredX, world.camX + 60, world.camX + VIEW_W - 60);
     const dx = desiredX - this.x;
     const dz = desiredZ - this.z;
-    const speed = this.stats.speed * (this.entered ? 1 : 1.4);
+    const speed = this.stats.speed * (this.entered ? 1 : 1.4) * (this.mount ? MOUNT_SPEED : 1);
     this.vx = Math.abs(dx) > 6 ? Math.sign(dx) * speed : 0;
     this.vz = Math.abs(dz) > 4 ? Math.sign(dz) * speed * 0.7 : 0;
     this.facing = hero.x >= this.x ? 1 : -1;
@@ -861,7 +959,7 @@ export class Monster extends Actor {
       heroAvailable &&
       this.engaged &&
       this.cooldown <= 0 &&
-      Math.abs(hero.x - this.x) <= this.stats.reach + 10 &&
+      Math.abs(hero.x - this.x) <= reach + 10 &&
       Math.abs(hero.z - this.z) <= Z_REACH &&
       hero.y < 40
     ) {
@@ -906,28 +1004,211 @@ export class Monster extends Actor {
         break;
     }
     const alpha = this.state === 'dead' ? (this.stateTimer % 6 < 3 ? 0.3 : 1) * (1 - this.stateTimer / 60) : 1;
+    let bodyX = this.x;
+    let bodyY = screenY(this.z, this.y);
+    if (this.mount) {
+      // Montado: la bestia y encima el jinete de la cintura para arriba
+      this.mount.render(ctx);
+      const seat = this.mount.seatPoint();
+      bodyX = seat.x;
+      bodyY = seat.y + this.height * RIDER_WAIST;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(seat.x - 300, seat.y - 400, 600, 410);
+      ctx.clip();
+    }
     if (this.sprite && this.sprite.sheet.status === 'ready') {
       const { row, frame } = this.spriteFrame(this.sprite.cfg);
-      drawSpriteFrame(ctx, this.sprite.sheet, this.sprite.cfg, row, frame, this.x, screenY(this.z, this.y), this.facing, {
+      drawSpriteFrame(ctx, this.sprite.sheet, this.sprite.cfg, row, frame, bodyX, bodyY, this.facing, {
         flash: this.flash > 0,
         alpha
       });
+    } else {
+      drawMonsterOutlined(ctx, {
+        kind: this.kind,
+        skin: this.skin,
+        height: this.height,
+        x: bodyX,
+        y: bodyY,
+        facing: this.facing,
+        pose,
+        t: this.animT,
+        progress,
+        flash: this.flash > 0,
+        alpha
+      });
+    }
+    if (this.mount) ctx.restore();
+  }
+}
+
+// --------------------------------------------------------------------------
+// BESTIAS DE MONTA: el jinete (héroe o monstruo) la guía; sin jinete espera un rato y acaba huyendo
+// --------------------------------------------------------------------------
+const BEAST_WAIT_TICKS = 540; // Tiempo sin jinete antes de escapar
+const MOUNT_SPEED = 1.35;     // Velocidad del jinete respecto a ir a pie
+const RIDER_WAIST = 0.45;     // Altura de la cintura del jinete (fracción de su altura): se sienta en la montura
+
+interface BeastStrike extends StrikeSpec {
+  duration: number; // Ticks del ataque del héroe montado
+  from: number;     // Ventana en que golpea
+  to: number;
+  lunge: number;    // Impulso hacia delante (salto del jaguar, carga del kirin)
+}
+
+const BEAST_STRIKES: Record<BeastAttack, BeastStrike> = {
+  fire: { front: 165, back: 0, damage: 16, knockdown: true, heavy: false, duration: 30, from: 10, to: 22, lunge: 0 },
+  tail: { front: 125, back: 125, damage: 14, knockdown: true, heavy: true, duration: 28, from: 8, to: 18, lunge: 0 },
+  pounce: { front: 115, back: 10, damage: 16, knockdown: true, heavy: true, duration: 26, from: 6, to: 16, lunge: 8 },
+  thunder: { front: 120, back: 10, damage: 15, knockdown: true, heavy: true, duration: 28, from: 8, to: 20, lunge: 10 }
+};
+
+const beastSpriteSrc = (id: string) => `${import.meta.env.BASE_URL}sprites/beasts/${id}.png`;
+
+export class Beast extends Actor {
+  public def: BeastDef;
+  public cfg: SpriteSheetConfig;
+  public sheet: SpriteSheetEntry;
+  public rider: Hero | Monster | null = null;
+  public riderless: number = 0;   // Ticks sin jinete
+  public remountBlock: number = 0; // Recién desmontada: nadie se sube de inmediato
+  private animClock: number = 0;
+
+  constructor(def: BeastDef, x: number, z: number) {
+    super(x, z, 1, 120, def.height);
+    this.def = def;
+    this.cfg = {
+      src: beastSpriteSrc(def.id),
+      frameWidth: def.frameWidth,
+      frameHeight: def.frameHeight,
+      scale: def.height / def.idleHeight,
+      footOffset: 0,
+      pixelArt: false,
+      animations: GRID_4X4_ANIMATIONS
+    };
+    this.sheet = loadSpriteSheet(this.cfg.src);
+  }
+
+  public get strike(): BeastStrike {
+    return BEAST_STRIKES[this.def.attack];
+  }
+
+  // La bestia no recibe golpes: se golpea al jinete
+  public canBeHit(): boolean {
+    return false;
+  }
+
+  // Lista para que alguien se suba
+  public get free(): boolean {
+    return !this.rider && !this.removed && this.state !== 'flee' && this.state !== 'hurt' && this.remountBlock <= 0;
+  }
+
+  // Punto de la montura en pantalla, donde se sienta el jinete
+  public seatPoint(): { x: number; y: number } {
+    const s = this.cfg.scale;
+    return { x: this.x + this.facing * this.def.seat.dx * s, y: screenY(this.z, this.y) - this.def.seat.dy * s };
+  }
+
+  public update(world: ArcadeGame) {
+    this.tickTimers();
+    this.animClock++;
+    if (this.remountBlock > 0) this.remountBlock--;
+    const rider = this.rider;
+    if (rider) {
+      // Va donde la lleve su jinete
+      this.x = rider.x;
+      this.z = rider.z;
+      this.y = rider.y;
+      this.vx = rider.vx;
+      this.vz = rider.vz;
+      this.facing = rider.facing;
+      this.riderless = 0;
       return;
     }
-    drawMonsterOutlined(ctx, {
-      kind: this.kind,
-      skin: this.skin,
-      height: this.height,
-      x: this.x,
-      y: screenY(this.z, this.y),
-      facing: this.facing,
-      pose,
-      t: this.animT,
-      progress,
-      flash: this.flash > 0,
-      alpha
-    });
+    this.riderless++;
+    switch (this.state) {
+      case 'hurt':
+        // Recién derribado su jinete: se tambalea y se recompone
+        this.vx *= 0.85;
+        this.x += this.vx;
+        if (this.stateTimer >= 24) this.setState('idle');
+        break;
+      case 'flee':
+        this.x += this.vx;
+        if (this.x < world.camX - 220 || this.x > world.camX + VIEW_W + 220) this.removed = true;
+        break;
+      default:
+        this.vx = 0;
+        this.vz = 0;
+        if (this.riderless > BEAST_WAIT_TICKS) {
+          this.facing = this.x < world.camX + VIEW_W / 2 ? -1 : 1;
+          this.vx = this.facing * 6;
+          this.setState('flee');
+        } else {
+          this.x = clamp(this.x, world.camX + 70, world.camX + VIEW_W - 70);
+        }
+    }
   }
+
+  private frameFor(): { row: number; frame: number } {
+    const a = this.cfg.animations;
+    const cycle = (anim: typeof a.idle, speed: number = 1) => Math.floor((this.animClock * speed) / anim.frameDuration) % anim.frames;
+    const rider = this.rider;
+    if (rider) {
+      switch (rider.state) {
+        case 'mountAttack':
+          return { row: a.attack.row, frame: Math.min(a.attack.frames - 1, Math.floor((rider.stateTimer / this.strike.duration) * a.attack.frames)) };
+        case 'windup':
+          return { row: a.attack.row, frame: 0 };
+        case 'strike':
+          return { row: a.attack.row, frame: rider.stateTimer < 6 ? 1 : 2 };
+        case 'recover':
+          return { row: a.attack.row, frame: a.attack.frames - 1 };
+      }
+      if (Math.abs(rider.vx) > 0.1 || Math.abs(rider.vz) > 0.1) return { row: a.run.row, frame: cycle(a.run, 1.3) };
+      return { row: a.idle.row, frame: cycle(a.idle) };
+    }
+    if (this.state === 'hurt') return { row: a.hit.row, frame: this.stateTimer < 12 ? 0 : a.hit.frames - 1 };
+    if (this.state === 'flee') return { row: a.run.row, frame: cycle(a.run, 1.6) };
+    return { row: a.idle.row, frame: cycle(a.idle) };
+  }
+
+  public render(ctx: CanvasRenderingContext2D) {
+    const feetY = screenY(this.z, this.y);
+    if (this.sheet.status === 'ready') {
+      const { row, frame } = this.frameFor();
+      drawSpriteFrame(ctx, this.sheet, this.cfg, row, frame, this.x, feetY, this.facing, { flash: (this.rider?.flash ?? 0) > 0 });
+    } else {
+      ctx.fillStyle = this.def.color;
+      ctx.beginPath();
+      ctx.ellipse(this.x, feetY - this.def.height * 0.45, this.def.height * 0.8, this.def.height * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Aviso parpadeante para subirse
+    if (this.free && this.riderless > 20 && this.animClock % 50 < 34) {
+      ctx.save();
+      ctx.font = 'bold 20px "Cinzel", serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fde68a';
+      ctx.shadowColor = '#000000';
+      ctx.shadowBlur = 6;
+      ctx.fillText('¡MONTA!', this.x, feetY - this.def.height - 24);
+      ctx.restore();
+    }
+  }
+}
+
+// Baja al jinete de su bestia (al recibir un derribo o al saltar); la bestia queda libre
+function dismount(rider: Actor, stagger: boolean = true) {
+  const beast = rider.mount;
+  if (!beast) return;
+  rider.mount = null;
+  beast.rider = null;
+  beast.riderless = 0;
+  beast.remountBlock = 45;
+  beast.y = 0;
+  beast.vx = stagger ? -rider.facing * 3 : 0;
+  beast.setState(stagger ? 'hurt' : 'idle');
 }
 
 // --------------------------------------------------------------------------
@@ -1253,6 +1534,7 @@ export class ArcadeGame {
   public heroes: Hero[];
   public coop: boolean;
   public monsters: Monster[] = [];
+  public beasts: Beast[] = [];
   public boss: Boss | null = null;
   public orbs: Orb[] = [];
   public thunders: Thunder[] = [];
@@ -1284,6 +1566,7 @@ export class ArcadeGame {
   private shakeIntensity: number = 0;
   private magicCast: { t: number; color: string; name: string; power: number; caster: Hero } | null = null;
   private thiefHintShown: boolean = false;
+  private beastHintShown: boolean = false;
   private art: { background: SpriteSheetEntry | null; floor: SpriteSheetEntry | null } = { background: null, floor: null };
   // Pulsaciones hechas durante la pausa de impacto (una por jugador): se aplican al reanudar para que no se pierdan
   private carriedPresses: Pick<ArcadeInput, 'attack' | 'jump' | 'magic' | 'tapLeft' | 'tapRight'>[];
@@ -1332,6 +1615,7 @@ export class ArcadeGame {
     this.waveActive = false;
     this.pending = [];
     this.monsters = [];
+    this.beasts = [];
     this.boss = null;
     this.bossDown = false;
     this.orbs = [];
@@ -1349,6 +1633,7 @@ export class ArcadeGame {
       hero.z = DEPTH * (this.coop ? (hero.index === 0 ? 0.4 : 0.85) : 0.6);
       hero.y = 0;
       hero.vx = hero.vz = hero.vy = 0;
+      hero.mount = null;
       if (!hero.gameOver) hero.setState('idle');
       hero.invuln = 60;
     }
@@ -1362,6 +1647,7 @@ export class ArcadeGame {
     const loadArt = (file?: string) => (file ? loadSpriteSheet(`${import.meta.env.BASE_URL}backgrounds/${file}`) : null);
     this.art = { background: loadArt(this.level.art?.background), floor: loadArt(this.level.art?.floor) };
 
+    loadSpriteSheet(beastSpriteSrc(BEASTS[this.level.pantheon].id));
     for (const skin of [...Object.values(this.level.skins), THIEF_SKIN]) {
       if (skin.spriteId && MONSTER_SPRITES[skin.spriteId]) loadSpriteSheet(monsterSpriteSrc(skin.spriteId));
     }
@@ -1389,11 +1675,20 @@ export class ArcadeGame {
     return (0.75 + 0.15 * this.levelIndex) * DIFFICULTY_DMG[this.difficulty];
   }
 
-  private spawnMonster(kind: MonsterKind, side: 'left' | 'right', zFrac: number): Monster {
+  private spawnMonster(kind: MonsterKind, side: 'left' | 'right', zFrac: number, mounted: boolean = false): Monster {
     const x = side === 'right' ? this.camX + VIEW_W + 60 : this.camX - 60;
     const skin = kind === 'thief' ? THIEF_SKIN : this.level.skins[kind];
     const monster = new Monster(kind, skin, x, zFrac * DEPTH, this.hpMul, this.dmgMul);
     this.monsters.push(monster);
+    if (mounted) {
+      const beast = new Beast(BEASTS[this.level.pantheon], x, monster.z);
+      this.beasts.push(beast);
+      this.mountOn(monster, beast);
+      if (!this.beastHintShown) {
+        this.beastHintShown = true;
+        this.floatingText(this.camX + VIEW_W * 0.62, screenY(monster.z) - 190, `¡Derriba al jinete y monta al ${beast.def.name}!`, '#fbbf24');
+      }
+    }
     if (kind === 'thief' && !this.thiefHintShown) {
       this.thiefHintShown = true;
       this.particles.push({
@@ -1423,7 +1718,7 @@ export class ArcadeGame {
     for (let i = this.pending.length - 1; i >= 0; i--) {
       const p = this.pending[i];
       if (--p.timer <= 0) {
-        this.spawnMonster(p.spawn.kind, p.spawn.side, p.spawn.zFrac);
+        this.spawnMonster(p.spawn.kind, p.spawn.side, p.spawn.zFrac, p.spawn.mounted);
         this.pending.splice(i, 1);
       }
     }
@@ -1573,6 +1868,86 @@ export class ArcadeGame {
     }
   }
 
+  // Sube a un héroe o monstruo a la bestia
+  private mountOn(rider: Hero | Monster, beast: Beast) {
+    rider.mount = beast;
+    beast.rider = rider;
+    beast.setState('idle');
+    rider.x = beast.x;
+    rider.z = beast.z;
+    rider.vx = rider.vz = 0;
+    rider.setState('idle');
+    if (rider instanceof Hero) {
+      this.floatingText(rider.x, screenY(rider.z) - 220, `¡A LA CARGA SOBRE ${beast.def.name.toUpperCase()}!`, PLAYER_COLORS[rider.index]);
+      sounds.playSuperReady();
+    }
+  }
+
+  // Bestias libres: un héroe se sube al tocarlas; un soldado enemigo también puede robarla si tardas
+  private updateBeasts() {
+    for (const beast of this.beasts) beast.update(this);
+    this.beasts = this.beasts.filter(b => !b.removed);
+    for (const beast of this.beasts) {
+      if (!beast.free) continue;
+      const near = (a: Actor) => Math.abs(a.x - beast.x) < 60 && Math.abs(a.z - beast.z) < 28 && a.y < 10;
+      const hero = this.activeHeroes.find(h => !h.mount && near(h) && (h.state === 'idle' || h.state === 'walk' || h.state === 'run'));
+      if (hero) {
+        this.mountOn(hero, beast);
+        continue;
+      }
+      if (beast.riderless > 90) {
+        const thief = this.monsters.find(m => m.kind === 'grunt' && !m.mount && near(m) && (m.state === 'idle' || m.state === 'walk'));
+        if (thief) this.mountOn(thief, beast);
+      }
+    }
+  }
+
+  // Efectos del ataque de la bestia (fuego, coletazo, zarpazo, rayos)
+  public beastFx(beast: Beast) {
+    const y = screenY(beast.z, beast.y);
+    const reach = beast.def.frameWidth * beast.cfg.scale * 0.42;
+    const color = beast.def.color;
+    switch (beast.def.attack) {
+      case 'fire':
+        for (let i = 0; i < 3; i++) {
+          this.particles.push({
+            x: beast.x + beast.facing * reach,
+            y: y - beast.def.height * 0.62 + (Math.random() - 0.5) * 16,
+            vx: beast.facing * (6 + Math.random() * 6),
+            vy: (Math.random() - 0.5) * 2.5,
+            radius: 5 + Math.random() * 6,
+            color: Math.random() < 0.5 ? color : '#fde047',
+            alpha: 0.95,
+            decay: 0.05,
+            type: 'spark'
+          });
+        }
+        break;
+      case 'tail':
+        this.dust(beast.x - beast.facing * reach, beast.z, 2);
+        this.dust(beast.x + beast.facing * reach * 0.6, beast.z, 1);
+        break;
+      case 'pounce':
+        this.particles.push({ x: beast.x + beast.facing * reach, y: y - beast.def.height * 0.4, vx: beast.facing * 4, vy: (Math.random() - 0.5) * 4, radius: 3 + Math.random() * 3, color, alpha: 1, decay: 0.06, type: 'spark' });
+        break;
+      case 'thunder':
+        for (let i = 0; i < 2; i++) {
+          this.particles.push({
+            x: beast.x + beast.facing * reach * Math.random(),
+            y: y - Math.random() * beast.def.height,
+            vx: (Math.random() - 0.5) * 5,
+            vy: (Math.random() - 0.5) * 5,
+            radius: 3 + Math.random() * 4,
+            color: Math.random() < 0.6 ? color : '#ffffff',
+            alpha: 1,
+            decay: 0.06,
+            type: 'lightning'
+          });
+        }
+        break;
+    }
+  }
+
   public spawnItem(kind: 'pot' | 'food', x: number, z: number) {
     this.items.push({ kind, x: x + (Math.random() - 0.5) * 40, z, y: 40, vy: 5, t: 0 });
   }
@@ -1609,7 +1984,7 @@ export class ArcadeGame {
   }
 
   public summonMinions(boss: Boss) {
-    this.showBanner(`¡${boss.deity.name.toUpperCase()} INVOCA REFUERZOS!`, 'Derrótalos para ganar vida y magia', '#ef4444', 150);
+    this.showBanner(`¡${boss.deity.name.toUpperCase()} INVOCA REFUERZOS!`, '', '#ef4444', 150);
     const minions = [this.spawnMonster('grunt', 'left', 0.25), this.spawnMonster('grunt', 'right', 0.8)];
     if (this.levelIndex >= 2) minions.push(this.spawnMonster('runner', 'left', 0.7));
     for (const m of minions) m.reinforcement = true;
@@ -1790,6 +2165,7 @@ export class ArcadeGame {
         });
     }
     this.monsters.forEach(m => m.update(this));
+    this.updateBeasts();
     this.separateMonsters();
     this.boss?.update(this);
 
@@ -1960,13 +2336,15 @@ export class ArcadeGame {
 
     // Sombras en el suelo (se encogen con la altura del salto)
     // En cooperativo el que agotó sus vidas desaparece hasta que continúe
-    const actors: Actor[] = [...(this.coop ? this.activeHeroes : this.heroes), ...this.monsters];
+    const actors: Actor[] = [...(this.coop ? this.activeHeroes : this.heroes), ...this.monsters, ...this.beasts.filter(b => !b.rider)];
     if (this.boss && !this.boss.removed) actors.push(this.boss);
     for (const a of actors) {
       const s = Math.max(0.4, 1 - a.y / 200);
       ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
       ctx.beginPath();
-      ctx.ellipse(a.x, screenY(a.z), a.width * 0.75 * s, 12 * s, 0, 0, Math.PI * 2);
+      const beast = a instanceof Beast ? a : a.mount;
+      const w = beast ? beast.def.frameWidth * beast.cfg.scale * 0.32 : a.width * 0.75;
+      ctx.ellipse(a.x, screenY(a.z), w * s, 12 * s, 0, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -1984,6 +2362,7 @@ export class ArcadeGame {
       if (a instanceof Hero) a.render(ctx, this.coop);
       else if (a instanceof Monster) a.render(ctx);
       else if (a instanceof Boss) a.render(ctx);
+      else if (a instanceof Beast) a.render(ctx);
     }
     for (const orb of this.orbs) drawOrb(ctx, orb.x, screenY(orb.z, orb.y), orb.color, orb.t);
     renderParticles(ctx, this.particles);
