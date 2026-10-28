@@ -21,6 +21,14 @@ export const ARENAS: ArenaDef[] = [
   { pantheon: 'Japón', name: 'El Dojo de la Tormenta', src: url('japon.webp'), floorY: 612, storm: '200, 170, 255', petals: true }
 ];
 
+// Arena de Origen en la cima de la torre (no se elige en el menú)
+export const ORIGEN_ARENA: ArenaDef = {
+  pantheon: 'Grecia',
+  name: 'El Telar del Cosmos',
+  src: `${import.meta.env.BASE_URL}backgrounds/telar-fondo.webp`,
+  floorY: 548
+};
+
 // Fila de pantalla donde se ve el borde del piso: un poco arriba de los pies (y=540) para que pisen dentro
 const FLOOR_SCREEN_Y = 480;
 

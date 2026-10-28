@@ -14,7 +14,10 @@ import { SIM_STEP_MS, checkAABB, spawnBloodBurst, renderParticles, updateParticl
 import type { Box, Difficulty, Particle } from './game/core';
 import { drawDeityPortraitIcon, onPortraitLoad } from './game/portraits';
 import { startGamepadBridge } from './game/gamepad';
-import { ARENAS, drawArena } from './game/arenas';
+import { ARENAS, ORIGEN_ARENA, drawArena } from './game/arenas';
+import { ORIGEN } from './arcade/levels';
+import { TOWER_ENDINGS, buildTower, towerSkill } from './game/tower';
+import type { TowerRun } from './game/tower';
 import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_INFO, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from './game/styles';
 import type { FightStyle } from './game/styles';
 
@@ -29,8 +32,8 @@ import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from '.
    Retratos Mitológicos Ilustrados y Efectos Visuales de Impacto
    ========================================================================== */
 
-export type GameState = 'MAIN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'STAGE_SELECT' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
-export type GameMode = 'PVP' | 'PVE' | 'ARCADE' | 'ARCADE_COOP';
+export type GameState = 'MAIN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'STAGE_SELECT' | 'TOWER_MAP' | 'TOWER_END' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
+export type GameMode = 'PVP' | 'PVE' | 'ARCADE' | 'ARCADE_COOP' | 'TOWER';
 
 // ==========================================================================
 // COMPONENTE REACT: TARJETA DE VISTA PREVIA GRANDE DE PERSONAJE
@@ -313,6 +316,22 @@ function DeityLargePreviewCard({ deity, playerTag, tagColor, isReady }: LargePre
   );
 }
 
+// Medallón de un dios dibujado en canvas (se redibuja cuando carga su imagen)
+function Medallion({ deityId, size }: { deityId: string; size: number }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext('2d');
+    if (!ctx) return;
+    const draw = () => {
+      ctx.clearRect(0, 0, size, size);
+      drawDeityPortraitIcon(ctx, deityId, size / 2, size / 2, size * 0.86);
+    };
+    draw();
+    return onPortraitLoad(deityId, draw);
+  }, [deityId, size]);
+  return <canvas ref={canvasRef} width={size} height={size} style={{ width: size, height: size }} className="shrink-0" />;
+}
+
 // ==========================================================================
 // COMPONENTE REACT: BOTÓN DE CASILLA DE SELECCIÓN CON RETRATO CANVAS
 // ==========================================================================
@@ -426,6 +445,14 @@ export class Fighter {
 
   public aiState: 'APPROACH' | 'RETREAT' | 'ATTACK' | 'DEFEND' | 'ZONING' | 'WAIT' = 'WAIT';
   public aiActionTimer: number = 0;
+
+  // Torre: qué tan lista es la IA en este piso (0-1); null = según la dificultad del menú
+  public aiSkill: number | null = null;
+
+  // Daño recibido extra (Origen recibe el doble mientras usa un poder)
+  public damageTakenMul(): number {
+    return 1;
+  }
 
   // Estilo de pelea y pasiva del dios
   public burnTimer: number = 0; // Quemadura de Ra
@@ -802,14 +829,19 @@ export class Fighter {
     }
   }
 
-  private updateAI(opponent: Fighter, difficulty: Difficulty) {
+  protected updateAI(opponent: Fighter, difficulty: Difficulty) {
     this.aiActionTimer++;
 
     let reactionInterval = 20;
     let blockProbability = 0.4;
     let aggression = 0.55;
 
-    if (difficulty === 'FACIL') {
+    if (this.aiSkill !== null) {
+      // Torre: de torpe en el piso 1 a implacable en el 8
+      reactionInterval = Math.round(36 - this.aiSkill * 29);
+      blockProbability = 0.15 + this.aiSkill * 0.7;
+      aggression = 0.35 + this.aiSkill * 0.5;
+    } else if (difficulty === 'FACIL') {
       reactionInterval = 36;
       blockProbability = 0.15;
       aggression = 0.35;
@@ -1320,6 +1352,7 @@ export class CanvasFighter extends Fighter {
   public frameIndex: number = 0;
 
   private sheet: SpriteSheetEntry;
+  protected sizeMul: number = 1;
   private frameTick: number = 0;
   private lastLogicalState: Fighter['state'] = 'IDLE';
   private lastAnimTimer: number = 0;
@@ -1426,9 +1459,9 @@ export class CanvasFighter extends Fighter {
     const anim = cfg.animations[this.currentAnimation];
     const sx = this.frameIndex * cfg.frameWidth;
     const sy = anim.row * cfg.frameHeight;
-    const drawW = cfg.frameWidth * cfg.scale;
-    const drawH = cfg.frameHeight * cfg.scale;
-    const drawY = -drawH + cfg.footOffset * cfg.scale;
+    const drawW = cfg.frameWidth * cfg.scale * this.sizeMul;
+    const drawH = cfg.frameHeight * cfg.scale * this.sizeMul;
+    const drawY = -drawH + cfg.footOffset * cfg.scale * this.sizeMul;
 
     ctx.save();
     ctx.translate(this.x, this.y);
@@ -1472,6 +1505,215 @@ export class CanvasFighter extends Fighter {
 }
 
 // ==========================================================================
+// ORIGEN EN VERSUS: jefe de la cima de la torre, al doble de tamaño
+// Se teletransporta a la espalda, lanza esferas que se esquivan saltando y,
+// con poca vida, colapsa el cosmos: solo el círculo de luz protege.
+// ==========================================================================
+type OrigenMove = 'teleport' | 'orb' | 'collapse';
+const COLLAPSE_WARN = 150;
+const SAFE_RADIUS = 110;
+
+export class OrigenFighter extends CanvasFighter {
+  private move: OrigenMove | null = null;
+  private moveTimer: number = 0;
+  private moveCooldown: number = 180;
+  private orbs: { x: number; vx: number; t: number }[] = [];
+  private safeX: number | null = null;
+
+  constructor(deity: DeityData, startX: number, facing: 1 | -1) {
+    super(2, deity, true, startX, facing);
+    this.sizeMul = 1.2;
+    this.width = 130;
+    this.height = 300;
+    this.maxHp = 180;
+    this.hp = 180;
+    this.displayHp = 180;
+    this.aiSkill = 1;
+  }
+
+  public damageTakenMul(): number {
+    return this.move ? 2 : 1;
+  }
+
+  // Golpes anchos y a la altura del rival (su cuerpo mide el doble)
+  public getHitbox(): Box | null {
+    if (this.hitRegistered) return null;
+    const heavy = this.state === 'ATTACK_HEAVY';
+    const active = heavy ? this.animTimer >= 8 && this.animTimer <= 20 : this.state === 'ATTACK_LIGHT' && this.animTimer >= 4 && this.animTimer <= 12;
+    if (!active) return null;
+    const boxW = heavy ? 230 : 180;
+    return { x: this.facing === 1 ? this.x + 10 : this.x - 10 - boxW, y: this.groundY - 150, w: boxW, h: 130 };
+  }
+
+  // Su súper es elegir uno de sus poderes
+  public executeSpecial(_opponent: Fighter) {
+    this.superMeter = 0;
+  }
+
+  protected updateAI(opponent: Fighter, difficulty: Difficulty) {
+    if (this.move) return;
+    if (this.moveCooldown > 0) this.moveCooldown--;
+    if (this.moveCooldown <= 0 && this.state !== 'HITSTUN' && opponent.hp > 0) {
+      const lowHp = this.hp < this.maxHp * 0.35;
+      const options: OrigenMove[] = lowHp ? ['collapse', 'collapse', 'teleport', 'orb'] : ['teleport', 'orb', 'orb'];
+      this.startMove(options[Math.floor(Math.random() * options.length)], opponent);
+      return;
+    }
+    super.updateAI(opponent, difficulty);
+  }
+
+  private startMove(move: OrigenMove, opponent: Fighter) {
+    this.move = move;
+    this.moveTimer = 0;
+    this.state = 'SPECIAL';
+    this.animTimer = 0;
+    this.vx = 0;
+    this.facing = opponent.x >= this.x ? 1 : -1;
+    if (move === 'collapse') {
+      // El círculo aparece del lado contrario al rival para obligarlo a cruzar
+      this.safeX = opponent.x < 640 ? 980 + Math.random() * 120 : 180 + Math.random() * 120;
+      sounds.playSuperActivation();
+    }
+  }
+
+  public update(arenaWidth: number, opponent: Fighter, difficulty: Difficulty, particles: Particle[]) {
+    super.update(arenaWidth, opponent, difficulty, particles);
+    this.updateOrbs(opponent, particles);
+    if (!this.move || this.hp <= 0) {
+      this.move = null;
+      return;
+    }
+    // Mantiene la pose de poder mientras dure el movimiento
+    this.state = 'SPECIAL';
+    this.animTimer = Math.min(this.animTimer, 30);
+    this.vx = 0;
+    const t = ++this.moveTimer;
+
+    if (this.move === 'teleport') {
+      if (t === 1 || t === 20) this.starBurst(particles);
+      if (t === 20) {
+        this.x = Math.max(90, Math.min(arenaWidth - 90, opponent.x - opponent.facing * 150));
+        this.facing = opponent.x >= this.x ? 1 : -1;
+      }
+      if (t >= 36) this.endMove(true);
+    } else if (this.move === 'orb') {
+      if (t === 20 || (this.hp < this.maxHp * 0.5 && t === 45)) {
+        this.orbs.push({ x: this.x + this.facing * 90, vx: this.facing * 7, t: 0 });
+        sounds.playSolarBeam();
+      }
+      if (t >= 65) this.endMove(false);
+    } else if (this.move === 'collapse') {
+      if (t === COLLAPSE_WARN && this.safeX !== null) {
+        this.pendingScreenShake = 26;
+        sounds.playThunder();
+        for (let i = 0; i < 40; i++) {
+          particles.push({ x: Math.random() * arenaWidth, y: 150 + Math.random() * 400, vx: (Math.random() - 0.5) * 6, vy: -Math.random() * 4, radius: 3 + Math.random() * 4, color: i % 2 ? '#c4b5fd' : '#fde68a', alpha: 1, decay: 0.02, type: 'spark' });
+        }
+        if (Math.abs(opponent.x - this.safeX) > SAFE_RADIUS && opponent.hp > 0) {
+          this.hurt(opponent, 30, particles);
+          opponent.vy = -12;
+        }
+        this.safeX = null;
+      }
+      if (t >= COLLAPSE_WARN + 30) this.endMove(false);
+    }
+  }
+
+  private endMove(strike: boolean) {
+    this.move = null;
+    this.state = 'IDLE';
+    this.moveCooldown = this.hp < this.maxHp * 0.5 ? 130 : 200;
+    if (strike) {
+      this.attackCooldown = 0;
+      this.executeHeavyAttack();
+    }
+  }
+
+  // Daño directo de sus poderes (como los especiales de Zeus y Ra)
+  private hurt(opponent: Fighter, damage: number, particles: Particle[]) {
+    opponent.hp = Math.max(0, opponent.hp - Math.round(damage * opponent.defMul));
+    opponent.vx = (opponent.x >= this.x ? 1 : -1) * 9;
+    opponent.state = 'HITSTUN';
+    opponent.hitstunTimer = 30;
+    opponent.hitFlashTimer = 4;
+    sounds.playHitHeavy();
+    spawnBloodBurst(particles, opponent.x, opponent.y - opponent.height * 0.6, opponent.x >= this.x ? 1 : -1, opponent.groundY);
+    this.pendingScreenShake = Math.max(this.pendingScreenShake, 18);
+  }
+
+  // Las esferas ruedan por el suelo: se esquivan saltando o se bloquean
+  private updateOrbs(opponent: Fighter, particles: Particle[]) {
+    for (const orb of this.orbs) {
+      orb.x += orb.vx;
+      orb.t++;
+      const touching = Math.abs(orb.x - opponent.x) < 50 && opponent.y > opponent.groundY - 70;
+      if (touching && opponent.hp > 0 && this.hp > 0) {
+        orb.t = 9999;
+        if (opponent.isBlocking) {
+          opponent.hp = Math.max(0, opponent.hp - 2);
+          sounds.playBlock();
+        } else {
+          this.hurt(opponent, 11, particles);
+        }
+      }
+    }
+    this.orbs = this.orbs.filter(o => o.t < 9999 && o.x > -60 && o.x < 1340);
+  }
+
+  private starBurst(particles: Particle[]) {
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      particles.push({ x: this.x, y: this.y - 170, vx: Math.cos(a) * 5, vy: Math.sin(a) * 5, radius: 3, color: i % 2 ? '#fde68a' : '#c4b5fd', alpha: 1, decay: 0.03, type: 'spark' });
+    }
+    sounds.playJump();
+  }
+
+  public render(ctx: CanvasRenderingContext2D, showDebug: boolean) {
+    // Círculo de luz del colapso, sobre el suelo
+    if (this.move === 'collapse' && this.safeX !== null) {
+      const pulse = this.moveTimer % 20 < 10 ? 0.35 : 0.2;
+      ctx.save();
+      ctx.fillStyle = `rgba(253, 230, 138, ${pulse})`;
+      ctx.strokeStyle = '#fde68a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(this.safeX, this.groundY, SAFE_RADIUS, SAFE_RADIUS * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      const beam = ctx.createLinearGradient(0, 0, 0, this.groundY);
+      beam.addColorStop(0, 'rgba(253, 230, 138, 0)');
+      beam.addColorStop(1, `rgba(253, 230, 138, ${pulse * 0.6})`);
+      ctx.fillStyle = beam;
+      ctx.fillRect(this.safeX - SAFE_RADIUS * 0.6, 0, SAFE_RADIUS * 1.2, this.groundY);
+      // El resto del cosmos se oscurece conforme se acerca el estallido
+      ctx.fillStyle = `rgba(30, 10, 60, ${0.35 * Math.min(1, this.moveTimer / COLLAPSE_WARN)})`;
+      ctx.fillRect(0, 0, this.safeX - SAFE_RADIUS, 720);
+      ctx.fillRect(this.safeX + SAFE_RADIUS, 0, 1280, 720);
+      ctx.restore();
+    }
+
+    // Se desvanece y reaparece al teletransportarse
+    const t = this.moveTimer;
+    const alpha = this.move === 'teleport' ? (t < 20 ? 1 - t / 20 : Math.min(1, (t - 20) / 16)) : 1;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    super.render(ctx, showDebug);
+    ctx.restore();
+
+    for (const orb of this.orbs) {
+      const glow = ctx.createRadialGradient(orb.x, this.groundY - 30, 4, orb.x, this.groundY - 30, 34);
+      glow.addColorStop(0, '#fff7d6');
+      glow.addColorStop(0.4, '#a78bfa');
+      glow.addColorStop(1, 'rgba(76, 29, 149, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(orb.x, this.groundY - 30, 34, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+// ==========================================================================
 // COMPONENTE PRINCIPAL APP
 // ==========================================================================
 export default function App() {
@@ -1494,6 +1736,13 @@ export default function App() {
   const [mainMenuSelected, setMainMenuSelected] = useState<number>(0);
   const [diffMenuSelected, setDiffMenuSelected] = useState<number>(1);
   const [stageSelected, setStageSelected] = useState<number>(0); // 0 = aleatorio, 1.. = ARENAS[i - 1]
+  // Torre: en un ref para que el bucle y el teclado siempre vean el piso actual; el contador solo redibuja
+  const towerRef = useRef<TowerRun | null>(null);
+  const [, setTowerVersion] = useState<number>(0);
+  const updateTower = (run: TowerRun | null) => {
+    towerRef.current = run;
+    setTowerVersion(v => v + 1);
+  };
   const arenaRef = useRef<ArenaDef>(ARENAS[0]);
 
   // Ganador
@@ -1527,11 +1776,12 @@ export default function App() {
   // Precarga todas las hojas de sprites para que la selección no muestre el dibujo procedural mientras descargan
   useEffect(() => {
     DEITIES.forEach(d => loadSpriteSheet(getSpriteSheetConfig(d).src));
-    ARENAS.forEach(a => loadSpriteSheet(a.src));
+    [...ARENAS, ORIGEN_ARENA].forEach(a => loadSpriteSheet(a.src));
+    loadSpriteSheet(getSpriteSheetConfig(ORIGEN).src);
   }, []);
 
   useEffect(() => {
-    if (gameState === 'MAIN_MENU' || gameState === 'DIFFICULTY_MENU' || gameState === 'CHAR_SELECT' || gameState === 'STAGE_SELECT') {
+    if (gameState === 'MAIN_MENU' || gameState === 'DIFFICULTY_MENU' || gameState === 'CHAR_SELECT' || gameState === 'STAGE_SELECT' || gameState === 'TOWER_MAP' || gameState === 'TOWER_END') {
       sounds.playBGM('MENU');
     } else if (gameState === 'FIGHT') {
       sounds.playBGM('BATTLE');
@@ -1570,13 +1820,13 @@ export default function App() {
       if (gameState === 'MAIN_MENU') {
         if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
           setMainMenuSelected(prev => {
-            const next = prev > 0 ? prev - 1 : 4;
+            const next = prev > 0 ? prev - 1 : 5;
             sounds.playNav();
             return next;
           });
         } else if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') {
           setMainMenuSelected(prev => {
-            const next = prev < 4 ? prev + 1 : 0;
+            const next = prev < 5 ? prev + 1 : 0;
             sounds.playNav();
             return next;
           });
@@ -1591,6 +1841,8 @@ export default function App() {
           } else if (mainMenuSelected === 3) {
             openCharSelect('ARCADE_COOP');
           } else if (mainMenuSelected === 4) {
+            openCharSelect('TOWER');
+          } else if (mainMenuSelected === 5) {
             setGameState('DIFFICULTY_MENU');
           }
         }
@@ -1639,7 +1891,7 @@ export default function App() {
           } else if (e.key === 'j' || e.key === 'J') {
             sounds.playSelect();
             setP1Ready(true);
-            if (gameMode === 'PVE' || gameMode === 'ARCADE') {
+            if (gameMode === 'PVE' || gameMode === 'ARCADE' || gameMode === 'TOWER') {
               setP2Ready(true);
             }
           }
@@ -1689,7 +1941,31 @@ export default function App() {
         }
       }
 
+      // Torre: J pelea el piso actual
+      else if (gameState === 'TOWER_MAP') {
+        if (['j', 'J', 'Enter', ' '].includes(e.key)) {
+          startTowerFight();
+        } else if (e.key === 'Escape') {
+          sounds.playNav();
+          setGameState('MAIN_MENU');
+        }
+      }
+
+      else if (gameState === 'TOWER_END') {
+        if (['j', 'J', 'Enter', ' ', 'Escape'].includes(e.key)) {
+          sounds.playNav();
+          setGameState('MAIN_MENU');
+        }
+      }
+
       // Game Over
+      else if (gameState === 'GAME_OVER' && gameMode === 'TOWER') {
+        if (['j', 'J', 'Enter', ' '].includes(e.key)) {
+          advanceTower();
+        } else if (e.key === 'Escape' || e.key === 'k' || e.key === 'K') {
+          setGameState('MAIN_MENU');
+        }
+      }
       else if (gameState === 'GAME_OVER') {
         if (e.key === 'Enter' || e.key === 'j' || e.key === 'J' || e.key === ' ') {
           startFight();
@@ -1710,13 +1986,18 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [gameState, gameMode, mainMenuSelected, diffMenuSelected, stageSelected, p1Ready, p2Ready]);
+  }, [gameState, gameMode, mainMenuSelected, diffMenuSelected, stageSelected, p1Ready, p2Ready, winner]);
 
   useEffect(() => {
     if (gameState === 'CHAR_SELECT' && p1Ready && p2Ready) {
       const timeout = setTimeout(() => {
         if (gameMode === 'ARCADE' || gameMode === 'ARCADE_COOP') {
           startFight();
+          return;
+        }
+        if (gameMode === 'TOWER') {
+          updateTower(buildTower(DEITIES[p1DeityIndex], ORIGEN));
+          setGameState('TOWER_MAP');
           return;
         }
         // Versus: se elige arena, empezando por la del reino del rival
@@ -1741,9 +2022,47 @@ export default function App() {
     }
     const d1 = DEITIES[p1DeityIndex];
     const d2 = DEITIES[p2DeityIndex];
+    beginFight(new CanvasFighter(1, d1, false, 280, 1), new CanvasFighter(2, d2, gameMode === 'PVE', 1000, -1));
+  };
 
-    p1Ref.current = new CanvasFighter(1, d1, false, 280, 1);
-    p2Ref.current = new CanvasFighter(2, d2, gameMode === 'PVE', 1000, -1);
+  // Pelea del piso actual de la torre: arena del reino del rival (Origen en el Telar del Cosmos)
+  const startTowerFight = () => {
+    const run = towerRef.current;
+    if (!run) return;
+    sounds.init();
+    const rival = run.rivals[run.floor];
+    const isOrigen = rival.id === ORIGEN.id;
+    arenaRef.current = isOrigen ? ORIGEN_ARENA : ARENAS.find(a => a.pantheon === rival.pantheon) ?? ARENAS[0];
+    const p2 = isOrigen ? new OrigenFighter(rival, 1000, -1) : new CanvasFighter(2, rival, true, 1000, -1);
+    p2.aiSkill = isOrigen ? 1 : towerSkill(run.floor);
+    beginFight(new CanvasFighter(1, run.hero, false, 280, 1), p2);
+  };
+
+  // Tras el K.O.: sube de piso, gasta un continue o termina la torre
+  const advanceTower = () => {
+    const run = towerRef.current;
+    if (!run) return;
+    sounds.playSelect();
+    if (winner?.id === run.hero.id) {
+      if (run.floor + 1 >= run.rivals.length) {
+        setGameState('TOWER_END');
+        sounds.playVictory();
+        return;
+      }
+      updateTower({ ...run, floor: run.floor + 1 });
+      setGameState('TOWER_MAP');
+    } else if (run.continues > 0) {
+      updateTower({ ...run, continues: run.continues - 1 });
+      setGameState('TOWER_MAP');
+    } else {
+      updateTower(null);
+      setGameState('MAIN_MENU');
+    }
+  };
+
+  const beginFight = (p1: Fighter, p2: Fighter) => {
+    p1Ref.current = p1;
+    p2Ref.current = p2;
 
     particlesRef.current = [];
     matchTimerRef.current = 99;
@@ -1799,7 +2118,7 @@ export default function App() {
         if (frameCountRef.current % 60 === 0 && matchTimerRef.current > 0 && p1.hp > 0 && p2.hp > 0) {
           matchTimerRef.current--;
           if (matchTimerRef.current === 0) {
-            if (p1.hp >= p2.hp) {
+            if (p1.hp / p1.maxHp >= p2.hp / p2.maxHp) {
               setWinner(p1.deity);
               sounds.playVictory();
             } else {
@@ -1999,7 +2318,9 @@ export default function App() {
 
       let dmgMultiplier = 1.0;
       if (attacker.isAI) {
-        dmgMultiplier = difficulty === 'FACIL' ? 0.7 : difficulty === 'DIFICIL' ? 1.3 : 1.0;
+        dmgMultiplier = attacker.aiSkill !== null
+          ? 0.7 + attacker.aiSkill * 0.6
+          : difficulty === 'FACIL' ? 0.7 : difficulty === 'DIFICIL' ? 1.3 : 1.0;
       }
 
       let baseDamage = 9;
@@ -2020,7 +2341,7 @@ export default function App() {
       }
 
       const heavy = attacker.state === 'ATTACK_HEAVY';
-      let damage = baseDamage * dmgMultiplier * attacker.damageMul * defender.defMul;
+      let damage = baseDamage * dmgMultiplier * attacker.damageMul * defender.defMul * defender.damageTakenMul();
       knockX *= STYLE_KNOCKBACK_TAKEN[defender.deity.style];
       if (heavy && attacker.deity.id === 'poseidon') knockX *= PASSIVE.poseidonPush;
       if (heavy && attacker.deity.id === 'zeus') {
@@ -2448,7 +2769,11 @@ export default function App() {
     ctx.font = 'bold 20px "Cinzel", serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'right';
-    const p2Label = p2.isAI ? `${p2.deity.name.toUpperCase()} (IA · ${difficulty})` : `${p2.deity.name.toUpperCase()} (P2)`;
+    const p2Label = !p2.isAI
+      ? `${p2.deity.name.toUpperCase()} (P2)`
+      : gameMode === 'TOWER'
+        ? p2.deity.name.toUpperCase()
+        : `${p2.deity.name.toUpperCase()} (IA · ${difficulty})`;
     ctx.fillText(p2Label, w - 50, barY - 10);
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
@@ -2498,6 +2823,15 @@ export default function App() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(matchTimerRef.current.toString().padStart(2, '0'), w / 2, timerY + timerBoxH / 2);
+    const run = towerRef.current;
+    if (gameMode === 'TOWER' && run) {
+      ctx.save();
+      ctx.font = 'bold 13px "Cinzel", serif';
+      ctx.fillStyle = '#fbbf24';
+      ctx.textAlign = 'center';
+      ctx.fillText(run.floor + 1 === run.rivals.length ? 'CIMA DE LA TORRE' : `PISO ${run.floor + 1} DE ${run.rivals.length}`, w / 2, timerY + timerBoxH + 18);
+      ctx.restore();
+    }
 
     if (frameCountRef.current < 90) {
       ctx.font = '900 64px "Cinzel", serif';
@@ -2628,6 +2962,7 @@ export default function App() {
                 { label: `Jugar contra la IA (${difficulty})`, mode: 'PVE' as GameMode },
                 { label: 'Modo Arcade: Camino de los Dioses', mode: 'ARCADE' as GameMode },
                 { label: 'Arcade Cooperativo (2 Jugadores)', mode: 'ARCADE_COOP' as GameMode },
+                { label: 'Torre de los Dioses', mode: 'TOWER' as GameMode },
                 { label: `Opciones de Dificultad: ${difficulty}`, mode: null }
               ].map((item, idx) => {
                 const isSelected = mainMenuSelected === idx;
@@ -2766,6 +3101,8 @@ export default function App() {
                   ? `Modo Arcade · Camino de los Dioses (${difficulty})`
                   : gameMode === 'ARCADE_COOP'
                   ? `Arcade Cooperativo · 2 Jugadores (${difficulty})`
+                  : gameMode === 'TOWER'
+                  ? 'Torre de los Dioses'
                   : `Modo Solitario vs IA (${difficulty})`}
               </span>
               <h2 className="font-cinzel text-2xl md:text-3xl font-extrabold text-slate-100">
@@ -2835,6 +3172,18 @@ export default function App() {
               <div className="lg:col-span-3 flex justify-center">
                 {gameMode === 'ARCADE' ? (
                   <ArcadeRouteCard hero={DEITIES[p1DeityIndex]} />
+                ) : gameMode === 'TOWER' ? (
+                  <div className="bg-slate-900/90 border border-violet-500/40 rounded-2xl p-4 flex flex-col items-center text-center shadow-2xl w-full">
+                    <div className="text-[11px] font-bold px-2.5 py-1 rounded border bg-violet-500/20 text-violet-300 border-violet-400/40 self-start">
+                      TORRE DE LOS DIOSES
+                    </div>
+                    <Medallion deityId={ORIGEN.id} size={120} />
+                    <p className="font-cinzel text-lg font-bold text-slate-100">8 rivales y el creador</p>
+                    <p className="text-[12px] text-slate-400 mt-1 leading-snug">
+                      Dos dioses al azar de cada reino, cada piso más listo que el anterior. En la cima te espera {ORIGEN.name}, {ORIGEN.title}.
+                    </p>
+                    <p className="text-[12px] text-amber-300 mt-2">3 continues · vida completa en cada piso</p>
+                  </div>
                 ) : (
                   <DeityLargePreviewCard
                     deity={DEITIES[p2DeityIndex]}
@@ -2876,7 +3225,7 @@ export default function App() {
                   }}
                   className="px-6 py-2 rounded font-semibold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black shadow-lg shadow-amber-900/40"
                 >
-                  {gameMode === 'ARCADE' || gameMode === 'ARCADE_COOP' ? '¡Comenzar Aventura!' : '¡Comenzar Combate!'}
+                  {gameMode === 'ARCADE' || gameMode === 'ARCADE_COOP' || gameMode === 'TOWER' ? '¡Comenzar Aventura!' : '¡Comenzar Combate!'}
                 </button>
               </div>
             </div>
@@ -2939,7 +3288,101 @@ export default function App() {
         )}
 
         {/* --- ESCENA 5: GAME OVER --- */}
-        {gameState === 'GAME_OVER' && winner && (
+        {gameState === 'TOWER_MAP' && towerRef.current && (() => {
+          const run = towerRef.current;
+          const rival = run.rivals[run.floor];
+          return (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-6">
+              <span className="text-violet-300 text-xs font-semibold tracking-widest uppercase">Torre de los Dioses</span>
+              <h2 className="font-cinzel text-3xl font-extrabold text-amber-300 mb-4">
+                {rival.id === ORIGEN.id ? 'La cima: el creador te espera' : `Piso ${run.floor + 1}: ${run.hero.name} vs ${rival.name}`}
+              </h2>
+              {/* La torre de abajo hacia arriba: Origen en la cima */}
+              <div className="flex flex-col-reverse items-center gap-1.5">
+                {run.rivals.map((d, i) => {
+                  const beaten = i < run.floor;
+                  const current = i === run.floor;
+                  return (
+                    <div
+                      key={d.id}
+                      className={`flex items-center gap-3 rounded-lg px-3 py-1 border transition-all ${
+                        current
+                          ? 'border-amber-400 bg-amber-500/15 scale-110 shadow-lg shadow-amber-500/20'
+                          : beaten
+                            ? 'border-slate-800 bg-slate-900/40 opacity-40'
+                            : d.id === ORIGEN.id
+                              ? 'border-violet-400/50 bg-violet-950/50'
+                              : 'border-slate-700/60 bg-slate-900/70'
+                      }`}
+                    >
+                      <span className="text-[10px] font-bold text-slate-500 w-10 text-right">{d.id === ORIGEN.id ? 'CIMA' : `PISO ${i + 1}`}</span>
+                      <Medallion deityId={d.id} size={d.id === ORIGEN.id ? 52 : 38} />
+                      <span className={`font-cinzel text-sm font-bold w-40 ${beaten ? 'line-through text-slate-500' : 'text-slate-100'}`}>{d.name}</span>
+                      {current ? <Medallion deityId={run.hero.id} size={38} /> : <span className="w-[38px]" />}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-5 text-xs text-slate-400">
+                Continues: <b className="text-amber-300">{run.continues}</b> · J para pelear · ESC para salir
+              </p>
+            </div>
+          );
+        })()}
+
+        {gameState === 'TOWER_END' && towerRef.current && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md p-6 text-center">
+            <span className="text-violet-300 text-xs font-semibold tracking-widest uppercase mb-2">Torre de los Dioses · Final</span>
+            <Medallion deityId={towerRef.current.hero.id} size={180} />
+            <h2 className="font-cinzel text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 mt-3 mb-4">
+              {towerRef.current.hero.name.toUpperCase()} CONQUISTA LA TORRE
+            </h2>
+            <p className="text-slate-200 text-base max-w-2xl leading-relaxed font-cinzel">
+              {TOWER_ENDINGS[towerRef.current.hero.id]}
+            </p>
+            <p className="mt-8 text-xs text-slate-400">J o ENTER para volver al menú</p>
+          </div>
+        )}
+
+        {gameState === 'GAME_OVER' && winner && gameMode === 'TOWER' && towerRef.current && (() => {
+          const run = towerRef.current;
+          const won = winner.id === run.hero.id;
+          const top = run.floor + 1 >= run.rivals.length;
+          return (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-6 text-center">
+              <span className="text-amber-400 text-sm font-semibold tracking-widest uppercase mb-1">K.O.</span>
+              <h2 className="font-cinzel text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 mb-3">
+                {won ? (top ? '¡EL CREADOR HA CAÍDO!' : `¡PISO ${run.floor + 1} SUPERADO!`) : `¡VICTORIA DE ${winner.name.toUpperCase()}!`}
+              </h2>
+              <p className="text-slate-300 text-sm mb-6">
+                {won
+                  ? top ? 'La torre es tuya.' : `Siguiente: ${run.rivals[run.floor + 1].name}`
+                  : run.continues > 0
+                    ? `Te quedan ${run.continues} continue${run.continues === 1 ? '' : 's'}`
+                    : `Sin continues. Llegaste al piso ${run.floor + 1} de ${run.rivals.length}.`}
+              </p>
+              <div className="flex gap-4 w-full max-w-md">
+                <button
+                  onClick={advanceTower}
+                  className="flex-1 py-3 px-6 rounded-lg font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-900/50"
+                >
+                  {won ? (top ? 'Ver tu final (ENTER)' : 'Subir de piso (ENTER)') : run.continues > 0 ? 'Continuar (ENTER)' : 'Volver al menú (ENTER)'}
+                </button>
+                <button
+                  onClick={() => {
+                    sounds.playNav();
+                    setGameState('MAIN_MENU');
+                  }}
+                  className="flex-1 py-3 px-6 rounded-lg font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600"
+                >
+                  Salir de la torre (ESC)
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {gameState === 'GAME_OVER' && winner && gameMode !== 'TOWER' && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-6 text-center">
             <span className="text-amber-400 text-sm font-semibold tracking-widest uppercase mb-1">
               K.O. - COMBATE FINALIZADO
