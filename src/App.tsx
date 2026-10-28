@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Volume2, VolumeX, Eye, RefreshCw, Home, Swords, Gamepad2, Music, Zap, Flame, Shield, Sparkles } from 'lucide-react';
+import { Volume2, VolumeX, Eye, RefreshCw, Home, Swords, Gamepad2, Music, Zap, Flame, Shield, Sparkles, Crosshair } from 'lucide-react';
 import ArcadeMode from './arcade/ArcadeMode';
 import ArcadeRouteCard from './arcade/ArcadeRouteCard';
 import { DEITIES } from './game/deities';
@@ -15,6 +15,10 @@ import type { Box, Difficulty, Particle } from './game/core';
 import { drawDeityPortraitIcon, onPortraitLoad } from './game/portraits';
 import { startGamepadBridge } from './game/gamepad';
 import { ARENAS, drawArena } from './game/arenas';
+import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_INFO, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from './game/styles';
+import type { FightStyle } from './game/styles';
+
+const STYLE_ICONS: Record<FightStyle, typeof Swords> = { Poder: Swords, Velocidad: Zap, 'Guardián': Shield, Alcance: Crosshair };
 import type { ArenaDef } from './game/arenas';
 import { getSpriteSheetConfig, loadSpriteSheet } from './game/sprites';
 import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from './game/sprites';
@@ -242,9 +246,20 @@ function DeityLargePreviewCard({ deity, playerTag, tagColor, isReady }: LargePre
         <span className="text-xs font-semibold uppercase tracking-wider text-amber-300 block mb-1">
           {deity.pantheon} · {deity.title}
         </span>
-        <p className="text-[12px] text-slate-300 line-clamp-2 leading-relaxed mb-3">
-          {deity.lore}
-        </p>
+        {/* Estilo de pelea: se elige por lo que hace, no por el nombre */}
+        {(() => {
+          const StyleIcon = STYLE_ICONS[deity.style];
+          const info = STYLE_INFO[deity.style];
+          return (
+            <div className="w-full rounded-lg p-2 mb-2 border text-left" style={{ borderColor: `${info.color}66`, background: `${info.color}1a` }}>
+              <div className="flex items-center gap-1.5 font-black text-sm uppercase tracking-wider" style={{ color: info.color }}>
+                <StyleIcon className="w-4 h-4" />
+                <span>Estilo {deity.style}</span>
+              </div>
+              <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">{info.summary}</p>
+            </div>
+          );
+        })()}
 
         {/* Barras de Atributos */}
         <div className="w-full bg-black/40 rounded-lg p-2.5 border border-white/5 space-y-1.5 text-xs text-left">
@@ -274,8 +289,17 @@ function DeityLargePreviewCard({ deity, playerTag, tagColor, isReady }: LargePre
           </div>
         </div>
 
+        {/* Pasiva única */}
+        <div className="mt-2.5 p-2 bg-violet-500/10 rounded-lg border border-violet-500/25 text-left">
+          <div className="flex items-center gap-1.5 text-violet-300 font-bold text-xs">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Pasiva: {deity.passive.name}</span>
+          </div>
+          <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">{deity.passive.desc}</p>
+        </div>
+
         {/* Ataque Especial */}
-        <div className="mt-2.5 p-2 bg-amber-500/10 rounded-lg border border-amber-500/25 text-left">
+        <div className="mt-2 p-2 bg-amber-500/10 rounded-lg border border-amber-500/25 text-left">
           <div className="flex items-center gap-1.5 text-amber-300 font-bold text-xs">
             <Zap className="w-3.5 h-3.5" />
             <span>Poder Especial: {deity.specialName}</span>
@@ -346,7 +370,15 @@ function DeityGridSlot({ deity, isP1, isP2, onClick, onMouseEnter }: GridSlotPro
       <canvas ref={canvasRef} width={80} height={80} className="w-[68px] h-[68px] my-1" />
 
       <span className="font-cinzel text-xs font-bold text-slate-100">{deity.name}</span>
-      <span className="text-[10px] text-amber-400/80 truncate max-w-[85px]">{deity.specialName}</span>
+      {(() => {
+        const StyleIcon = STYLE_ICONS[deity.style];
+        return (
+          <span className="flex items-center gap-1 text-[10px] font-bold uppercase" style={{ color: STYLE_INFO[deity.style].color }}>
+            <StyleIcon className="w-3 h-3" />
+            {deity.style}
+          </span>
+        );
+      })()}
     </button>
   );
 }
@@ -395,6 +427,41 @@ export class Fighter {
   public aiState: 'APPROACH' | 'RETREAT' | 'ATTACK' | 'DEFEND' | 'ZONING' | 'WAIT' = 'WAIT';
   public aiActionTimer: number = 0;
 
+  // Estilo de pelea y pasiva del dios
+  public burnTimer: number = 0; // Quemadura de Ra
+  private revived: boolean = false; // Osiris
+  private airJumped: boolean = false; // Quetzalcóatl
+  private jumpHeld: boolean = false;
+
+  public get damageMul(): number {
+    const fury = this.deity.id === 'huitzilopochtli' && this.hp < this.maxHp * PASSIVE.furyBelow ? PASSIVE.furyMul : 1;
+    return statDamageMul(this.deity.stats.attack) * fury;
+  }
+
+  public get defMul(): number {
+    return statDefenseMul(this.deity.stats.defense);
+  }
+
+  public get meterMul(): number {
+    return this.deity.id === 'amaterasu' ? PASSIVE.meterMul : 1;
+  }
+
+  // Los estilos rápidos atacan con menos tiempo de preparación y recuperación
+  private get attackSpeed(): number {
+    return STYLE_ATTACK_SPEED[this.deity.style];
+  }
+
+  // Osiris vuelve una vez de la muerte
+  public tryRevive(): boolean {
+    if (this.deity.id !== 'osiris' || this.revived || this.hp > 0) return false;
+    this.revived = true;
+    this.hp = Math.round(this.maxHp * PASSIVE.reviveHp);
+    this.displayHp = this.hp;
+    this.state = 'IDLE';
+    this.hitstunTimer = 0;
+    return true;
+  }
+
   constructor(playerNumber: 1 | 2, deity: DeityData, isAI: boolean, startX: number, facing: 1 | -1) {
     this.playerNumber = playerNumber;
     this.deity = deity;
@@ -437,17 +504,19 @@ export class Fighter {
   public getHitbox(): Box | null {
     if (this.hitRegistered) return null;
 
+    const sp = this.attackSpeed;
+    const reach = STYLE_REACH[this.deity.style];
     if (this.state === 'ATTACK_LIGHT') {
-      if (this.animTimer >= 4 && this.animTimer <= 12) {
-        const boxW = 80;
+      if (this.animTimer >= 4 * sp && this.animTimer <= 12 * sp) {
+        const boxW = 80 * reach;
         const boxH = 50;
         const boxX = this.facing === 1 ? this.x + 10 : this.x - 10 - boxW;
         const boxY = this.y - this.height * 0.72;
         return { x: boxX, y: boxY, w: boxW, h: boxH };
       }
     } else if (this.state === 'ATTACK_HEAVY') {
-      if (this.animTimer >= 8 && this.animTimer <= 20) {
-        const boxW = 110;
+      if (this.animTimer >= 8 * sp && this.animTimer <= 20 * sp) {
+        const boxW = 110 * reach;
         const boxH = 80;
         const boxX = this.facing === 1 ? this.x + 15 : this.x - 15 - boxW;
         const boxY = this.y - this.height * 0.82;
@@ -475,7 +544,16 @@ export class Fighter {
 
     // Carga progresiva pasiva del Super Meter
     if (this.hp > 0 && opponent.hp > 0) {
-      this.superMeter = Math.min(100, this.superMeter + 0.07);
+      this.superMeter = Math.min(100, this.superMeter + 0.07 * this.meterMul);
+    }
+
+    // Quemadura de Ra: nunca remata, solo desgasta
+    if (this.burnTimer > 0) {
+      this.burnTimer--;
+      if (this.burnTimer % PASSIVE.burnEvery === 0 && this.hp > 1) {
+        this.hp = Math.max(1, this.hp - PASSIVE.burnDamage);
+        particles.push({ x: this.x + (Math.random() - 0.5) * 40, y: this.y - 60 - Math.random() * 60, vx: 0, vy: -2, radius: 4, color: '#f97316', alpha: 1, decay: 0.04, type: 'spark' });
+      }
     }
 
     if (this.superMeter >= 100 && !this.wasSuperFull) {
@@ -626,10 +704,10 @@ export class Fighter {
     }
 
     // Conclusión de animaciones
-    if (this.state === 'ATTACK_LIGHT' && this.animTimer > 18) {
+    if (this.state === 'ATTACK_LIGHT' && this.animTimer > 18 * this.attackSpeed) {
       this.state = 'IDLE';
       this.hitRegistered = false;
-    } else if (this.state === 'ATTACK_HEAVY' && this.animTimer > 28) {
+    } else if (this.state === 'ATTACK_HEAVY' && this.animTimer > 28 * this.attackSpeed) {
       this.state = 'IDLE';
       this.hitRegistered = false;
     } else if (this.state === 'SPECIAL') {
@@ -797,7 +875,7 @@ export class Fighter {
     this.state = 'ATTACK_LIGHT';
     this.animTimer = 0;
     this.hitRegistered = false;
-    this.attackCooldown = 14;
+    this.attackCooldown = Math.round(14 * this.attackSpeed);
     sounds.playSwing();
   }
 
@@ -806,7 +884,7 @@ export class Fighter {
     this.state = 'ATTACK_HEAVY';
     this.animTimer = 0;
     this.hitRegistered = false;
-    this.attackCooldown = 26;
+    this.attackCooldown = Math.round(26 * this.attackSpeed);
     sounds.playHeavySwing();
   }
 
@@ -843,12 +921,23 @@ export class Fighter {
   }
 
   public jump() {
+    const fresh = !this.jumpHeld;
+    this.jumpHeld = true;
     if (this.isGrounded && this.state !== 'HITSTUN' && this.state !== 'SPECIAL') {
       this.vy = -16.5;
       this.isGrounded = false;
       this.state = 'JUMP';
+      this.airJumped = false;
+      sounds.playJump();
+    } else if (fresh && this.deity.id === 'quetzalcoatl' && this.state === 'JUMP' && !this.airJumped) {
+      this.airJumped = true;
+      this.vy = -14;
       sounds.playJump();
     }
+  }
+
+  public releaseJump() {
+    this.jumpHeld = false;
   }
 
   public crouchOrBlock(isHolding: boolean) {
@@ -1742,6 +1831,8 @@ export default function App() {
 
           if (keys['w'] || keys['KeyW']) {
             p1.jump();
+          } else {
+            p1.releaseJump();
           }
 
           if (keys['j'] || keys['KeyJ']) {
@@ -1781,6 +1872,8 @@ export default function App() {
 
           if (keys['ArrowUp']) {
             p2.jump();
+          } else {
+            p2.releaseJump();
           }
 
           if (keys['u'] || keys['KeyU']) {
@@ -1816,6 +1909,13 @@ export default function App() {
         checkCombatHits(p2, p1);
 
         updateParticles();
+
+        for (const f of [p1, p2]) {
+          if (f.tryRevive()) {
+            popupText(f.x, f.y - 170, '¡RENACE!', '#4ade80');
+            sounds.playSuperReady();
+          }
+        }
 
         if (p1.hp <= 0 && p2.hp > 0) {
           p1.state = 'DEFEAT';
@@ -1881,6 +1981,10 @@ export default function App() {
     });
   };
 
+  const popupText = (x: number, y: number, text: string, color: string) => {
+    particlesRef.current.push({ x, y, vx: 0, vy: -1.2, radius: 0, color, alpha: 1, decay: 0.025, type: 'text', text });
+  };
+
   const checkCombatHits = (attacker: Fighter, defender: Fighter) => {
     const hitbox = attacker.getHitbox();
     if (!hitbox || attacker.hitRegistered || defender.hp <= 0) return;
@@ -1915,13 +2019,52 @@ export default function App() {
         hitstunTime = 36;
       }
 
-      if (defender.isBlocking) {
-        const blockedDamage = Math.max(1, Math.floor(baseDamage * 0.15 * dmgMultiplier));
+      const heavy = attacker.state === 'ATTACK_HEAVY';
+      let damage = baseDamage * dmgMultiplier * attacker.damageMul * defender.defMul;
+      knockX *= STYLE_KNOCKBACK_TAKEN[defender.deity.style];
+      if (heavy && attacker.deity.id === 'poseidon') knockX *= PASSIVE.poseidonPush;
+      if (heavy && attacker.deity.id === 'zeus') {
+        damage *= 1 + PASSIVE.zeusBonus;
+        popupText(defender.x, defender.y - 190, '¡JUICIO CELESTIAL!', '#38bdf8');
+        for (let k = 0; k < 20; k++) {
+          particlesRef.current.push({ x: defender.x + (Math.random() - 0.5) * 30, y: Math.random() * defender.y, vx: (Math.random() - 0.5) * 4, vy: 10 + Math.random() * 8, radius: 3 + Math.random() * 3, color: Math.random() < 0.6 ? '#38bdf8' : '#ffffff', alpha: 1, decay: 0.04, type: 'lightning' });
+        }
+      }
+      // Susanoo atraviesa el bloqueo; el resto de los estilos de Poder lo rompe
+      const unblockable = heavy && attacker.deity.id === 'susanoo';
+      const guardBreak = heavy && attacker.deity.style === 'Poder' && !unblockable;
+
+      // Anubis esquiva algunos golpes por completo
+      if (!defender.isBlocking && attacker.state !== 'SPECIAL' && defender.deity.id === 'anubis' && Math.random() < PASSIVE.evadeChance) {
+        popupText(defender.x, defender.y - 160, '¡ESQUIVA!', '#c4b5fd');
+        defender.vx = attacker.facing * 6;
+        return;
+      }
+
+      if (defender.isBlocking && !unblockable) {
+        const blockedDamage = guardBreak
+          ? Math.round(damage * 0.4)
+          : defender.deity.style === 'Guardián'
+            ? 0
+            : Math.max(1, Math.floor(damage * 0.15));
         defender.hp = Math.max(0, defender.hp - blockedDamage);
         sounds.playBlock();
 
-        defender.superMeter = Math.min(100, defender.superMeter + 7);
-        attacker.superMeter = Math.min(100, attacker.superMeter + 4);
+        defender.superMeter = Math.min(100, defender.superMeter + (defender.deity.style === 'Guardián' ? 12 : 7) * defender.meterMul);
+        attacker.superMeter = Math.min(100, attacker.superMeter + 4 * attacker.meterMul);
+
+        if (guardBreak) {
+          defender.isBlocking = false;
+          defender.state = 'HITSTUN';
+          defender.hitstunTimer = 20;
+          popupText(defender.x, defender.y - 175, '¡GUARDIA ROTA!', '#f97316');
+        }
+        // Mictlantecuhtli regresa parte del golpe bloqueado
+        if (defender.deity.id === 'mictlantecuhtli' && attacker.hp > 0) {
+          attacker.hp = Math.max(0, attacker.hp - Math.max(1, Math.round(damage * PASSIVE.reflect)));
+          attacker.hitFlashTimer = 3;
+          popupText(attacker.x, attacker.y - 160, '¡REFLEJO!', '#a78bfa');
+        }
 
         defender.vx = attacker.facing * 4;
         attacker.vx = -attacker.facing * 3;
@@ -1967,17 +2110,25 @@ export default function App() {
         });
       } else {
         // Golpe limpio
-        const finalDamage = Math.floor(baseDamage * dmgMultiplier);
+        const finalDamage = Math.round(damage);
         defender.hp = Math.max(0, defender.hp - finalDamage);
-
-        defender.vx = attacker.facing * knockX;
-        defender.vy = knockY;
-        defender.state = 'HITSTUN';
-        defender.hitstunTimer = hitstunTime;
         defender.hitFlashTimer = 3; // Destello blanco en el sprite
 
-        attacker.superMeter = Math.min(100, attacker.superMeter + (attacker.state === 'ATTACK_HEAVY' ? 18 : 10));
-        defender.superMeter = Math.min(100, defender.superMeter + 14);
+        // Raijin no se inmuta mientras da su golpe fuerte
+        if (defender.deity.id === 'raijin' && defender.state === 'ATTACK_HEAVY' && defender.hp > 0) {
+          popupText(defender.x, defender.y - 175, '¡ARMADURA!', '#60a5fa');
+        } else {
+          defender.vx = attacker.facing * knockX;
+          defender.vy = knockY;
+          defender.state = 'HITSTUN';
+          defender.hitstunTimer = hitstunTime;
+        }
+
+        if (attacker.deity.id === 'hades') attacker.hp = Math.min(attacker.maxHp, attacker.hp + Math.round(finalDamage * PASSIVE.lifesteal));
+        if (attacker.deity.id === 'ra') defender.burnTimer = PASSIVE.burnTicks;
+
+        attacker.superMeter = Math.min(100, attacker.superMeter + (attacker.state === 'ATTACK_HEAVY' ? 18 : 10) * attacker.meterMul);
+        defender.superMeter = Math.min(100, defender.superMeter + 14 * defender.meterMul);
 
         hitstopFramesRef.current = attacker.state === 'ATTACK_HEAVY' ? 5 : attacker.state === 'SPECIAL' ? 8 : 3;
         if (attacker.state === 'ATTACK_HEAVY') {

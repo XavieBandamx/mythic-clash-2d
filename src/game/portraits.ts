@@ -7,7 +7,8 @@ const PORTRAIT_IDS = new Set([
   'zeus', 'hades', 'poseidon',
   'ra', 'anubis', 'osiris',
   'quetzalcoatl', 'huitzilopochtli', 'mictlantecuhtli',
-  'amaterasu', 'susanoo', 'raijin'
+  'amaterasu', 'susanoo', 'raijin',
+  'origen'
 ]);
 
 function getDeityPortrait(deityId: string): SpriteSheetEntry | null {

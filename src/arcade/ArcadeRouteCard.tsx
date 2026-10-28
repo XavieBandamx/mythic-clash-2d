@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { DEITIES } from '../game/deities';
 import type { DeityData } from '../game/deities';
 import { drawDeityPortraitIcon, onPortraitLoad } from '../game/portraits';
-import { LEVELS } from './levels';
+import { FINAL_LEVEL, LEVELS, ORIGEN } from './levels';
 
 function BossPortrait({ deityId }: { deityId: string }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -27,7 +27,7 @@ export default function ArcadeRouteCard({ hero }: { hero: DeityData }) {
         RUTA DEL TORNEO
       </div>
       <p className="text-[12px] text-slate-400 mt-2 mb-3 leading-snug">
-        Avanza a pie por cuatro panteones, derrota a sus monstruos y vence al dios que custodia cada nivel.
+        Avanza a pie por cuatro panteones, derrota a sus monstruos y vence al dios que custodia cada nivel. Al final te espera el creador de todo.
       </p>
       <div className="space-y-2">
         {LEVELS.map((level, i) => {
@@ -46,6 +46,14 @@ export default function ArcadeRouteCard({ hero }: { hero: DeityData }) {
             </div>
           );
         })}
+        <div className="flex items-center gap-3 bg-violet-950/50 rounded-lg p-2 border border-violet-400/30">
+          <BossPortrait deityId={ORIGEN.id} />
+          <div className="text-left min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-violet-300">Nivel final · Más allá de los reinos</div>
+            <div className="font-cinzel text-sm font-bold text-slate-100 truncate">{FINAL_LEVEL.title}</div>
+            <div className="text-[11px] text-amber-300 truncate">Jefe final: {ORIGEN.name}, {ORIGEN.title}</div>
+          </div>
+        </div>
       </div>
       <div className="mt-3 p-2 bg-amber-500/10 rounded-lg border border-amber-500/25 text-[11px] text-slate-300 leading-snug">
         <b className="text-amber-300">J</b> combo · <b className="text-amber-300">K</b> salto · <b className="text-amber-300">J+K</b> giro ·{' '}

@@ -1,3 +1,5 @@
+import type { FightStyle, Passive } from './styles';
+
 export type Pantheon = 'Grecia' | 'Egipto' | 'México' | 'Japón';
 
 export interface DeityStats {
@@ -19,6 +21,8 @@ export interface DeityData {
   accentColor: string;
   auraColor: string;
   stats: DeityStats;
+  style: FightStyle;
+  passive: Passive;
   isUnique: boolean;
 }
 
@@ -37,7 +41,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#facc15',
     accentColor: '#38bdf8',
     auraColor: 'rgba(56, 189, 248, 0.55)',
-    stats: { attack: 5, speed: 4, defense: 3 },
+    stats: { attack: 5, speed: 3, defense: 2 },
+    style: 'Poder',
+    passive: { name: 'Juicio Celestial', desc: 'Su remate (golpe fuerte en versus, tercer golpe del combo en arcade) llama un rayo que hace 50% más de daño.' },
     isUnique: true
   },
   {
@@ -52,7 +58,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#991b1b',
     accentColor: '#c084fc',
     auraColor: 'rgba(192, 132, 252, 0.45)',
-    stats: { attack: 4, speed: 3, defense: 5 },
+    stats: { attack: 3, speed: 2, defense: 5 },
+    style: 'Guardián',
+    passive: { name: 'Cosecha de Almas', desc: 'Recupera vida con cada golpe que conecta (25% del daño).' },
     isUnique: false
   },
   {
@@ -67,7 +75,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#0d9488',
     accentColor: '#67e8f9',
     auraColor: 'rgba(6, 182, 212, 0.45)',
-    stats: { attack: 4, speed: 4, defense: 4 },
+    stats: { attack: 4, speed: 3, defense: 3 },
+    style: 'Alcance',
+    passive: { name: 'Marea Implacable', desc: 'Sus golpes fuertes empujan casi al doble de distancia.' },
     isUnique: false
   },
 
@@ -84,7 +94,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#dc2626',
     accentColor: '#fb923c',
     auraColor: 'rgba(234, 179, 8, 0.65)',
-    stats: { attack: 5, speed: 3, defense: 4 },
+    stats: { attack: 5, speed: 2, defense: 3 },
+    style: 'Poder',
+    passive: { name: 'Fuego Solar', desc: 'Sus golpes queman: el rival sigue perdiendo vida unos segundos.' },
     isUnique: true
   },
   {
@@ -99,7 +111,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#ca8a04',
     accentColor: '#facc15',
     auraColor: 'rgba(250, 204, 21, 0.4)',
-    stats: { attack: 4, speed: 5, defense: 3 },
+    stats: { attack: 3, speed: 5, defense: 2 },
+    style: 'Velocidad',
+    passive: { name: 'Paso de las Sombras', desc: 'Esquiva por completo uno de cada cinco golpes.' },
     isUnique: false
   },
   {
@@ -114,7 +128,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#d97706',
     accentColor: '#4ade80',
     auraColor: 'rgba(74, 222, 128, 0.45)',
-    stats: { attack: 3, speed: 3, defense: 5 },
+    stats: { attack: 2, speed: 3, defense: 5 },
+    style: 'Guardián',
+    passive: { name: 'Renacer', desc: 'Una vez por pelea (o por nivel), vuelve de la muerte con un tercio de vida.' },
     isUnique: false
   },
 
@@ -131,7 +147,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#10b981',
     accentColor: '#f43f5e',
     auraColor: 'rgba(16, 185, 129, 0.5)',
-    stats: { attack: 4, speed: 5, defense: 3 },
+    stats: { attack: 3, speed: 5, defense: 2 },
+    style: 'Velocidad',
+    passive: { name: 'Alas de Viento', desc: 'Puede dar un segundo salto en el aire.' },
     isUnique: false
   },
   {
@@ -146,7 +164,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#ea580c',
     accentColor: '#fbbf24',
     auraColor: 'rgba(234, 88, 12, 0.5)',
-    stats: { attack: 5, speed: 4, defense: 3 },
+    stats: { attack: 5, speed: 3, defense: 2 },
+    style: 'Poder',
+    passive: { name: 'Furia del Sol Guerrero', desc: 'Con poca vida pega un 50% más fuerte.' },
     isUnique: false
   },
   {
@@ -161,7 +181,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#b91c1c',
     accentColor: '#f87171',
     auraColor: 'rgba(185, 28, 28, 0.45)',
-    stats: { attack: 4, speed: 3, defense: 5 },
+    stats: { attack: 3, speed: 2, defense: 5 },
+    style: 'Guardián',
+    passive: { name: 'Espejo del Mictlán', desc: 'Regresa al atacante parte del daño que bloquea o recibe.' },
     isUnique: false
   },
 
@@ -178,7 +200,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#e11d48',
     accentColor: '#f59e0b',
     auraColor: 'rgba(244, 63, 94, 0.45)',
-    stats: { attack: 4, speed: 5, defense: 3 },
+    stats: { attack: 3, speed: 5, defense: 2 },
+    style: 'Velocidad',
+    passive: { name: 'Luz Eterna', desc: 'Carga su súper un 50% más rápido; en arcade recupera magia con el tiempo.' },
     isUnique: false
   },
   {
@@ -193,7 +217,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#6366f1',
     accentColor: '#67e8f9',
     auraColor: 'rgba(99, 102, 241, 0.45)',
-    stats: { attack: 5, speed: 4, defense: 3 },
+    stats: { attack: 5, speed: 3, defense: 2 },
+    style: 'Poder',
+    passive: { name: 'Tajo de la Tormenta', desc: 'Su golpe fuerte atraviesa el bloqueo y la armadura de los monstruos.' },
     isUnique: false
   },
   {
@@ -208,7 +234,9 @@ export const DEITIES: DeityData[] = [
     secondaryColor: '#f59e0b',
     accentColor: '#fde047',
     auraColor: 'rgba(245, 158, 11, 0.45)',
-    stats: { attack: 4, speed: 3, defense: 5 },
+    stats: { attack: 4, speed: 2, defense: 5 },
+    style: 'Guardián',
+    passive: { name: 'Tambores de Trueno', desc: 'Mientras ataca no se inmuta: aguanta golpes sin perder su ataque.' },
     isUnique: false
   }
 ];

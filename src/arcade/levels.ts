@@ -1,4 +1,4 @@
-import type { Pantheon } from '../game/deities';
+import type { DeityData, Pantheon } from '../game/deities';
 
 // ==========================================================================
 // DATOS DEL MODO ARCADE: NIVELES, MONSTRUOS, OLEADAS Y JEFES
@@ -95,13 +95,14 @@ export interface LevelTheme {
   wall: string;  // Franja trasera del suelo
 }
 
-export type BossSpecial = 'charge' | 'orb' | 'thunder' | 'slam';
+export type BossSpecial = 'charge' | 'orb' | 'thunder' | 'slam' | 'teleport' | 'collapse';
 
 // Escenario pintado (en public/backgrounds). Sin él, el nivel se dibuja por código con su LevelTheme.
 export interface LevelArt {
   background?: string; // Panorama del cielo y el paisaje
   horizonY?: number;   // Fila de la imagen de fondo donde empieza el suelo
   floor?: string;      // Pieza de suelo que se repite en horizontal (vista desde arriba)
+  platform?: boolean;  // La imagen trae su propio suelo: arena fija de una pantalla, sin pieza de suelo
 }
 
 export interface LevelDef {
@@ -234,6 +235,57 @@ export interface Wave {
   camX: number; // La cámara se bloquea aquí y aparecen los monstruos
   spawns: WaveSpawn[];
 }
+
+// --- JEFE FINAL: ORIGEN, EL TEJEDOR DE MUNDOS (no seleccionable) ---
+export const ORIGEN: DeityData = {
+  id: 'origen',
+  name: 'Origen',
+  pantheon: 'Grecia', // Sin reino propio; el campo solo lo exige el tipo
+  title: 'El Tejedor de Mundos',
+  lore: 'Existía antes que todos los panteones y tejió el cosmos con hilos de luz. Ha despertado para deshacer su obra.',
+  specialName: 'Colapso del Cosmos',
+  specialDesc: 'Deshace el universo; solo un círculo de luz queda a salvo.',
+  primaryColor: '#4c1d95',
+  secondaryColor: '#1e1b4b',
+  accentColor: '#fbbf24',
+  auraColor: 'rgba(167, 139, 250, 0.45)',
+  stats: { attack: 10, speed: 6, defense: 10 },
+  style: 'Guardián',
+  passive: { name: 'Tejedor de Mundos', desc: 'Al canalizar sus poderes descubre su máscara y recibe el doble de daño.' },
+  isUnique: true
+};
+
+// Poderes de Origen según la vida que le queda (de más a menos): cada fase suma presión
+export function origenSpecials(hpFrac: number): BossSpecial[] {
+  if (hpFrac > 0.75) return ['orb', 'teleport'];
+  if (hpFrac > 0.5) return ['orb', 'thunder', 'teleport'];
+  if (hpFrac > 0.25) return ['thunder', 'teleport', 'orb'];
+  return ['collapse', 'collapse', 'thunder', 'teleport'];
+}
+
+// Nivel 5: una sola pantalla en el Telar del Cosmos, sin oleadas; sus refuerzos son ecos de los cuatro reinos
+export const FINAL_LEVEL: LevelDef = {
+  pantheon: 'Grecia',
+  title: 'El Telar del Cosmos',
+  subtitle: 'Más allá de los reinos, el creador despierta',
+  theme: {
+    skyTop: '#0b0620',
+    skyBottom: '#2e1065',
+    sun: '#fbbf24',
+    far: '#1e1b4b',
+    mid: '#4c1d95',
+    floor: '#1c1917',
+    floorLine: '#fbbf24',
+    wall: '#0c0a09'
+  },
+  skins: {
+    grunt: { name: 'Eco Hoplita', spriteId: 'hoplita', body: '#e7e5e4', detail: '#b45309', accent: '#ef4444', head: 'helmet', weapon: 'spear', extra: 'shield' },
+    brute: { name: 'Eco del Minotauro', spriteId: 'minotauro', body: '#78350f', detail: '#a8a29e', accent: '#fbbf24', head: 'bull', weapon: 'axe' },
+    runner: { name: 'Eco Arpía', spriteId: 'arpia', body: '#7c3aed', detail: '#c4b5fd', accent: '#fde047', head: 'imp', weapon: 'claws', extra: 'wings' }
+  },
+  bossOrder: ['origen'],
+  art: { background: 'telar-fondo.webp', horizonY: 548, platform: true }
+};
 
 export const LEVEL_LENGTH = 4200;
 export const BOSS_CAM_X = LEVEL_LENGTH - 1280;

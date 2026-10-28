@@ -66,6 +66,8 @@ export const SPRITE_SHEET_OVERRIDES: Record<string, Partial<SpriteSheetConfig>> 
   ra: { frameWidth: 306, frameHeight: 136, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
   raijin: { frameWidth: 252, frameHeight: 162, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
   susanoo: { frameWidth: 306, frameHeight: 136, scale: 1.33, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  // Jefe final: mide el doble que un dios (≈350 px en idle con la escala ×1.2 de los jefes)
+  origen: { frameWidth: 376, frameHeight: 208, scale: 1.45, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
   zeus: { frameWidth: 316, frameHeight: 117, scale: 1.64, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 }
 };
 

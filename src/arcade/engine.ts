@@ -6,7 +6,8 @@ import type { Difficulty, Particle } from '../game/core';
 import { GRID_4X4_ANIMATIONS, drawSpriteFrame, getSpriteSheetConfig, loadSpriteSheet } from '../game/sprites';
 import type { SpriteSheetConfig, SpriteSheetEntry } from '../game/sprites';
 import { drawDeityPortraitIcon } from '../game/portraits';
-import { BEASTS, BOSS_CAM_X, BOSS_SPECIALS, LEVELS, MONSTER_SPRITES, MONSTER_STATS, THIEF_SKIN, buildWaves } from './levels';
+import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from '../game/styles';
+import { BEASTS, BOSS_CAM_X, BOSS_SPECIALS, FINAL_LEVEL, LEVELS, MONSTER_SPRITES, MONSTER_STATS, ORIGEN, THIEF_SKIN, buildWaves, origenSpecials } from './levels';
 import type { BeastAttack, BeastDef, BossSpecial, LevelDef, MonsterKind, MonsterSkin, MonsterStats, Wave, WaveSpawn } from './levels';
 import { DEPTH, VIEW_H, VIEW_W, drawBackground, drawItem, drawMonsterOutlined, drawOrb, drawTelegraph, screenY } from './draw';
 import type { MonsterPose } from './draw';
@@ -60,6 +61,7 @@ export interface HitInfo {
   heavy: boolean;
   dir: 1 | -1;
   magic?: boolean;
+  pierce?: boolean; // Atraviesa la armadura de los monstruos (Susanoo)
 }
 
 interface StrikeSpec {
@@ -215,8 +217,17 @@ abstract class Actor {
     return true;
   }
 
+  public burnTicks: number = 0; // Quemadura de Ra
+
   protected tickTimers() {
     this.stateTimer++;
+    if (this.burnTicks > 0) {
+      this.burnTicks--;
+      if (this.burnTicks % PASSIVE.burnEvery === 0 && this.hp > 1) {
+        this.hp = Math.max(1, this.hp - PASSIVE.burnDamage);
+        this.flash = 2;
+      }
+    }
     if (this.invuln > 0) this.invuln--;
     if (this.flash > 0) this.flash--;
     if (this.landTimer > 0) this.landTimer--;
@@ -343,9 +354,11 @@ export class Hero extends Actor {
   public gameOver: boolean = false;
   public displayHp: number;
   public walkSpeed: number;
-  public dmgMul: number;
   public defMul: number;
   public comboStep: number = 0;
+  public canRevive: boolean = true; // Osiris: una vez por nivel
+  private baseDmgMul: number;
+  private airJumped: boolean = false; // Quetzalcóatl
 
   private comboWindow: number = 0;
   private bufferedAttack: boolean = false;
@@ -365,17 +378,37 @@ export class Hero extends Actor {
     this.displayHp = this.hp;
     // Las estadísticas del dios (1-5) definen velocidad, daño y resistencia
     this.walkSpeed = 2.6 + deity.stats.speed * 0.35;
-    this.dmgMul = 0.8 + deity.stats.attack * 0.1;
-    this.defMul = 1.2 - deity.stats.defense * 0.08;
+    this.baseDmgMul = statDamageMul(deity.stats.attack);
+    this.defMul = statDefenseMul(deity.stats.defense);
+  }
+
+  // Huitzilopochtli pega más fuerte con poca vida
+  public get dmgMul(): number {
+    const fury = this.deity.id === 'huitzilopochtli' && this.hp < this.maxHp * PASSIVE.furyBelow ? PASSIVE.furyMul : 1;
+    return this.baseDmgMul * fury;
   }
 
   private get comboDuration(): number {
-    return this.comboStep === 3 ? 24 : 17;
+    return Math.round((this.comboStep === 3 ? 24 : 17) * STYLE_ATTACK_SPEED[this.deity.style]);
+  }
+
+  // Raijin no se inmuta mientras ataca
+  private get armored(): boolean {
+    return this.deity.id === 'raijin' && ['attack', 'dashAttack', 'jumpAttack'].includes(this.state);
+  }
+
+  protected canBeKnockedDown(_hit: HitInfo): boolean {
+    return !this.armored;
+  }
+
+  protected flinchesFrom(_hit: HitInfo): boolean {
+    return !this.armored;
   }
 
   public receiveHit(hit: HitInfo): boolean {
     if (this.state === 'magic' || this.state === 'spin') return false;
     const landed = super.receiveHit({ ...hit, damage: hit.damage * this.defMul });
+    if (landed && this.state === 'knockdown') this.vx *= STYLE_KNOCKBACK_TAKEN[this.deity.style];
     if (landed && this.state === 'hurt') this.invuln = 22;
     return landed;
   }
@@ -420,9 +453,22 @@ export class Hero extends Actor {
       this.lastTapRight = tick;
     }
 
+    if (this.deity.id === 'amaterasu' && tick > 0 && tick % 1800 === 0 && this.magic < MAX_MAGIC && this.hp > 0) {
+      this.magic++;
+      world.floatingText(this.x, screenY(this.z) - 200, '+1 MAGIA', '#fde68a');
+    }
+
     // Al quedarse sin vida y terminar la caída se gasta una vida
     if (this.state === 'down' && this.hp <= 0) {
-      if (this.stateTimer >= 40) {
+      if (this.stateTimer >= 40 && this.deity.id === 'osiris' && this.canRevive) {
+        this.canRevive = false;
+        this.hp = Math.round(this.maxHp * PASSIVE.reviveHp);
+        this.displayHp = this.hp;
+        this.setState('idle');
+        this.invuln = 120;
+        world.floatingText(this.x, screenY(this.z) - 200, '¡RENACE!', '#4ade80');
+        sounds.playSuperReady();
+      } else if (this.stateTimer >= 40) {
         this.lives--;
         if (this.lives > 0) {
           world.respawnHero(this);
@@ -546,8 +592,14 @@ export class Hero extends Actor {
         if (input.attack && this.stateTimer > 3) {
           this.setState('jumpAttack');
           sounds.playSwing();
+        } else if (input.jump && this.deity.id === 'quetzalcoatl' && !this.airJumped && this.stateTimer > 3) {
+          this.airJumped = true;
+          this.vy = 11;
+          world.dust(this.x, this.z, 3);
+          sounds.playJump();
         }
         if (this.integrate()) {
+          this.airJumped = false;
           world.dust(this.x, this.z, 4);
           this.setState('idle');
         }
@@ -853,11 +905,11 @@ export class Monster extends Actor {
   }
 
   protected canBeKnockedDown(hit: HitInfo): boolean {
-    return !this.stats.armor || hit.heavy || hit.magic === true;
+    return !this.stats.armor || hit.heavy || hit.magic === true || hit.pierce === true;
   }
 
   protected flinchesFrom(hit: HitInfo): boolean {
-    return !this.stats.armor || hit.heavy;
+    return !this.stats.armor || hit.heavy || hit.pierce === true;
   }
 
   public update(world: ArcadeGame) {
@@ -1229,9 +1281,13 @@ export class Boss extends Actor {
   private summoned: boolean = false;
   private animClock: number = 0;
   private target: Hero | null = null;
+  // Origen: el doble de grande, con más alcance, fases por vida y daño doble mientras usa un poder
+  public colossal: boolean;
+  public safeZone: { x: number; z: number } | null = null;
 
   constructor(deity: DeityData, x: number, z: number, hp: number, dmgMul: number, introTargetX: number) {
-    super(x, z, hp, 80, 200);
+    super(x, z, hp, deity.id === ORIGEN.id ? 140 : 80, deity.id === ORIGEN.id ? 340 : 200);
+    this.colossal = deity.id === ORIGEN.id;
     this.deity = deity;
     this.cfg = getSpriteSheetConfig(deity);
     this.sheet = loadSpriteSheet(this.cfg.src);
@@ -1259,6 +1315,16 @@ export class Boss extends Actor {
 
   protected flinchesFrom(hit: HitInfo): boolean {
     return this.state !== 'special' && hit.heavy && Math.random() < 0.4;
+  }
+
+  // Al canalizar un poder Origen descubre su máscara: recibe el doble de daño
+  public receiveHit(hit: HitInfo): boolean {
+    const exposed = this.colossal && this.state === 'special';
+    return super.receiveHit(exposed ? { ...hit, damage: hit.damage * 2 } : hit);
+  }
+
+  private get reach(): number {
+    return this.colossal ? 1.5 : 1;
   }
 
   public update(world: ArcadeGame) {
@@ -1297,7 +1363,7 @@ export class Boss extends Actor {
         const finisher = this.comboHits >= 1;
         if (this.stateTimer >= 3 && this.stateTimer <= 9) {
           world.enemyStrike(this, {
-            front: 130,
+            front: 130 * this.reach,
             back: 20,
             damage: this.damage * (finisher ? 1.5 : 1),
             knockdown: finisher,
@@ -1336,16 +1402,17 @@ export class Boss extends Actor {
 
     const heroAvailable = !hero.isDown && hero.invuln < 100;
     if (heroAvailable && this.specialCooldown <= 0) {
-      this.currentSpecial = this.specials[Math.floor(Math.random() * this.specials.length)];
+      const pool = this.colossal ? origenSpecials(this.hp / this.maxHp) : this.specials;
+      this.currentSpecial = pool[Math.floor(Math.random() * pool.length)];
       this.facing = hero.x >= this.x ? 1 : -1;
       this.setState('special');
-      this.specialCooldown = this.enraged ? 240 : 360;
+      this.specialCooldown = (this.enraged ? 240 : 360) * (this.colossal ? 0.7 : 1);
       sounds.playSuperActivation();
       return;
     }
 
     const side = this.x < hero.x ? -1 : 1;
-    const desiredX = heroAvailable ? hero.x + side * 110 : hero.x + side * 300;
+    const desiredX = heroAvailable ? hero.x + side * 110 * this.reach : hero.x + side * 300;
     const desiredZ = hero.z;
     const dx = desiredX - this.x;
     const dz = desiredZ - this.z;
@@ -1358,7 +1425,7 @@ export class Boss extends Actor {
     const moving = this.vx !== 0 || this.vz !== 0;
     if (this.state !== (moving ? 'walk' : 'idle')) this.setState(moving ? 'walk' : 'idle');
 
-    if (heroAvailable && this.cooldown <= 0 && Math.abs(hero.x - this.x) <= 145 && Math.abs(hero.z - this.z) <= Z_REACH) {
+    if (heroAvailable && this.cooldown <= 0 && Math.abs(hero.x - this.x) <= 145 * this.reach && Math.abs(hero.z - this.z) <= Z_REACH) {
       this.comboHits = 0;
       this.setState('windup');
     }
@@ -1430,6 +1497,35 @@ export class Boss extends Actor {
         world.clampToView(this);
         break;
       }
+      case 'teleport': {
+        // Se deshace en estrellas y reaparece a la espalda del héroe para golpear
+        this.vx = 0;
+        this.vz = 0;
+        if (t === 1 || t === 20) world.starBurst(this.x, this.z);
+        if (t === 20) {
+          this.x = hero.x - hero.facing * 120;
+          this.z = hero.z;
+          world.clampToView(this);
+          this.facing = hero.x >= this.x ? 1 : -1;
+        }
+        if (t >= 36) {
+          this.comboHits = 0;
+          this.setState('windup');
+        }
+        break;
+      }
+      case 'collapse': {
+        // El cosmos se deshace: solo el círculo de luz protege del estallido
+        this.vx = 0;
+        this.vz = 0;
+        if (t === 1) this.safeZone = world.startCollapse(this);
+        if (t === COLLAPSE_TICKS && this.safeZone) {
+          world.collapseBlast(this, this.safeZone);
+          this.safeZone = null;
+        }
+        if (t >= COLLAPSE_TICKS + 40) this.setState('recover');
+        break;
+      }
       default:
         this.setState('recover');
     }
@@ -1437,7 +1533,11 @@ export class Boss extends Actor {
 
   public render(ctx: CanvasRenderingContext2D) {
     const feetY = screenY(this.z, this.y);
-    const alpha = this.state === 'dead' ? Math.max(0, 1 - this.stateTimer / 50) : 1;
+    let alpha = this.state === 'dead' ? Math.max(0, 1 - this.stateTimer / 50) : 1;
+    if (this.state === 'special' && this.currentSpecial === 'teleport') {
+      const t = this.stateTimer;
+      alpha = t < 20 ? 1 - t / 20 : Math.min(1, (t - 20) / 16);
+    }
 
     // Aura divina permanente (roja al enfurecerse)
     const aura = ctx.createRadialGradient(this.x, feetY - 100, 10, this.x, feetY - 100, 170);
@@ -1515,6 +1615,8 @@ interface Item {
 }
 
 const THUNDER_DELAY = 50;
+const COLLAPSE_TICKS = 150; // Aviso antes del estallido del colapso de Origen
+const COLLAPSE_SAFE_RADIUS = 110;
 const THUNDER_RADIUS = 75;
 
 type Phase = 'play' | 'bossIntro' | 'boss' | 'levelClear' | 'gameOver' | 'victory';
@@ -1608,9 +1710,11 @@ export class ArcadeGame {
   // --- FLUJO DE NIVELES ---
 
   private startLevel(index: number) {
+    // Tras los cuatro reinos llega el nivel final: una sola pantalla contra Origen
+    const final = index >= LEVELS.length;
     this.levelIndex = index;
-    this.level = LEVELS[index];
-    this.waves = buildWaves(index);
+    this.level = final ? FINAL_LEVEL : LEVELS[index];
+    this.waves = final ? [] : buildWaves(index);
     this.waveIndex = 0;
     this.waveActive = false;
     this.pending = [];
@@ -1622,18 +1726,19 @@ export class ArcadeGame {
     this.thunders = [];
     this.items = [];
     this.particles = [];
-    this.camX = 0;
+    this.camX = final ? BOSS_CAM_X : 0;
     this.phase = 'play';
     this.phaseTimer = 0;
-    this.goTimer = 240;
+    this.goTimer = final ? 0 : 240;
 
     // En cooperativo, el 2P entra un poco atrás y más al frente
     for (const hero of this.heroes) {
-      hero.x = this.coop ? (hero.index === 0 ? 260 : 170) : 220;
+      hero.x = this.camX + (this.coop ? (hero.index === 0 ? 260 : 170) : 220);
       hero.z = DEPTH * (this.coop ? (hero.index === 0 ? 0.4 : 0.85) : 0.6);
       hero.y = 0;
       hero.vx = hero.vz = hero.vy = 0;
       hero.mount = null;
+      hero.canRevive = true;
       if (!hero.gameOver) hero.setState('idle');
       hero.invuln = 60;
     }
@@ -1641,7 +1746,7 @@ export class ArcadeGame {
     // El jefe nunca es el dios que controla alguno de los jugadores
     const playerIds = this.heroes.map(h => h.deity.id);
     const bossId = this.level.bossOrder.find(id => !playerIds.includes(id)) ?? this.level.bossOrder[0];
-    this.bossDeity = DEITIES.find(d => d.id === bossId) ?? DEITIES[0];
+    this.bossDeity = final ? ORIGEN : DEITIES.find(d => d.id === bossId) ?? DEITIES[0];
     loadSpriteSheet(getSpriteSheetConfig(this.bossDeity).src);
     // Escenario pintado del nivel, si lo tiene (se carga con la misma caché que los sprites)
     const loadArt = (file?: string) => (file ? loadSpriteSheet(`${import.meta.env.BASE_URL}backgrounds/${file}`) : null);
@@ -1652,7 +1757,8 @@ export class ArcadeGame {
       if (skin.spriteId && MONSTER_SPRITES[skin.spriteId]) loadSpriteSheet(monsterSpriteSrc(skin.spriteId));
     }
 
-    this.showBanner(`NIVEL ${index + 1} · ${this.level.pantheon.toUpperCase()}`, `${this.level.title} — ${this.level.subtitle}`, '#fbbf24', 220);
+    const levelName = final ? 'FINAL' : `${index + 1} · ${this.level.pantheon.toUpperCase()}`;
+    this.showBanner(`NIVEL ${levelName}`, `${this.level.title} — ${this.level.subtitle}`, final ? '#c4b5fd' : '#fbbf24', 220);
   }
 
   private showBanner(title: string, subtitle: string, color: string, duration: number) {
@@ -1733,6 +1839,7 @@ export class ArcadeGame {
     if (this.waveActive || this.phase !== 'play') return;
     const active = this.activeHeroes;
     if (active.length === 0) return;
+    if (this.waves.length === 0 && this.phaseTimer < 150) return; // Nivel final: deja leer el cartel antes del jefe
     const nextStop = this.waveIndex < this.waves.length ? this.waves[this.waveIndex].camX : BOSS_CAM_X;
     // Sigue al que va delante, pero sin dejar fuera de cuadro al que se quedó atrás
     const lead = Math.max(...active.map(h => h.x));
@@ -1750,9 +1857,10 @@ export class ArcadeGame {
     this.phase = 'bossIntro';
     this.phaseTimer = 0;
     this.camX = BOSS_CAM_X;
-    const hp = Math.round(300 * (1 + 0.2 * this.levelIndex) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_BOSS_HP_MUL : 1));
+    const final = this.bossDeity === ORIGEN;
+    const hp = Math.round(300 * (1 + 0.2 * this.levelIndex) * (final ? 1.6 : 1) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_BOSS_HP_MUL : 1));
     this.boss = new Boss(this.bossDeity, this.camX + VIEW_W + 120, DEPTH * 0.5, hp, this.dmgMul, this.camX + VIEW_W * 0.72);
-    this.showBanner(`JEFE · ${this.bossDeity.name.toUpperCase()}`, this.bossDeity.title, this.bossDeity.accentColor, 180);
+    this.showBanner(`${final ? 'JEFE FINAL' : 'JEFE'} · ${this.bossDeity.name.toUpperCase()}`, this.bossDeity.title, this.bossDeity.accentColor, 180);
 
     // Bendición divina: los héroes siempre enfrentan al jefe con la vida completa
     for (const hero of this.activeHeroes) {
@@ -1788,14 +1896,27 @@ export class ArcadeGame {
     }
   }
 
-  private floatingText(x: number, y: number, text: string, color: string) {
+  public floatingText(x: number, y: number, text: string, color: string) {
     this.particles.push({ x, y, vx: 0, vy: -1.2, radius: 0, color, alpha: 1, decay: 0.02, type: 'text', text });
   }
 
   // source: el héroe que golpea (se lleva los puntos); null si el golpe es de un enemigo
   private applyHit(target: Actor, hit: HitInfo, source: Hero | null): boolean {
     const fromHero = source !== null;
+    // Anubis esquiva algunos golpes por completo
+    if (target instanceof Hero && !hit.magic && target.deity.id === 'anubis' && target.canBeHit() && Math.random() < PASSIVE.evadeChance) {
+      target.invuln = Math.max(target.invuln, 20);
+      this.floatingText(target.x, screenY(target.z) - 190, '¡ESQUIVA!', '#c4b5fd');
+      return false;
+    }
+    if (source) hit = this.heroPassiveHit(source, target, hit);
     if (!target.receiveHit(hit)) return false;
+
+    if (source) {
+      if (source.deity.id === 'hades') source.hp = Math.min(source.maxHp, source.hp + hit.damage * PASSIVE.lifesteal);
+      if (source.deity.id === 'ra') target.burnTicks = PASSIVE.burnTicks;
+      if (source.deity.id === 'poseidon' && hit.heavy) target.vx *= PASSIVE.poseidonPush;
+    }
 
     const ix = target.x - hit.dir * target.width * 0.3;
     const iy = screenY(target.z, target.y) - target.height * 0.6;
@@ -1840,9 +1961,23 @@ export class ArcadeGame {
     return true;
   }
 
+  // Remates de Zeus con rayo y tajos de Susanoo que atraviesan armaduras
+  private heroPassiveHit(source: Hero, target: Actor, hit: HitInfo): HitInfo {
+    if (!hit.heavy || hit.magic) return hit;
+    if (source.deity.id === 'zeus') {
+      for (let k = 0; k < 14; k++) {
+        this.particles.push({ x: target.x + (Math.random() - 0.5) * 30, y: screenY(target.z) - Math.random() * 300, vx: (Math.random() - 0.5) * 3, vy: 9 + Math.random() * 6, radius: 3, color: k % 2 ? '#38bdf8' : '#ffffff', alpha: 1, decay: 0.05, type: 'lightning' });
+      }
+      return { ...hit, damage: hit.damage * (1 + PASSIVE.zeusBonus) };
+    }
+    if (source.deity.id === 'susanoo') return { ...hit, pierce: true };
+    return hit;
+  }
+
   public heroStrike(hero: Hero, spec: StrikeSpec) {
-    const x0 = hero.facing === 1 ? hero.x - spec.back : hero.x - spec.front;
-    const x1 = hero.facing === 1 ? hero.x + spec.front : hero.x + spec.back;
+    const front = spec.front * STYLE_REACH[hero.deity.style];
+    const x0 = hero.facing === 1 ? hero.x - spec.back : hero.x - front;
+    const x1 = hero.facing === 1 ? hero.x + front : hero.x + spec.back;
     const targets: Actor[] = [...this.monsters];
     if (this.boss) targets.push(this.boss);
     for (const t of targets) {
@@ -1864,7 +1999,12 @@ export class ArcadeGame {
       if (Math.abs(hero.z - attacker.z) > Z_REACH + 6) continue;
       if (hero.x + hero.width / 2 < x0 || hero.x - hero.width / 2 > x1) continue;
       attacker.hitTargets.add(hero);
-      this.applyHit(hero, { damage: spec.damage, knockdown: spec.knockdown, heavy: spec.heavy, dir: attacker.facing }, null);
+      const landed = this.applyHit(hero, { damage: spec.damage, knockdown: spec.knockdown, heavy: spec.heavy, dir: attacker.facing }, null);
+      // Mictlantecuhtli regresa parte del golpe
+      if (landed && hero.deity.id === 'mictlantecuhtli' && attacker.canBeHit()) {
+        const dir: 1 | -1 = attacker.x >= hero.x ? 1 : -1;
+        this.applyHit(attacker, { damage: spec.damage * PASSIVE.reflect * 0.6, knockdown: false, heavy: false, dir }, hero);
+      }
     }
   }
 
@@ -1980,6 +2120,41 @@ export class ArcadeGame {
       if (hero.canBeHit() && hero.y < 20 && Math.abs(hero.x - boss.x) < 240 && Math.abs(hero.z - boss.z) < 75) {
         this.applyHit(hero, { damage: boss.damage * 1.4, knockdown: true, heavy: true, dir: hero.x >= boss.x ? 1 : -1 }, null);
       }
+    }
+  }
+
+  public starBurst(x: number, z: number) {
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2;
+      this.particles.push({ x, y: screenY(z) - 170, vx: Math.cos(a) * 4, vy: Math.sin(a) * 4, radius: 3, color: i % 2 ? '#fde68a' : '#c4b5fd', alpha: 1, decay: 0.03, type: 'spark' });
+    }
+    sounds.playJump();
+  }
+
+  // El círculo seguro aparece en el lado contrario a los héroes, para obligarlos a moverse
+  public startCollapse(boss: Boss): { x: number; z: number } {
+    const heroes = this.activeHeroes;
+    const avgX = heroes.reduce((sum, h) => sum + h.x, 0) / Math.max(1, heroes.length);
+    const left = this.camX + 220;
+    const right = this.camX + VIEW_W - 220;
+    const x = avgX - this.camX > VIEW_W / 2 ? left + Math.random() * 200 : right - Math.random() * 200;
+    this.showBanner('¡EL COSMOS COLAPSA!', '¡Refúgiate en el círculo de luz!', boss.deity.accentColor, COLLAPSE_TICKS);
+    this.shake(6, COLLAPSE_TICKS);
+    return { x, z: DEPTH * (0.3 + Math.random() * 0.4) };
+  }
+
+  public collapseBlast(boss: Boss, zone: { x: number; z: number }) {
+    this.shake(22, 30);
+    this.hitstop = 10;
+    sounds.playHitHeavy();
+    for (let i = 0; i < 40; i++) {
+      this.particles.push({ x: this.camX + Math.random() * VIEW_W, y: 200 + Math.random() * 500, vx: (Math.random() - 0.5) * 6, vy: -Math.random() * 4, radius: 3 + Math.random() * 4, color: i % 2 ? '#c4b5fd' : '#fde68a', alpha: 1, decay: 0.02, type: 'spark' });
+    }
+    for (const hero of this.activeHeroes) {
+      const nx = (hero.x - zone.x) / COLLAPSE_SAFE_RADIUS;
+      const nz = (hero.z - zone.z) / (COLLAPSE_SAFE_RADIUS * 0.35);
+      if (nx * nx + nz * nz <= 1 || !hero.canBeHit()) continue;
+      this.applyHit(hero, { damage: boss.damage * 3, knockdown: true, heavy: true, dir: hero.x >= zone.x ? 1 : -1 }, null);
     }
   }
 
@@ -2187,12 +2362,17 @@ export class ArcadeGame {
       this.shake(18, 30);
       sounds.playKO();
       sounds.playVictory();
-      this.showBanner(`¡${this.boss.deity.name.toUpperCase()} HA CAÍDO!`, this.levelIndex + 1 < LEVELS.length ? 'Nivel completado · +5000 puntos' : 'El torneo de los dioses es tuyo', '#fbbf24', 240);
+      const subtitle = this.boss.colossal
+        ? 'El creador ha sido vencido'
+        : this.levelIndex + 1 < LEVELS.length
+          ? 'Nivel completado · +5000 puntos'
+          : 'Algo despierta más allá de los reinos...';
+      this.showBanner(`¡${this.boss.deity.name.toUpperCase()} HA CAÍDO!`, subtitle, '#fbbf24', 240);
       for (const m of this.monsters) m.receiveHit({ damage: 999, knockdown: true, heavy: true, dir: m.x >= this.boss.x ? 1 : -1, magic: true });
       this.orbs = [];
       this.thunders = [];
     } else if (this.phase === 'levelClear' && this.phaseTimer >= 270) {
-      if (this.levelIndex + 1 < LEVELS.length) {
+      if (this.levelIndex < LEVELS.length) {
         // Recompensa entre niveles: media vida y una vasija de magia
         for (const hero of this.activeHeroes) {
           hero.hp = Math.min(hero.maxHp, hero.hp + hero.maxHp * 0.5);
@@ -2328,7 +2508,8 @@ export class ArcadeGame {
     drawBackground(ctx, this.level.pantheon, this.level.theme, this.camX, {
       background: readyImage(this.art.background),
       horizonY: this.level.art?.horizonY ?? 0,
-      floor: readyImage(this.art.floor)
+      floor: readyImage(this.art.floor),
+      platform: this.level.art?.platform
     });
 
     ctx.save();
@@ -2348,6 +2529,16 @@ export class ArcadeGame {
       ctx.fill();
     }
 
+    // Círculo de luz del colapso de Origen
+    const zone = this.boss?.safeZone;
+    if (zone && this.boss) {
+      const progress = Math.min(1, this.boss.stateTimer / COLLAPSE_TICKS);
+      drawTelegraph(ctx, zone.x, screenY(zone.z), COLLAPSE_SAFE_RADIUS, 1, '#fde68a');
+      ctx.fillStyle = `rgba(253, 230, 138, ${0.15 + (this.boss.stateTimer % 20 < 10 ? 0.15 : 0)})`;
+      ctx.beginPath();
+      ctx.ellipse(zone.x, screenY(zone.z), COLLAPSE_SAFE_RADIUS * (1 - progress * 0.15), COLLAPSE_SAFE_RADIUS * 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
     for (const th of this.thunders) {
       if (th.t < THUNDER_DELAY) drawTelegraph(ctx, th.x, screenY(th.z), THUNDER_RADIUS, th.t / THUNDER_DELAY, th.color);
     }
@@ -2559,10 +2750,10 @@ export class ArcadeGame {
     if (this.phase === 'gameOver') {
       overlay('GAME OVER', '#ef4444', [`Puntos: ${scores}`, `${this.coop ? 'J o 1' : 'J'}: continuar con 3 vidas  ·  Esc: salir al menú`]);
     } else if (this.phase === 'victory') {
-      overlay(this.coop ? '¡CAMPEONES DEL TORNEO!' : '¡CAMPEÓN DEL TORNEO!', '#fbbf24', [
+      overlay(this.coop ? '¡CAMPEONES DEL COSMOS!' : '¡CAMPEÓN DEL COSMOS!', '#fbbf24', [
         this.coop
-          ? `${this.heroes.map(h => h.deity.name).join(' y ')} vencieron a los cuatro panteones`
-          : `${hero.deity.name} venció a los cuatro panteones`,
+          ? `${this.heroes.map(h => h.deity.name).join(' y ')} vencieron a los cuatro panteones y al mismo Origen`
+          : `${hero.deity.name} venció a los cuatro panteones y al mismo Origen`,
         `Puntos finales: ${scores}`,
         `${this.coop ? 'J o 1' : 'J'}: volver al menú`
       ]);

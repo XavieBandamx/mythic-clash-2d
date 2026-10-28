@@ -122,6 +122,7 @@ export interface PaintedArt {
   background: HTMLImageElement | null;
   horizonY: number;
   floor: HTMLImageElement | null;
+  platform?: boolean;
 }
 
 // Panorama pintado: su horizonte coincide con el borde del suelo y se desplaza despacio a lo largo del nivel
@@ -175,7 +176,19 @@ function drawPaintedFloor(ctx: CanvasRenderingContext2D, img: HTMLImageElement, 
   }
 }
 
+// Arena de una pantalla: la imagen trae su suelo, cuyo borde (horizonY) se alinea con el fondo del suelo jugable
+function drawPlatformBackdrop(ctx: CanvasRenderingContext2D, img: HTMLImageElement, horizonY: number) {
+  const baseline = FLOOR_TOP - 22;
+  const scale = Math.max(VIEW_W / img.width, (VIEW_H - baseline) / (img.height - horizonY));
+  const w = img.width * scale;
+  ctx.drawImage(img, (VIEW_W - w) / 2, baseline - horizonY * scale, w, img.height * scale);
+}
+
 export function drawBackground(ctx: CanvasRenderingContext2D, pantheon: Pantheon, theme: LevelTheme, camX: number, art?: PaintedArt) {
+  if (art?.background && art.platform) {
+    drawPlatformBackdrop(ctx, art.background, art.horizonY);
+    return;
+  }
   if (art?.background) {
     drawPaintedBackdrop(ctx, art.background, art.horizonY, camX);
   } else {
