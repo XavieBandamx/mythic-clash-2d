@@ -46,7 +46,15 @@ export const MONSTER_SPRITES: Record<string, { frameWidth: number; frameHeight: 
   momia: { frameWidth: 460, frameHeight: 200, idleHeight: 189 },
   minotauro: { frameWidth: 398, frameHeight: 217, idleHeight: 210.5 },
   'duende-ladron': { frameWidth: 450, frameHeight: 179, idleHeight: 158 },
-  arpia: { frameWidth: 414, frameHeight: 180, idleHeight: 155.5 }
+  arpia: { frameWidth: 414, frameHeight: 180, idleHeight: 155.5 },
+  'guardian-chacal': { frameWidth: 450, frameHeight: 221, idleHeight: 214.5 },
+  'sombra-set': { frameWidth: 388, frameHeight: 195, idleHeight: 190.5 },
+  'guerrero-calavera': { frameWidth: 448, frameHeight: 214, idleHeight: 210 },
+  'guerrero-jaguar': { frameWidth: 244, frameHeight: 144, idleHeight: 133 },
+  tzitzimitl: { frameWidth: 236, frameHeight: 136, idleHeight: 132 },
+  'oni-menor': { frameWidth: 220, frameHeight: 140, idleHeight: 128.5 },
+  kappa: { frameWidth: 216, frameHeight: 131, idleHeight: 127 },
+  'oni-mayor': { frameWidth: 220, frameHeight: 142, idleHeight: 128.5 }
 };
 
 // --- BESTIAS DE MONTA (una por panteón) ---

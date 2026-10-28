@@ -454,6 +454,17 @@ export class Fighter {
     return 1;
   }
 
+  // Súper de cada dios
+  public slowTimer: number = 0;    // Balanza de Anubis: el rival se mueve lento
+  public screenFlash: number = 0;  // Espejo de Amaterasu: destello que ciega la pantalla
+  private superX: number = 0;      // Posición de la ola, el tornado o la marca del súper en curso
+  private superCaught: boolean = false;
+
+  // Códice de Osiris: su barrera para todo golpe mientras dura el súper
+  public get shielded(): boolean {
+    return this.deity.id === 'osiris' && this.state === 'SPECIAL';
+  }
+
   // Estilo de pelea y pasiva del dios
   public burnTimer: number = 0; // Quemadura de Ra
   private revived: boolean = false; // Osiris
@@ -549,16 +560,6 @@ export class Fighter {
         const boxY = this.y - this.height * 0.82;
         return { x: boxX, y: boxY, w: boxW, h: boxH };
       }
-    } else if (this.state === 'SPECIAL') {
-      // Zeus y Ra aplican el daño de su especial desde update(); una hitbox aquí los haría golpear dos veces
-      if (this.deity.id === 'zeus' || this.deity.id === 'ra') return null;
-      if (this.animTimer >= 12 && this.animTimer <= 46) {
-        const boxW = 200;
-        const boxH = 150;
-        const boxX = this.facing === 1 ? this.x : this.x - boxW;
-        const boxY = this.y - this.height;
-        return { x: boxX, y: boxY, w: boxW, h: boxH };
-      }
     }
 
     return null;
@@ -572,6 +573,12 @@ export class Fighter {
     // Carga progresiva pasiva del Super Meter
     if (this.hp > 0 && opponent.hp > 0) {
       this.superMeter = Math.min(100, this.superMeter + 0.07 * this.meterMul);
+    }
+
+    if (this.screenFlash > 0) this.screenFlash--;
+    if (this.slowTimer > 0) {
+      this.slowTimer--;
+      this.vx *= 0.6;
     }
 
     // Quemadura de Ra: nunca remata, solo desgasta
@@ -818,6 +825,10 @@ export class Fighter {
         }
       }
 
+      else {
+        this.updateSuper(opponent, particles);
+      }
+
       if (this.animTimer > 54) {
         this.state = 'IDLE';
         this.hitRegistered = false;
@@ -826,6 +837,161 @@ export class Fighter {
 
     if (this.isAI && this.hp > 0 && opponent.hp > 0) {
       this.updateAI(opponent, difficulty);
+    }
+  }
+
+  // Golpe de un súper: no se bloquea (salvo la barrera de Osiris)
+  private superHit(opponent: Fighter, damage: number, knockX: number, knockY: number, stun: number, particles: Particle[], color: string) {
+    if (opponent.hp <= 0 || opponent.shielded) return;
+    opponent.hp = Math.max(0, opponent.hp - Math.round(damage * this.damageMul * opponent.defMul * opponent.damageTakenMul()));
+    const dir = opponent.x >= this.x ? 1 : -1;
+    opponent.vx = dir * knockX;
+    opponent.vy = knockY;
+    opponent.state = 'HITSTUN';
+    opponent.hitstunTimer = stun;
+    opponent.hitFlashTimer = 4;
+    sounds.playHitHeavy();
+    spawnBloodBurst(particles, opponent.x, opponent.y - opponent.height * 0.6, dir, opponent.groundY);
+    for (let i = 0; i < 14; i++) {
+      particles.push({ x: opponent.x, y: opponent.y - opponent.height * 0.5, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, radius: 3 + Math.random() * 3, color, alpha: 1, decay: 0.04, type: 'spark' });
+    }
+    this.pendingScreenShake = Math.max(this.pendingScreenShake, 16);
+  }
+
+  // Súper propio de los dioses sin cinemática especial (Zeus y Ra tienen la suya arriba)
+  private updateSuper(opponent: Fighter, particles: Particle[]) {
+    const t = this.animTimer;
+    const dist = Math.abs(opponent.x - this.x);
+    const spark = (x: number, y: number, color: string, type: Particle['type'] = 'spark', spread: number = 6) => {
+      particles.push({ x, y, vx: (Math.random() - 0.5) * spread, vy: (Math.random() - 0.5) * spread, radius: 3 + Math.random() * 4, color, alpha: 1, decay: 0.04, type });
+    };
+
+    switch (this.deity.id) {
+      case 'hades': {
+        // Niebla del Tártaro: llamas oscuras sobre donde estaba el rival que lo desgarran mientras siga dentro
+        if (t === 12) this.superX = opponent.x;
+        if (t >= 12 && t <= 46) {
+          for (let i = 0; i < 3; i++) spark(this.superX + (Math.random() - 0.5) * 200, this.groundY - Math.random() * 220, i % 2 ? '#7c3aed' : '#1e1b4b', 'smoke', 3);
+          if (t % 8 === 0 && Math.abs(opponent.x - this.superX) < 120) this.superHit(opponent, 7, 1, 0, 14, particles, '#a855f7');
+        }
+        break;
+      }
+      case 'poseidon': {
+        // Maremoto Sísmico: una ola que recorre la arena y arrastra al rival
+        if (t === 12) {
+          this.superX = this.x;
+          this.superCaught = false;
+        }
+        if (t >= 12 && t <= 50) {
+          this.superX += this.facing * 26;
+          for (let i = 0; i < 6; i++) spark(this.superX, this.groundY - Math.random() * 200, i % 2 ? '#38bdf8' : '#e0f2fe', 'wind', 4);
+          if (!this.superCaught && Math.abs(opponent.x - this.superX) < 60) {
+            this.superCaught = true;
+            this.superHit(opponent, 30, 24, -9, 34, particles, '#38bdf8');
+          }
+        }
+        break;
+      }
+      case 'anubis': {
+        // Balanza del Destino: cruza al rival como una sombra, le desgarra la vida y lo deja lento
+        if (t === 12) this.superCaught = false;
+        if (t >= 12 && t <= 22) {
+          this.vx = this.facing * 30;
+          spark(this.x, this.y - 80, '#facc15', 'smoke', 2);
+          if (!this.superCaught && dist < 70) {
+            this.superCaught = true;
+            this.superHit(opponent, 24, 4, -4, 30, particles, '#facc15');
+            opponent.slowTimer = 240;
+          }
+        }
+        break;
+      }
+      case 'osiris': {
+        // Códice Eterno: barrera de arena (no recibe daño), se regenera y los pilares empujan al rival
+        if (t % 4 === 0) spark(this.x + (Math.random() - 0.5) * 120, this.y - Math.random() * 160, '#fde68a', 'dust', 3);
+        if (t % 6 === 0 && this.hp > 0) this.hp = Math.min(this.maxHp, this.hp + 2);
+        if (t === 24 && dist < 260) this.superHit(opponent, 16, 18, -7, 26, particles, '#fde68a');
+        break;
+      }
+      case 'quetzalcoatl': {
+        // Vórtice de Jade: un torbellino avanza, atrapa al rival y lo azota en el aire
+        if (t === 12) {
+          this.superX = this.x + this.facing * 60;
+          this.superCaught = false;
+        }
+        if (t >= 12 && t <= 52) {
+          if (!this.superCaught) this.superX += this.facing * 10;
+          for (let i = 0; i < 3; i++) {
+            const a = t * 0.5 + i * 2.1;
+            spark(this.superX + Math.cos(a) * 45, this.groundY - ((t * 9 + i * 70) % 240), i % 2 ? '#10b981' : '#a7f3d0', 'wind', 2);
+          }
+          if (!this.superCaught && Math.abs(opponent.x - this.superX) < 70) this.superCaught = true;
+          if (this.superCaught) {
+            opponent.x = this.superX;
+            opponent.vy = Math.min(opponent.vy, -3);
+            if (t % 8 === 0) this.superHit(opponent, 7, 0, -6, 16, particles, '#10b981');
+          }
+        }
+        break;
+      }
+      case 'huitzilopochtli': {
+        // Llamarada Xiuhcóatl: embestida en llamas que quema al rival
+        if (t === 12) this.superCaught = false;
+        if (t >= 12 && t <= 32) {
+          this.vx = this.facing * 22;
+          for (let i = 0; i < 3; i++) spark(this.x - this.facing * 30, this.y - Math.random() * 140, i % 2 ? '#f97316' : '#1c1917', 'solar', 4);
+          if (!this.superCaught && dist < 80) {
+            this.superCaught = true;
+            this.superHit(opponent, 32, 16, -8, 32, particles, '#f97316');
+            opponent.burnTimer = PASSIVE.burnTicks;
+          }
+        }
+        break;
+      }
+      case 'mictlantecuhtli': {
+        // Desgarro del Mictlán: marca el suelo bajo el rival y brotan garras de hueso (se esquiva moviéndose o saltando)
+        if (t === 10) this.superX = opponent.x;
+        if (t >= 10 && t < 26 && t % 3 === 0) particles.push({ x: this.superX, y: this.groundY, vx: 0, vy: 0, radius: 40 + (t - 10) * 2, color: 'rgba(168, 85, 247, 0.8)', alpha: 1, decay: 0.08, type: 'ring' });
+        if (t === 26) {
+          for (let i = 0; i < 24; i++) spark(this.superX + (Math.random() - 0.5) * 120, this.groundY - Math.random() * 30, i % 2 ? '#e7e5e4' : '#581c87', 'spark', 3);
+          for (let i = 0; i < 24; i++) particles.push({ x: this.superX + (Math.random() - 0.5) * 120, y: this.groundY, vx: 0, vy: -8 - Math.random() * 8, radius: 4, color: '#e7e5e4', alpha: 1, decay: 0.03, type: 'spark' });
+          if (Math.abs(opponent.x - this.superX) < 95 && opponent.y > opponent.groundY - 60) {
+            this.superHit(opponent, 30, 0, 0, 55, particles, '#e7e5e4');
+          }
+        }
+        break;
+      }
+      case 'amaterasu': {
+        // Espejo Sagrado Yata: destello solar que ciega y aturde al rival dondequiera que esté
+        if (t === 16) {
+          this.screenFlash = 24;
+          this.superHit(opponent, 18, 6, -3, 70, particles, '#fef08a');
+        }
+        if (t >= 10 && t <= 20) spark(this.x + this.facing * 40, this.y - 110, '#fef08a', 'solar', 12);
+        break;
+      }
+      case 'susanoo': {
+        // Tajo del Dragón Marino: cinco cortes de viento que cruzan la pantalla hacia el frente
+        if ([14, 20, 26, 32, 38].includes(t)) {
+          sounds.playHeavySwing();
+          for (let i = 0; i < 18; i++) {
+            particles.push({ x: this.x + this.facing * (40 + Math.random() * 600), y: this.y - 70 - (t % 12) * 4 + (Math.random() - 0.5) * 20, vx: this.facing * 22, vy: 0, radius: 3 + Math.random() * 3, color: i % 2 ? '#bae6fd' : '#ffffff', alpha: 0.9, decay: 0.06, type: 'wind' });
+          }
+          const ahead = this.facing === 1 ? opponent.x > this.x : opponent.x < this.x;
+          if (ahead && dist < 700) this.superHit(opponent, 7, 5, -2, 16, particles, '#bae6fd');
+        }
+        break;
+      }
+      case 'raijin': {
+        // Redoble Estruendoso: tres ondas sónicas eléctricas que expulsan al rival
+        if ([14, 26, 38].includes(t)) {
+          sounds.playThunder();
+          particles.push({ x: this.x, y: this.y - 80, vx: 0, vy: 0, radius: 40, color: 'rgba(96, 165, 250, 0.9)', alpha: 1, decay: 0.03, type: 'ring' });
+          for (let i = 0; i < 20; i++) spark(this.x, this.y - 80, i % 2 ? '#60a5fa' : '#fde047', 'lightning', 14);
+          if (dist < 280) this.superHit(opponent, 11, 13, -5, 20, particles, '#60a5fa');
+        }
+        break;
+      }
     }
   }
 
@@ -2362,8 +2528,10 @@ export default function App() {
         return;
       }
 
-      if (defender.isBlocking && !unblockable) {
-        const blockedDamage = guardBreak
+      if ((defender.isBlocking && !unblockable) || defender.shielded) {
+        const blockedDamage = defender.shielded
+          ? 0
+          : guardBreak
           ? Math.round(damage * 0.4)
           : defender.deity.style === 'Guardián'
             ? 0
@@ -2651,6 +2819,11 @@ export default function App() {
   };
 
   const renderFightOverlays = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
+    const flash = Math.max(p1Ref.current?.screenFlash ?? 0, p2Ref.current?.screenFlash ?? 0);
+    if (flash > 0) {
+      ctx.fillStyle = `rgba(255, 251, 220, ${flash / 28})`;
+      ctx.fillRect(0, 0, w, h);
+    }
     // Partículas y efectos de viento/anillos
     renderParticles(ctx, particlesRef.current);
 
