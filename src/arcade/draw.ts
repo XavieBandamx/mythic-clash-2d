@@ -562,7 +562,7 @@ export function drawMonster(ctx: CanvasRenderingContext2D, v: MonsterView) {
   const { skin, kind } = v;
   const H = v.height;
   const paint = (c: string) => (v.flash ? '#ffffff' : c);
-  const bulk = kind === 'brute' ? 1.4 : kind === 'runner' || kind === 'thief' ? 0.9 : 1;
+  const bulk = kind === 'mini' ? 1.6 : kind === 'brute' ? 1.4 : kind === 'runner' || kind === 'thief' ? 0.9 : 1;
 
   ctx.save();
   ctx.translate(v.x, v.y);
@@ -831,5 +831,122 @@ export function drawTelegraph(ctx: CanvasRenderingContext2D, x: number, y: numbe
   ctx.beginPath();
   ctx.ellipse(x, y, radius * progress, radius * 0.35 * progress, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
+}
+
+// --- AMBIENTE Y PRIMER PLANO ---
+
+// Objetos por delante de los personajes (columnas, palmeras...) que pasan más rápido que la cámara: dan profundidad.
+// Las posiciones son fijas por nivel para que siempre aparezcan en el mismo sitio.
+const FOREGROUND_SPEED = 1.3;
+const FOREGROUND_SCALE = 0.62;
+
+// Versión oscurecida de cada objeto, calculada una sola vez (en celular, filtrar cada cuadro es caro)
+const darkProps = new WeakMap<HTMLImageElement, HTMLCanvasElement>();
+function darkened(img: HTMLImageElement): HTMLCanvasElement {
+  const cached = darkProps.get(img);
+  if (cached) return cached;
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  const cctx = c.getContext('2d');
+  if (cctx) {
+    cctx.drawImage(img, 0, 0);
+    cctx.globalCompositeOperation = 'source-atop';
+    cctx.fillStyle = 'rgba(12, 8, 20, 0.58)';
+    cctx.fillRect(0, 0, c.width, c.height);
+  }
+  darkProps.set(img, c);
+  return c;
+}
+
+export function drawForeground(ctx: CanvasRenderingContext2D, props: HTMLImageElement[], camX: number, seed: number) {
+  if (props.length === 0) return;
+  ctx.save();
+  for (let k = 0; k < 10; k++) {
+    const img = darkened(props[(k * 5 + seed) % props.length]);
+    const w = img.width * FOREGROUND_SCALE;
+    const h = img.height * FOREGROUND_SCALE;
+    const x = 220 + k * 480 + ((k * 137 + seed * 61) % 170) - camX * FOREGROUND_SPEED;
+    if (x + w < 0 || x > VIEW_W) continue;
+    ctx.drawImage(img, x, VIEW_H + 24 - h, w, h);
+  }
+  ctx.restore();
+}
+
+// Partículas de ambiente por reino, sin estado: la posición sale del reloj del juego
+export function drawAmbient(ctx: CanvasRenderingContext2D, pantheon: Pantheon, tick: number, camX: number, cosmic: boolean) {
+  const drift = camX * 0.35; // Se quedan atrás al caminar, como si estuvieran en el aire entre la cámara y el fondo
+  const wrapX = (v: number) => ((v % (VIEW_W + 80)) + VIEW_W + 80) % (VIEW_W + 80) - 40;
+  ctx.save();
+  if (cosmic) {
+    // Polvo de estrellas dorado que titila
+    for (let i = 0; i < 40; i++) {
+      const tw = (Math.sin(tick * 0.06 + i * 1.7) + 1) / 2;
+      ctx.fillStyle = `rgba(253, 230, 138, ${0.15 + tw * 0.6})`;
+      ctx.fillRect(wrapX(i * 173 - drift * 0.5), (i * 97) % (VIEW_H - 60), 2 + tw * 2, 2 + tw * 2);
+    }
+  } else if (pantheon === 'Grecia') {
+    // Hojas de olivo que caen girando y motas de sol
+    for (let i = 0; i < 16; i++) {
+      const x = wrapX(VIEW_W - (tick * (0.9 + (i % 4) * 0.3) + i * 211) - drift);
+      const y = (i * 131 + tick * (0.45 + (i % 3) * 0.2)) % VIEW_H;
+      ctx.fillStyle = i % 3 === 0 ? 'rgba(132, 204, 22, 0.75)' : 'rgba(77, 124, 15, 0.8)';
+      ctx.beginPath();
+      ctx.ellipse(x + Math.sin(tick * 0.04 + i) * 14, y, 6, 2.6, tick * 0.05 + i, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (let i = 0; i < 14; i++) {
+      const tw = (Math.sin(tick * 0.05 + i * 2.3) + 1) / 2;
+      ctx.fillStyle = `rgba(254, 240, 138, ${tw * 0.5})`;
+      ctx.beginPath();
+      ctx.arc(wrapX(i * 97 - drift * 0.6 + tick * 0.2), 120 + ((i * 53) % 300), 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (pantheon === 'Egipto') {
+    // Ráfagas de arena a ras del suelo y polvo dorado flotando
+    ctx.strokeStyle = 'rgba(253, 224, 171, 0.35)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 22; i++) {
+      const x = wrapX(VIEW_W - (tick * (5 + (i % 5)) + i * 157) - drift);
+      const y = 470 + ((i * 67) % 240);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + 30 + (i % 4) * 14, y + Math.sin(tick * 0.1 + i) * 2);
+      ctx.stroke();
+    }
+    for (let i = 0; i < 18; i++) {
+      const tw = (Math.sin(tick * 0.04 + i) + 1) / 2;
+      ctx.fillStyle = `rgba(251, 191, 36, ${0.2 + tw * 0.4})`;
+      ctx.fillRect(wrapX(i * 131 - tick * 0.6 - drift), 150 + ((i * 89 + tick * 0.15) % 420), 2, 2);
+    }
+  } else if (pantheon === 'México') {
+    // Brasas que suben y luciérnagas
+    for (let i = 0; i < 20; i++) {
+      const y = VIEW_H - ((tick * (1 + (i % 4) * 0.4) + i * 149) % (VIEW_H + 40));
+      const x = wrapX(i * 113 + Math.sin(tick * 0.03 + i) * 22 - drift);
+      ctx.fillStyle = `rgba(${i % 2 ? '251, 146, 60' : '239, 68, 68'}, ${0.4 + 0.5 * Math.abs(Math.sin(tick * 0.2 + i))})`;
+      ctx.fillRect(x, y, 3, 3);
+    }
+    for (let i = 0; i < 10; i++) {
+      const glow = (Math.sin(tick * 0.08 + i * 1.9) + 1) / 2;
+      const x = wrapX(i * 181 + Math.sin(tick * 0.02 + i) * 60 - drift * 0.8);
+      const y = 260 + ((i * 71) % 260) + Math.cos(tick * 0.03 + i) * 25;
+      ctx.fillStyle = `rgba(190, 242, 100, ${glow * 0.8})`;
+      ctx.beginPath();
+      ctx.arc(x, y, 2.5 + glow * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (pantheon === 'Japón') {
+    // Pétalos de cerezo con el viento
+    for (let i = 0; i < 24; i++) {
+      const x = wrapX(VIEW_W - (tick * (1.3 + (i % 5) * 0.35) + i * 197) - drift);
+      const y = (i * 137 + tick * (0.6 + (i % 3) * 0.25)) % VIEW_H;
+      ctx.fillStyle = i % 4 === 0 ? 'rgba(253, 242, 248, 0.85)' : 'rgba(249, 168, 212, 0.85)';
+      ctx.beginPath();
+      ctx.ellipse(x + Math.sin(tick * 0.05 + i) * 12, y, 4.5, 2.4, tick * 0.04 + i, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   ctx.restore();
 }

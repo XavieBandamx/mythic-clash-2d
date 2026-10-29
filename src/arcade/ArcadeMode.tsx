@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { DeityData } from '../game/deities';
 import { SIM_STEP_MS } from '../game/core';
 import type { Difficulty } from '../game/core';
@@ -56,6 +56,9 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
+  // Fase de la partida para mostrar botones tocables encima del canvas (continuar, volver al menú)
+  const gameRef = useRef<ArcadeGame | null>(null);
+  const [phase, setPhase] = useState<ArcadeGame['phase']>('play');
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -64,6 +67,8 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
     if (!ctx) return;
 
     const game = new ArcadeGame(deities, difficulty);
+    gameRef.current = game;
+    let shownPhase = game.phase;
     const keyMaps = deities.length > 1 ? COOP_KEYS : [SOLO_KEYS];
     const held = new Set<string>();
     const pressed = new Set<string>(); // Pulsadas desde el último paso de simulación
@@ -82,7 +87,7 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
       pressed.add(e.code);
 
       if (e.code === 'Escape') {
-        if (game.phase === 'gameOver' || game.phase === 'victory') exit();
+        if (game.phase === 'gameOver' || game.phase === 'finalOver' || game.phase === 'victory') exit();
         else {
           game.paused = !game.paused;
           sounds.playNav();
@@ -130,6 +135,10 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
         accumulator -= SIM_STEP_MS;
       }
       game.render(ctx);
+      if (game.phase !== shownPhase) {
+        shownPhase = game.phase;
+        setPhase(game.phase);
+      }
       if (game.exitRequested) {
         exit();
         return;
@@ -155,6 +164,24 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
         height={VIEW_H}
         className="w-full h-full max-w-[1400px] max-h-[787px] object-contain portrait:object-top shadow-2xl bg-black"
       />
+      {(phase === 'gameOver' || phase === 'finalOver' || phase === 'victory') && (
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-[20%] portrait:bottom-auto portrait:top-[42%] z-30 flex gap-3">
+          {phase === 'gameOver' && (
+            <button
+              onClick={() => gameRef.current?.continueGame()}
+              className="px-8 py-4 rounded-xl font-black text-lg bg-gradient-to-r from-amber-400 to-amber-600 text-slate-950 shadow-lg shadow-amber-900/50 animate-pulse"
+            >
+              ¡CONTINUAR!
+            </button>
+          )}
+          <button
+            onClick={() => onExitRef.current()}
+            className="px-5 py-4 rounded-xl font-bold bg-slate-800/90 text-slate-200 border border-slate-600"
+          >
+            {phase === 'gameOver' ? 'Salir' : 'Volver al menú'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

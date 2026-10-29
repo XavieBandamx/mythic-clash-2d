@@ -4,7 +4,7 @@ import type { DeityData, Pantheon } from '../game/deities';
 // DATOS DEL MODO ARCADE: NIVELES, MONSTRUOS, OLEADAS Y JEFES
 // ==========================================================================
 
-export type MonsterKind = 'grunt' | 'brute' | 'runner' | 'thief';
+export type MonsterKind = 'grunt' | 'brute' | 'runner' | 'thief' | 'mini';
 
 // Aspecto procedural de un monstruo (se dibuja con formas hasta tener hojas de sprites propias)
 export interface MonsterSkin {
@@ -35,7 +35,9 @@ export const MONSTER_STATS: Record<MonsterKind, MonsterStats> = {
   grunt: { hp: 36, speed: 1.6, damage: 7, reach: 80, windup: 22, recover: 26, width: 54, height: 150, armor: false, score: 100 },
   brute: { hp: 90, speed: 1.05, damage: 13, reach: 104, windup: 34, recover: 34, width: 84, height: 190, armor: true, score: 300 },
   runner: { hp: 22, speed: 2.9, damage: 5, reach: 62, windup: 12, recover: 30, width: 46, height: 115, armor: false, score: 80 },
-  thief: { hp: 30, speed: 3.2, damage: 0, reach: 0, windup: 0, recover: 0, width: 44, height: 100, armor: false, score: 200 }
+  thief: { hp: 30, speed: 3.2, damage: 0, reach: 0, windup: 0, recover: 0, width: 44, height: 100, armor: false, score: 200 },
+  // Mini-jefe a mitad de nivel: grande, con armadura y golpes que derriban
+  mini: { hp: 320, speed: 1.15, damage: 15, reach: 140, windup: 30, recover: 32, width: 110, height: 240, armor: true, score: 2500 }
 };
 
 // Hojas de monstruos ya procesadas con tools/process_sprites.py y copiadas a public/sprites/monsters.
@@ -54,7 +56,11 @@ export const MONSTER_SPRITES: Record<string, { frameWidth: number; frameHeight: 
   tzitzimitl: { frameWidth: 236, frameHeight: 136, idleHeight: 132 },
   'oni-menor': { frameWidth: 220, frameHeight: 140, idleHeight: 128.5 },
   kappa: { frameWidth: 216, frameHeight: 131, idleHeight: 127 },
-  'oni-mayor': { frameWidth: 220, frameHeight: 142, idleHeight: 128.5 }
+  'oni-mayor': { frameWidth: 220, frameHeight: 142, idleHeight: 128.5 },
+  ciclope: { frameWidth: 506, frameHeight: 260, idleHeight: 247 },
+  escorpion: { frameWidth: 558, frameHeight: 260, idleHeight: 244 },
+  'guerrero-aguila': { frameWidth: 528, frameHeight: 265, idleHeight: 260 },
+  'oni-gigante': { frameWidth: 498, frameHeight: 268, idleHeight: 258 }
 };
 
 // --- BESTIAS DE MONTA (una por panteón) ---
@@ -157,7 +163,8 @@ export const LEVELS: LevelDef[] = [
     skins: {
       grunt: { name: 'Esqueleto Hoplita', spriteId: 'hoplita', body: '#e7e5e4', detail: '#b45309', accent: '#ef4444', head: 'helmet', weapon: 'spear', extra: 'shield' },
       brute: { name: 'Minotauro', spriteId: 'minotauro', body: '#78350f', detail: '#a8a29e', accent: '#fbbf24', head: 'bull', weapon: 'axe' },
-      runner: { name: 'Arpía', spriteId: 'arpia', body: '#7c3aed', detail: '#c4b5fd', accent: '#fde047', head: 'imp', weapon: 'claws', extra: 'wings' }
+      runner: { name: 'Arpía', spriteId: 'arpia', body: '#7c3aed', detail: '#c4b5fd', accent: '#fde047', head: 'imp', weapon: 'claws', extra: 'wings' },
+      mini: { name: 'Cíclope', spriteId: 'ciclope', body: '#6b7f5e', detail: '#78350f', accent: '#f97316', head: 'bull', weapon: 'club' }
     },
     bossOrder: ['hades', 'poseidon', 'zeus'],
     art: { background: 'grecia-fondo.webp', horizonY: 718, floor: 'grecia-suelo.webp' }
@@ -179,7 +186,8 @@ export const LEVELS: LevelDef[] = [
     skins: {
       grunt: { name: 'Momia', spriteId: 'momia', body: '#d6cfa8', detail: '#a8a29e', accent: '#22c55e', head: 'mummy', weapon: 'claws', extra: 'bandages' },
       brute: { name: 'Guardián Chacal', spriteId: 'guardian-chacal', body: '#1c1917', detail: '#facc15', accent: '#f97316', head: 'jackal', weapon: 'khopesh' },
-      runner: { name: 'Sombra de Set', spriteId: 'sombra-set', body: '#292524', detail: '#7f1d1d', accent: '#ef4444', head: 'imp', weapon: 'claws' }
+      runner: { name: 'Sombra de Set', spriteId: 'sombra-set', body: '#292524', detail: '#7f1d1d', accent: '#ef4444', head: 'imp', weapon: 'claws' },
+      mini: { name: 'Escorpión Gigante', spriteId: 'escorpion', body: '#1c1917', detail: '#facc15', accent: '#fde047', head: 'jackal', weapon: 'claws' }
     },
     bossOrder: ['anubis', 'osiris', 'ra'],
     art: { background: 'egipto-fondo.webp', horizonY: 730, floor: 'egipto-suelo.webp' }
@@ -201,7 +209,8 @@ export const LEVELS: LevelDef[] = [
     skins: {
       grunt: { name: 'Guerrero Calavera', spriteId: 'guerrero-calavera', body: '#3f2a1d', detail: '#e7e5e4', accent: '#f97316', head: 'skull', weapon: 'club' },
       brute: { name: 'Guerrero Jaguar', spriteId: 'guerrero-jaguar', body: '#ca8a04', detail: '#1c1917', accent: '#22c55e', head: 'jaguar', weapon: 'club', extra: 'spots' },
-      runner: { name: 'Tzitzimitl', spriteId: 'tzitzimitl', body: '#1e1b4b', detail: '#e7e5e4', accent: '#a855f7', head: 'skull', weapon: 'claws', extra: 'wings' }
+      runner: { name: 'Tzitzimitl', spriteId: 'tzitzimitl', body: '#1e1b4b', detail: '#e7e5e4', accent: '#a855f7', head: 'skull', weapon: 'claws', extra: 'wings' },
+      mini: { name: 'Guerrero Águila', spriteId: 'guerrero-aguila', body: '#78350f', detail: '#e7e5e4', accent: '#facc15', head: 'jaguar', weapon: 'club', extra: 'wings' }
     },
     bossOrder: ['mictlantecuhtli', 'quetzalcoatl', 'huitzilopochtli'],
     art: { background: 'mexico-fondo.webp', horizonY: 694, floor: 'mexico-suelo.webp' }
@@ -223,7 +232,8 @@ export const LEVELS: LevelDef[] = [
     skins: {
       grunt: { name: 'Oni Menor', spriteId: 'oni-menor', body: '#b91c1c', detail: '#1c1917', accent: '#fde047', head: 'oni', weapon: 'kanabo' },
       brute: { name: 'Oni Mayor', spriteId: 'oni-mayor', body: '#1d4ed8', detail: '#292524', accent: '#fde047', head: 'oni', weapon: 'kanabo' },
-      runner: { name: 'Kappa', spriteId: 'kappa', body: '#15803d', detail: '#a16207', accent: '#fef08a', head: 'imp', weapon: 'claws', extra: 'shell' }
+      runner: { name: 'Kappa', spriteId: 'kappa', body: '#15803d', detail: '#a16207', accent: '#fef08a', head: 'imp', weapon: 'claws', extra: 'shell' },
+      mini: { name: 'Oni Gigante', spriteId: 'oni-gigante', body: '#7e22ce', detail: '#292524', accent: '#fde047', head: 'oni', weapon: 'kanabo' }
     },
     bossOrder: ['raijin', 'susanoo', 'amaterasu'],
     art: { background: 'japon-fondo.webp', horizonY: 718, floor: 'japon-suelo.webp' }
@@ -289,7 +299,8 @@ export const FINAL_LEVEL: LevelDef = {
   skins: {
     grunt: { name: 'Eco Hoplita', spriteId: 'hoplita', body: '#e7e5e4', detail: '#b45309', accent: '#ef4444', head: 'helmet', weapon: 'spear', extra: 'shield' },
     brute: { name: 'Eco del Minotauro', spriteId: 'minotauro', body: '#78350f', detail: '#a8a29e', accent: '#fbbf24', head: 'bull', weapon: 'axe' },
-    runner: { name: 'Eco Arpía', spriteId: 'arpia', body: '#7c3aed', detail: '#c4b5fd', accent: '#fde047', head: 'imp', weapon: 'claws', extra: 'wings' }
+    runner: { name: 'Eco Arpía', spriteId: 'arpia', body: '#7c3aed', detail: '#c4b5fd', accent: '#fde047', head: 'imp', weapon: 'claws', extra: 'wings' },
+    mini: { name: 'Eco del Cíclope', spriteId: 'ciclope', body: '#6b7f5e', detail: '#78350f', accent: '#f97316', head: 'bull', weapon: 'club' }
   },
   bossOrder: ['origen'],
   art: { background: 'telar-fondo.webp', horizonY: 548, platform: true }
@@ -321,6 +332,8 @@ export function buildWaves(levelIndex: number): Wave[] {
     push('brute', k >= 2 ? 1 + (levelIndex >= 3 && k === 3 ? 1 : 0) : levelIndex >= 1 && k === 1 ? 1 : 0);
     // Jinetes: uno en la 2.ª oleada de cada nivel y otro en la última desde el nivel 3
     if (k === 1 || (k === 3 && levelIndex >= 2)) spawns.push({ kind: 'grunt', side: 'right', delay: 120, zFrac: 0.5, mounted: true });
+    // Mini-jefe en la 3.ª oleada: rompe la rutina a mitad del nivel
+    if (k === 2) spawns.push({ kind: 'mini', side: 'right', delay: delay + 60, zFrac: 0.5 });
     // Un duende ladrón por oleada (dos en la última) para ir juntando magia y comida
     spawns.push({ kind: 'thief', side: 'right', delay: 30, zFrac: 0.55 });
     if (k === positions.length - 1) spawns.push({ kind: 'thief', side: 'right', delay: 260, zFrac: 0.25 });

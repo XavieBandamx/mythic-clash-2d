@@ -9,7 +9,7 @@ import { drawDeityPortraitIcon } from '../game/portraits';
 import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from '../game/styles';
 import { BEASTS, BOSS_CAM_X, BOSS_SPECIALS, FINAL_LEVEL, LEVELS, MONSTER_SPRITES, MONSTER_STATS, ORIGEN, THIEF_SKIN, buildWaves, origenSpecials } from './levels';
 import type { BeastAttack, BeastDef, BossSpecial, LevelDef, MonsterKind, MonsterSkin, MonsterStats, Wave, WaveSpawn } from './levels';
-import { DEPTH, VIEW_H, VIEW_W, drawBackground, drawItem, drawMonsterOutlined, drawOrb, drawTelegraph, screenY } from './draw';
+import { DEPTH, VIEW_H, VIEW_W, drawAmbient, drawBackground, drawForeground, drawItem, drawMonsterOutlined, drawOrb, drawTelegraph, screenY } from './draw';
 import type { MonsterPose } from './draw';
 
 // ==========================================================================
@@ -360,6 +360,12 @@ export class Hero extends Actor {
   public defMul: number;
   public comboStep: number = 0;
   public canRevive: boolean = true; // Osiris: una vez por nivel
+  // Puntuación: combo de golpes conectados y estadísticas del nivel en curso
+  public combo: number = 0;
+  public comboTimer: number = 0;
+  public maxCombo: number = 0;
+  public kills: number = 0;
+  public deaths: number = 0;
   private baseDmgMul: number;
   private airJumped: boolean = false; // Quetzalcóatl
 
@@ -473,6 +479,7 @@ export class Hero extends Actor {
         sounds.playSuperReady();
       } else if (this.stateTimer >= 40) {
         this.lives--;
+        this.deaths++;
         if (this.lives > 0) {
           world.respawnHero(this);
         } else {
@@ -949,7 +956,7 @@ export class Monster extends Actor {
           this.setState('strike');
           if (this.kind === 'runner') this.vx = this.facing * 7;
           if (beastStrike && beastStrike.lunge > 0) this.vx = this.facing * beastStrike.lunge;
-          if (this.kind === 'brute') sounds.playHeavySwing();
+          if (this.kind === 'brute' || this.kind === 'mini') sounds.playHeavySwing();
           else sounds.playSwing();
         }
         return;
@@ -965,8 +972,8 @@ export class Monster extends Actor {
               front: this.stats.reach,
               back: 10,
               damage: this.damage,
-              knockdown: this.kind === 'brute',
-              heavy: this.kind === 'brute'
+              knockdown: this.kind === 'brute' || this.kind === 'mini',
+              heavy: this.kind === 'brute' || this.kind === 'mini'
             });
           }
         }
@@ -1816,7 +1823,35 @@ const COLLAPSE_TICKS = 150; // Aviso antes del estallido del colapso de Origen
 const COLLAPSE_SAFE_RADIUS = 110;
 const THUNDER_RADIUS = 75;
 
-type Phase = 'play' | 'bossIntro' | 'boss' | 'levelClear' | 'gameOver' | 'victory';
+type Phase = 'play' | 'bossIntro' | 'boss' | 'levelClear' | 'gameOver' | 'finalOver' | 'victory';
+
+const CONTINUE_TICKS = 600;    // Cuenta regresiva de 10 s para continuar
+const COMBO_WINDOW = 180;      // Sin conectar un golpe en 3 s, el combo se pierde
+const RESULTS_TICKS = 600;     // Pantalla de resultados de cada nivel (se salta con ataque)
+const PROP_COUNT: Partial<Record<string, number>> = { Grecia: 6, Egipto: 6 }; // Objetos de primer plano por reino
+const PROP_SLUG: Record<string, string> = { Grecia: 'grecia', Egipto: 'egipto', 'México': 'mexico', 'Japón': 'japon' };
+const RECORDS_KEY = 'mythic-clash-records';
+
+// Multiplicador de puntos por combo: x2 a los 6 golpes seguidos, hasta x5
+export const comboMultiplier = (combo: number) => Math.min(5, 1 + Math.floor(combo / 6));
+
+interface LevelResult {
+  hero: Hero;
+  kills: number;
+  secs: number;
+  deaths: number;
+  maxCombo: number;
+  timeBonus: number;
+  noDeathBonus: number;
+  comboBonus: number;
+  rank: 'S' | 'A' | 'B' | 'C';
+}
+
+// Calificación por nivel: sin morir, rápido y con combos largos
+export function levelRank(deaths: number, secs: number, maxCombo: number): LevelResult['rank'] {
+  const pts = (deaths === 0 ? 2 : deaths === 1 ? 1 : 0) + (secs < 150 ? 2 : secs < 210 ? 1 : 0) + (maxCombo >= 25 ? 2 : maxCombo >= 12 ? 1 : 0);
+  return pts >= 5 ? 'S' : pts >= 3 ? 'A' : pts >= 1 ? 'B' : 'C';
+}
 
 interface Banner {
   title: string;
@@ -1865,6 +1900,11 @@ export class ArcadeGame {
   private shakeIntensity: number = 0;
   private magicCast: { t: number; color: string; name: string; power: number; caster: Hero } | null = null;
   private thiefHintShown: boolean = false;
+  public continueTimer: number = 0;
+  private levelStartTick: number = 0;
+  private results: LevelResult[] | null = null;
+  public record: { best: number; isNew: boolean } | null = null;
+  private props: SpriteSheetEntry[] = [];
   private beastHintShown: boolean = false;
   private art: { background: SpriteSheetEntry | null; floor: SpriteSheetEntry | null } = { background: null, floor: null };
   // Pulsaciones hechas durante la pausa de impacto (una por jugador): se aplican al reanudar para que no se pierdan
@@ -1927,6 +1967,11 @@ export class ArcadeGame {
     this.phase = 'play';
     this.phaseTimer = 0;
     this.goTimer = final ? 0 : 240;
+    this.levelStartTick = this.tick;
+    this.results = null;
+    for (const hero of this.heroes) {
+      hero.kills = hero.deaths = hero.maxCombo = hero.combo = hero.comboTimer = 0;
+    }
 
     // En cooperativo, el 2P entra un poco atrás y más al frente
     for (const hero of this.heroes) {
@@ -1950,6 +1995,10 @@ export class ArcadeGame {
     this.art = { background: loadArt(this.level.art?.background), floor: loadArt(this.level.art?.floor) };
 
     loadSpriteSheet(beastSpriteSrc(BEASTS[this.level.pantheon].id));
+    const propCount = final ? 0 : PROP_COUNT[this.level.pantheon] ?? 0;
+    this.props = Array.from({ length: propCount }, (_, i) =>
+      loadSpriteSheet(`${import.meta.env.BASE_URL}props/${PROP_SLUG[this.level.pantheon]}-${i}.webp`)
+    );
     for (const skin of [...Object.values(this.level.skins), THIEF_SKIN]) {
       if (skin.spriteId && MONSTER_SPRITES[skin.spriteId]) loadSpriteSheet(monsterSpriteSrc(skin.spriteId));
     }
@@ -1983,6 +2032,11 @@ export class ArcadeGame {
     const skin = kind === 'thief' ? THIEF_SKIN : this.level.skins[kind];
     const monster = new Monster(kind, skin, x, zFrac * DEPTH, this.hpMul, this.dmgMul);
     this.monsters.push(monster);
+    if (kind === 'mini') {
+      this.showBanner(`¡${skin.name.toUpperCase()}!`, 'Mini-jefe', '#f97316', 150);
+      this.shake(8, 20);
+      sounds.playSuperActivation();
+    }
     if (mounted) {
       const beast = new Beast(BEASTS[this.level.pantheon], x, monster.z);
       this.beasts.push(beast);
@@ -2111,6 +2165,12 @@ export class ArcadeGame {
     if (source) hit = this.heroPassiveHit(source, target, hit);
     const bossGuarding = target instanceof Boss && target.state === 'guard';
     if (!target.receiveHit(hit)) return false;
+    if (source) {
+      source.combo++;
+      source.comboTimer = COMBO_WINDOW;
+      source.maxCombo = Math.max(source.maxCombo, source.combo);
+    }
+    if (target instanceof Hero) target.combo = 0;
     if (bossGuarding && target.state === 'guard') return true; // Bloqueado: sin sangre ni chispas
 
     if (source) {
@@ -2372,8 +2432,15 @@ export class ArcadeGame {
     if (m.scored) return;
     m.scored = true;
     const labelY = screenY(m.z, m.y) - m.height - 20;
-    hero.score += m.stats.score;
-    this.floatingText(m.x, labelY, `+${m.stats.score}`, '#fde68a');
+    const mult = comboMultiplier(hero.combo);
+    hero.score += m.stats.score * mult;
+    hero.kills++;
+    this.floatingText(m.x, labelY, `+${m.stats.score * mult}${mult > 1 ? ` ×${mult}` : ''}`, mult > 1 ? '#fb923c' : '#fde68a');
+    if (m.kind === 'mini') {
+      this.spawnItem('food', m.x - 30, m.z);
+      this.spawnItem('pot', m.x + 30, m.z);
+      this.showBanner(`¡${m.skin.name.toUpperCase()} DERROTADO!`, '', '#fbbf24', 120);
+    }
     if (m.reinforcement) {
       hero.hp = Math.min(hero.maxHp, hero.hp + REINFORCEMENT_HEAL);
       hero.magic = Math.min(MAX_MAGIC, hero.magic + 1);
@@ -2475,7 +2542,15 @@ export class ArcadeGame {
 
     if (this.phase === 'gameOver') {
       updateParticles(this.particles);
-      if (list.some(i => i.attack)) this.continueGame();
+      this.continueTimer--;
+      if (this.continueTimer % 60 === 0) sounds.playNav();
+      if (list.some(i => i.attack) && this.continueTimer < CONTINUE_TICKS - 30) this.continueGame();
+      else if (this.continueTimer <= 0) this.endRun('finalOver');
+      return;
+    }
+    if (this.phase === 'finalOver') {
+      this.phaseTimer++;
+      if (list.some(i => i.attack) && this.phaseTimer > 60) this.exitRequested = true;
       return;
     }
     if (this.phase === 'victory') {
@@ -2525,8 +2600,12 @@ export class ArcadeGame {
       }
       hero.update(input, this, this.tick);
     }
+    for (const hero of this.heroes) {
+      if (hero.comboTimer > 0 && --hero.comboTimer === 0) hero.combo = 0;
+    }
     if (this.heroes.every(h => h.gameOver)) {
       this.phase = 'gameOver';
+      this.continueTimer = CONTINUE_TICKS;
       sounds.playKO();
       return;
     }
@@ -2574,11 +2653,12 @@ export class ArcadeGame {
         : this.levelIndex + 1 < LEVELS.length
           ? 'Nivel completado · +5000 puntos'
           : 'Algo despierta más allá de los reinos...';
-      this.showBanner(`¡${this.boss.deity.name.toUpperCase()} HA CAÍDO!`, subtitle, '#fbbf24', 240);
+      this.showBanner(`¡${this.boss.deity.name.toUpperCase()} HA CAÍDO!`, subtitle, '#fbbf24', 120);
+      this.results = this.computeResults();
       for (const m of this.monsters) m.receiveHit({ damage: 999, knockdown: true, heavy: true, dir: m.x >= this.boss.x ? 1 : -1, magic: true });
       this.orbs = [];
       this.thunders = [];
-    } else if (this.phase === 'levelClear' && this.phaseTimer >= 270) {
+    } else if (this.phase === 'levelClear' && (this.phaseTimer >= RESULTS_TICKS || (this.phaseTimer > 200 && list.some(i => i.attack)))) {
       if (this.levelIndex < LEVELS.length) {
         // Recompensa entre niveles: media vida y una vasija de magia
         for (const hero of this.activeHeroes) {
@@ -2587,15 +2667,55 @@ export class ArcadeGame {
         }
         this.startLevel(this.levelIndex + 1);
       } else {
-        this.phase = 'victory';
-        this.phaseTimer = 0;
+        this.endRun('victory');
         sounds.playVictory();
       }
     }
   }
 
-  private continueGame() {
-    for (const hero of this.heroes) this.continueHero(hero);
+  // Bonos del nivel: se suman a los puntos al terminarlo
+  private computeResults(): LevelResult[] {
+    const secs = Math.round((this.tick - this.levelStartTick) / 60);
+    return this.activeHeroes.map(hero => {
+      const timeBonus = Math.max(0, (240 - secs) * 40);
+      const noDeathBonus = hero.deaths === 0 ? 5000 : 0;
+      const comboBonus = hero.maxCombo * 150;
+      hero.score += timeBonus + noDeathBonus + comboBonus;
+      return { hero, kills: hero.kills, secs, deaths: hero.deaths, maxCombo: hero.maxCombo, timeBonus, noDeathBonus, comboBonus, rank: levelRank(hero.deaths, secs, hero.maxCombo) };
+    });
+  }
+
+  // Fin de la partida: guarda el récord por dios (o pareja de dioses en cooperativo)
+  private endRun(phase: 'finalOver' | 'victory') {
+    this.phase = phase;
+    this.phaseTimer = 0;
+    const key = this.heroes.map(h => h.deity.id).join('+');
+    const score = Math.max(...this.heroes.map(h => h.score));
+    let records: Record<string, number> = {};
+    try {
+      records = JSON.parse(localStorage.getItem(RECORDS_KEY) ?? '{}');
+    } catch {
+      // Sin almacenamiento: el récord solo dura esta partida
+    }
+    const best = records[key] ?? 0;
+    this.record = { best: Math.max(best, score), isNew: score > best };
+    if (score > best) {
+      records[key] = score;
+      try {
+        localStorage.setItem(RECORDS_KEY, JSON.stringify(records));
+      } catch {
+        // Ídem
+      }
+    }
+  }
+
+  // Continuar cuesta la mitad de los puntos, como en las máquinas
+  public continueGame() {
+    if (this.phase !== 'gameOver') return;
+    for (const hero of this.heroes) {
+      hero.score = Math.floor(hero.score / 2);
+      this.continueHero(hero);
+    }
     this.phase = this.boss ? (this.bossDown ? 'levelClear' : 'boss') : 'play';
   }
 
@@ -2770,6 +2890,11 @@ export class ArcadeGame {
     renderParticles(ctx, this.particles);
     ctx.restore();
 
+    // Objetos por delante y partículas de ambiente del reino
+    const props = this.props.filter(e => e.status === 'ready').map(e => e.image);
+    drawForeground(ctx, props, this.camX, this.levelIndex);
+    drawAmbient(ctx, this.level.pantheon, this.tick, this.camX, this.level === FINAL_LEVEL);
+
     // Destello de la magia
     if (this.magicCast) {
       const t = this.magicCast.t;
@@ -2842,6 +2967,17 @@ export class ArcadeGame {
     ctx.font = '11px sans-serif';
     ctx.fillStyle = '#94a3b8';
     ctx.fillText(hero.index === 0 ? 'MAGIA (L)' : 'MAGIA (3)', px + 262, 92);
+
+    // Combo en curso
+    if (hero.combo >= 3) {
+      const mult = comboMultiplier(hero.combo);
+      ctx.font = '900 22px "Cinzel", serif';
+      ctx.fillStyle = mult > 1 ? '#fb923c' : '#fde68a';
+      ctx.shadowColor = '#000000';
+      ctx.shadowBlur = 6;
+      ctx.fillText(`COMBO ${hero.combo}${mult > 1 ? `  ×${mult}` : ''}`, px + 8, 138);
+      ctx.shadowBlur = 0;
+    }
   }
 
   private renderHud(ctx: CanvasRenderingContext2D) {
@@ -2878,6 +3014,23 @@ export class ArcadeGame {
       ctx.fillRect(x, 688, w * (boss.displayHp / boss.maxHp), 12);
       ctx.fillStyle = '#ef4444';
       ctx.fillRect(x, 688, w * (boss.hp / boss.maxHp), 12);
+    }
+
+    // Barra del mini-jefe
+    const mini = this.monsters.find(m => m.kind === 'mini' && !m.removed && m.hp > 0);
+    if (mini && !(boss && !boss.removed)) {
+      const w = 520;
+      const x = (VIEW_W - w) / 2;
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.75)';
+      ctx.fillRect(x - 10, 662, w + 20, 44);
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 15px "Cinzel", serif';
+      ctx.fillStyle = '#fb923c';
+      ctx.fillText(`${mini.skin.name.toUpperCase()} · MINI-JEFE`, x, 680);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(x, 688, w, 12);
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(x, 688, w * (mini.hp / mini.maxHp), 12);
     }
 
     // Indicador de avance
@@ -2958,20 +3111,92 @@ export class ArcadeGame {
     };
 
     const scores = this.heroes.map(h => (this.coop ? `${h.index + 1}P ${h.score}` : `${h.score}`)).join('  ·  ');
+    const recordLine = this.record ? (this.record.isNew ? '¡NUEVO RÉCORD!' : `Récord: ${this.record.best}`) : '';
+    if (this.phase === 'levelClear' && this.results && this.phaseTimer >= 110) this.renderResults(ctx);
     if (this.phase === 'gameOver') {
-      overlay('GAME OVER', '#ef4444', [`Puntos: ${scores}`, `${this.coop ? 'J o 1' : 'J'}: continuar con 3 vidas  ·  Esc: salir al menú`]);
+      // ¿Continuar? con cuenta regresiva grande (el botón para tocar lo pone ArcadeMode encima)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.textAlign = 'center';
+      ctx.font = '900 60px "Cinzel", serif';
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillText('¿CONTINUAR?', VIEW_W / 2, 220);
+      const n = Math.max(0, Math.ceil(this.continueTimer / 60) - 1);
+      const pulse = 1 + (this.continueTimer % 60) / 60 * 0.25;
+      ctx.font = `900 ${Math.round(150 * pulse)}px "Cinzel", serif`;
+      ctx.fillStyle = n <= 3 ? '#ef4444' : '#ffffff';
+      ctx.fillText(String(n), VIEW_W / 2, 400);
+      ctx.font = '20px "Cinzel", serif';
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillText(`Puntos: ${scores}  ·  Continuar cuesta la mitad`, VIEW_W / 2, 470);
+    } else if (this.phase === 'finalOver') {
+      overlay('GAME OVER', '#ef4444', [`Puntos finales: ${scores}`, recordLine]);
     } else if (this.phase === 'victory') {
       overlay(this.coop ? '¡CAMPEONES DEL COSMOS!' : '¡CAMPEÓN DEL COSMOS!', '#fbbf24', [
         this.coop
           ? `${this.heroes.map(h => h.deity.name).join(' y ')} vencieron a los cuatro panteones y al mismo Origen`
           : `${hero.deity.name} venció a los cuatro panteones y al mismo Origen`,
         `Puntos finales: ${scores}`,
-        `${this.coop ? 'J o 1' : 'J'}: volver al menú`
+        recordLine
       ]);
     } else if (this.paused) {
       overlay('PAUSA', '#fbbf24', ['Esc: continuar  ·  Q: salir al menú']);
     }
 
     ctx.restore();
+  }
+
+  // Resultados del nivel: estadísticas, bonos y calificación de cada jugador
+  private renderResults(ctx: CanvasRenderingContext2D) {
+    const results = this.results ?? [];
+    const t = this.phaseTimer - 110;
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.82)';
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.textAlign = 'center';
+    ctx.font = '900 44px "Cinzel", serif';
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillText(this.level === FINAL_LEVEL ? 'EL TELAR DEL COSMOS' : `NIVEL ${this.levelIndex + 1} COMPLETADO`, VIEW_W / 2, 110);
+    const colW = VIEW_W / results.length;
+    results.forEach((r, i) => {
+      const cx = colW * i + colW / 2;
+      const rows: [string, string][] = [
+        ['Monstruos derrotados', String(r.kills)],
+        ['Tiempo', `${Math.floor(r.secs / 60)}:${String(r.secs % 60).padStart(2, '0')}  (+${r.timeBonus})`],
+        ['Sin perder vidas', r.noDeathBonus ? `+${r.noDeathBonus}` : `${r.deaths} perdidas`],
+        ['Combo más alto', `${r.maxCombo}  (+${r.comboBonus})`]
+      ];
+      ctx.font = 'bold 20px "Cinzel", serif';
+      ctx.fillStyle = this.coop ? PLAYER_COLORS[r.hero.index] : '#e2e8f0';
+      ctx.fillText(r.hero.deity.name.toUpperCase(), cx, 170);
+      rows.forEach(([label, value], k) => {
+        if (t < 20 + k * 25) return; // Van apareciendo uno por uno
+        const y = 220 + k * 44;
+        ctx.font = '18px sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.textAlign = 'right';
+        ctx.fillText(label, cx - 10, y);
+        ctx.fillStyle = '#fde68a';
+        ctx.textAlign = 'left';
+        ctx.fillText(value, cx + 10, y);
+        ctx.textAlign = 'center';
+      });
+      if (t >= 140) {
+        const colors = { S: '#fbbf24', A: '#4ade80', B: '#60a5fa', C: '#94a3b8' };
+        ctx.font = '900 110px "Cinzel", serif';
+        ctx.fillStyle = colors[r.rank];
+        ctx.shadowColor = colors[r.rank];
+        ctx.shadowBlur = 24;
+        ctx.fillText(r.rank, cx, 520);
+        ctx.shadowBlur = 0;
+        ctx.font = 'bold 18px "Cinzel", serif';
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillText(`Puntos: ${r.hero.score}`, cx, 565);
+      }
+    });
+    if (t > 90 && this.tick % 60 < 40) {
+      ctx.font = '16px sans-serif';
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillText('Ataque para seguir', VIEW_W / 2, 650);
+    }
   }
 }
