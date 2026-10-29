@@ -148,12 +148,12 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
   }, [deities.map(d => d.id).join(','), difficulty]);
 
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black pt-12 sm:pt-14">
       <canvas
         ref={canvasRef}
         width={VIEW_W}
         height={VIEW_H}
-        className="w-full h-full max-w-[1400px] max-h-[787px] object-contain shadow-2xl bg-black"
+        className="w-full h-full max-w-[1400px] max-h-[787px] object-contain portrait:object-top shadow-2xl bg-black"
       />
     </div>
   );

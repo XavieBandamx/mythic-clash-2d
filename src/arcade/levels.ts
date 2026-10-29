@@ -160,7 +160,7 @@ export const LEVELS: LevelDef[] = [
       runner: { name: 'Arpía', spriteId: 'arpia', body: '#7c3aed', detail: '#c4b5fd', accent: '#fde047', head: 'imp', weapon: 'claws', extra: 'wings' }
     },
     bossOrder: ['hades', 'poseidon', 'zeus'],
-    art: { background: 'grecia-fondo.webp', horizonY: 718, floor: 'grecia-suelo.png' }
+    art: { background: 'grecia-fondo.webp', horizonY: 718, floor: 'grecia-suelo.webp' }
   },
   {
     pantheon: 'Egipto',
@@ -182,7 +182,7 @@ export const LEVELS: LevelDef[] = [
       runner: { name: 'Sombra de Set', spriteId: 'sombra-set', body: '#292524', detail: '#7f1d1d', accent: '#ef4444', head: 'imp', weapon: 'claws' }
     },
     bossOrder: ['anubis', 'osiris', 'ra'],
-    art: { background: 'egipto-fondo.webp', horizonY: 730, floor: 'egipto-suelo.png' }
+    art: { background: 'egipto-fondo.webp', horizonY: 730, floor: 'egipto-suelo.webp' }
   },
   {
     pantheon: 'México',
@@ -204,7 +204,7 @@ export const LEVELS: LevelDef[] = [
       runner: { name: 'Tzitzimitl', spriteId: 'tzitzimitl', body: '#1e1b4b', detail: '#e7e5e4', accent: '#a855f7', head: 'skull', weapon: 'claws', extra: 'wings' }
     },
     bossOrder: ['mictlantecuhtli', 'quetzalcoatl', 'huitzilopochtli'],
-    art: { background: 'mexico-fondo.webp', horizonY: 694, floor: 'mexico-suelo.png' }
+    art: { background: 'mexico-fondo.webp', horizonY: 694, floor: 'mexico-suelo.webp' }
   },
   {
     pantheon: 'Japón',
@@ -226,7 +226,7 @@ export const LEVELS: LevelDef[] = [
       runner: { name: 'Kappa', spriteId: 'kappa', body: '#15803d', detail: '#a16207', accent: '#fef08a', head: 'imp', weapon: 'claws', extra: 'shell' }
     },
     bossOrder: ['raijin', 'susanoo', 'amaterasu'],
-    art: { background: 'japon-fondo.webp', horizonY: 718, floor: 'japon-suelo.png' }
+    art: { background: 'japon-fondo.webp', horizonY: 718, floor: 'japon-suelo.webp' }
   }
 ];
 

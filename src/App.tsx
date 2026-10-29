@@ -14,8 +14,9 @@ import { SIM_STEP_MS, checkAABB, spawnBloodBurst, renderParticles, updateParticl
 import type { Box, Difficulty, Particle } from './game/core';
 import { drawDeityPortraitIcon, onPortraitLoad } from './game/portraits';
 import { startGamepadBridge } from './game/gamepad';
-import { getControls, startKeyRemapper } from './game/controls';
+import { startKeyRemapper } from './game/controls';
 import ControlsMenu from './ControlsMenu';
+import TouchControls from './TouchControls';
 import { ARENAS, ORIGEN_ARENA, drawArena } from './game/arenas';
 import { ORIGEN } from './arcade/levels';
 import { TOWER_ENDINGS, buildTower, towerSkill } from './game/tower';
@@ -25,7 +26,7 @@ import type { FightStyle } from './game/styles';
 
 const STYLE_ICONS: Record<FightStyle, typeof Swords> = { Poder: Swords, Velocidad: Zap, 'Guardián': Shield, Alcance: Crosshair };
 import type { ArenaDef } from './game/arenas';
-import { getSpriteSheetConfig, loadSpriteSheet } from './game/sprites';
+import { drawLoading, getSpriteSheetConfig, isLoading, loadSpriteSheet } from './game/sprites';
 import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from './game/sprites';
 
 /* ==========================================================================
@@ -1519,7 +1520,7 @@ export class CanvasFighter extends Fighter {
   public currentAnimation: SpriteAnimationName = 'idle';
   public frameIndex: number = 0;
 
-  private sheet: SpriteSheetEntry;
+  public sheet: SpriteSheetEntry;
   protected sizeMul: number = 1;
   private frameTick: number = 0;
   private lastLogicalState: Fighter['state'] = 'IDLE';
@@ -1892,7 +1893,8 @@ export default function App() {
   const [difficulty, setDifficulty] = useState<Difficulty>('NORMAL');
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [showHitboxes, setShowHitboxes] = useState<boolean>(false);
-  const [showTouchControls, setShowTouchControls] = useState<boolean>(false);
+  // En celulares y tablets los controles táctiles salen solos
+  const [showTouchControls, setShowTouchControls] = useState<boolean>(() => window.matchMedia('(pointer: coarse)').matches);
 
   // Selección de personajes
   const [p1DeityIndex, setP1DeityIndex] = useState<number>(0); // Zeus
@@ -2281,7 +2283,7 @@ export default function App() {
         return;
       }
 
-      if (gameState === 'FIGHT' && p1Ref.current && p2Ref.current) {
+      if (gameState === 'FIGHT' && p1Ref.current && p2Ref.current && !fightLoading()) {
         const p1 = p1Ref.current;
         const p2 = p2Ref.current;
         const keys = keysPressedRef.current;
@@ -2728,6 +2730,11 @@ export default function App() {
       }
     }
 
+    if (fightLoading()) {
+      ctx.restore();
+      drawLoading(ctx, w, h);
+      return;
+    }
     const arenaArt = loadSpriteSheet(arenaRef.current.src);
     if (arenaArt.status === 'ready') {
       drawArena(ctx, arenaArt.image, arenaRef.current, w, h, frameCountRef.current);
@@ -2823,6 +2830,10 @@ export default function App() {
     ctx.lineTo(w, groundY);
     ctx.stroke();
   };
+
+  // La pelea espera a que bajen la arena y las hojas de los dos luchadores (el reloj no corre mientras)
+  const fightLoading = () =>
+    isLoading([loadSpriteSheet(arenaRef.current.src), (p1Ref.current as CanvasFighter | null)?.sheet, (p2Ref.current as CanvasFighter | null)?.sheet]);
 
   const renderFightOverlays = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
     const flash = Math.max(p1Ref.current?.screenFlash ?? 0, p2Ref.current?.screenFlash ?? 0);
@@ -3022,51 +3033,32 @@ export default function App() {
     }
   };
 
-  const handleVirtualInput = (action: string) => {
-    sounds.init();
-    if (!p1Ref.current) return;
-    const p1 = p1Ref.current;
-    if (action === 'left') p1.moveLeft();
-    else if (action === 'right') p1.moveRight();
-    else if (action === 'jump') p1.jump();
-    else if (action === 'block') p1.crouchOrBlock(true);
-    else if (action === 'unblock') p1.crouchOrBlock(false);
-    else if (action === 'light') p1.executeLightAttack();
-    else if (action === 'heavy') p1.executeHeavyAttack();
-    else if (action === 'special' && p2Ref.current) {
-      if (p1.superMeter >= 100) {
-        p1.executeSpecial(p2Ref.current);
-        triggerSpecialCinematic(p1);
-      }
-    }
-  };
-
   return (
     <div
       onClick={() => sounds.init()}
-      className="relative w-screen h-screen bg-[#04060a] text-slate-100 flex flex-col items-center justify-center overflow-hidden select-none font-sans"
+      className="relative w-screen h-[100dvh] bg-[#04060a] text-slate-100 flex flex-col items-center justify-center overflow-hidden select-none font-sans"
     >
       {/* BARRA SUPERIOR MINIMALISTA */}
-      <header className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-6 py-3 border-b border-white/10 bg-black/60 backdrop-blur-md">
+      <header className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between gap-2 px-3 py-2 sm:px-6 sm:py-3 short:py-1.5 border-b border-white/10 bg-black/60 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <Swords className="w-5 h-5 text-amber-400" />
-          <span className="font-cinzel text-lg font-bold tracking-wider text-amber-400 uppercase">
+          <span className="font-cinzel text-sm sm:text-lg font-bold tracking-wider text-amber-400 uppercase whitespace-nowrap">
             Mythic Clash 2D
           </span>
-          <span className="text-xs text-slate-400 hidden md:inline">
+          <span className="text-xs text-slate-400 hidden md:inline short:hidden">
             Torneo de Dioses · Físicas y Colisiones Reales
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-400 bg-white/5 rounded border border-white/10">
+          <div className="hidden sm:flex short:hidden items-center gap-1.5 px-2.5 py-1 text-xs text-slate-400 bg-white/5 rounded border border-white/10">
             <Music className="w-3.5 h-3.5 text-amber-400" />
             <span>{gameState === 'FIGHT' ? 'BGM: Furia Divina' : 'BGM: Ecos del Olimpo'}</span>
           </div>
 
           <button
             onClick={() => setShowHitboxes(prev => !prev)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border transition-colors ${
+            className={`hidden sm:flex short:hidden items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border transition-colors ${
               showHitboxes
                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                 : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
@@ -3087,7 +3079,7 @@ export default function App() {
             title="Alternar controles en pantalla"
           >
             <Gamepad2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Controles Touch</span>
+            <span className="hidden sm:inline short:hidden">Controles Touch</span>
           </button>
 
           <button
@@ -3107,27 +3099,27 @@ export default function App() {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 transition-colors"
             >
               <Home className="w-3.5 h-3.5" />
-              <span>Menú</span>
+              <span className="hidden sm:inline short:hidden">Menú</span>
             </button>
           )}
         </div>
       </header>
 
       {/* ÁREA DEL CANVAS DE JUEGO */}
-      <div className="relative w-full h-full flex items-center justify-center p-0">
+      <div className="relative w-full h-full flex items-center justify-center pt-12 sm:pt-14">
         <canvas
           ref={canvasRef}
-          className="w-full h-full max-w-[1400px] max-h-[787px] object-contain shadow-2xl bg-black"
+          className="w-full h-full max-w-[1400px] max-h-[787px] object-contain portrait:object-top shadow-2xl bg-black"
         />
 
         {/* --- ESCENA 1: MENÚ PRINCIPAL --- */}
         {gameState === 'MAIN_MENU' && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/75 backdrop-blur-sm p-6 text-center">
-            <div className="mb-8">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/75 backdrop-blur-sm p-6 text-center">
+            <div className="mb-8 short:mb-3">
               <span className="text-amber-400 text-xs font-semibold tracking-widest uppercase mb-2 block flex items-center justify-center gap-2">
                 <Flame className="w-4 h-4" /> Torneo Arcano de Divinidades <Flame className="w-4 h-4" />
               </span>
-              <h1 className="font-cinzel text-5xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-amber-200 via-amber-400 to-amber-600 tracking-wider drop-shadow-md">
+              <h1 className="font-cinzel text-5xl md:text-7xl short:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-amber-200 via-amber-400 to-amber-600 tracking-wider drop-shadow-md">
                 MYTHIC CLASH 2D
               </h1>
               <p className="text-slate-400 text-sm mt-3 max-w-lg mx-auto">
@@ -3171,7 +3163,7 @@ export default function App() {
                       <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-amber-400 animate-pulse' : 'bg-transparent'}`} />
                       {item.label}
                     </span>
-                    <span className="text-xs text-amber-400/70 font-mono">
+                    <span className="hidden sm:inline text-xs text-amber-400/70 font-mono">
                       {isSelected ? '[ENTER / J]' : ''}
                     </span>
                   </button>
@@ -3179,7 +3171,7 @@ export default function App() {
               })}
             </div>
 
-            <div className="mt-8 p-4 rounded-lg bg-black/40 border border-white/10 text-xs text-slate-400 max-w-xl text-left grid grid-cols-2 gap-4">
+            <div className="mt-8 p-4 rounded-lg bg-black/40 border border-white/10 text-xs text-slate-400 max-w-xl text-left hidden sm:grid grid-cols-2 gap-4">
               <div>
                 <span className="text-amber-300 font-semibold block mb-1">🎮 Jugador 1:</span>
                 <div>Mover: <b className="text-slate-200">A / D</b> · Saltar: <b className="text-slate-200">W</b> · Bloquear: <b className="text-slate-200">S</b></div>
@@ -3198,7 +3190,7 @@ export default function App() {
 
         {/* --- ESCENA 2: MENÚ DE DIFICULTAD --- */}
         {gameState === 'DIFFICULTY_MENU' && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-6 text-center">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/80 backdrop-blur-sm p-6 text-center">
             <h2 className="font-cinzel text-3xl md:text-4xl font-bold text-amber-400 mb-2">
               Dificultad de la IA
             </h2>
@@ -3274,7 +3266,7 @@ export default function App() {
 
         {/* --- ESCENA 3: PANTALLA DE SELECCIÓN CON RETRATOS CANVAS Y VISTA PREVIA DETALLADA --- */}
         {gameState === 'CHAR_SELECT' && (
-          <div className="absolute inset-0 z-20 flex flex-col justify-between bg-black/85 backdrop-blur-md p-5 overflow-hidden">
+          <div className="absolute inset-0 z-20 flex flex-col lg:justify-between bg-black/85 backdrop-blur-md px-3 sm:px-5 pt-16 overflow-y-auto">
             <div className="text-center mb-1">
               <span className="text-amber-400 text-xs font-semibold tracking-widest uppercase">
                 {gameMode === 'PVP'
@@ -3304,7 +3296,7 @@ export default function App() {
               </div>
 
               {/* Cuadrícula Central de los 12 Dioses con Iconos de Rostro Ilustrados */}
-              <div className="lg:col-span-6 bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-2xl">
+              <div className="order-first lg:order-none lg:col-span-6 bg-slate-950/80 border border-slate-800 rounded-2xl p-3 sm:p-4 flex flex-col justify-between shadow-2xl">
                 {(['Grecia', 'Egipto', 'México', 'Japón'] as Pantheon[]).map(pantheon => {
                   const pantheonDeities = DEITIES.filter(d => d.pantheon === pantheon);
                   return (
@@ -3378,8 +3370,8 @@ export default function App() {
             </div>
 
             {/* Barra Inferior de Confirmación e Instrucciones */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 max-w-6xl mx-auto w-full pt-3 border-t border-white/10 text-xs text-slate-400">
-              <div className="flex gap-4">
+            <div className="sticky bottom-0 flex flex-col sm:flex-row items-center justify-between gap-3 max-w-6xl mx-auto w-full py-3 mt-3 border-t border-white/10 bg-black/90 text-xs text-slate-400">
+              <div className="hidden sm:flex gap-4">
                 <div>P1: <b className="text-slate-200">WASD</b> · <b className="text-blue-400">J</b> confirmar</div>
                 {gameMode === 'PVP' && (
                   <div>P2: <b className="text-slate-200">Flechas</b> · <b className="text-red-400">U</b> confirmar</div>
@@ -3416,13 +3408,13 @@ export default function App() {
 
         {/* --- ESCENA 4B: MODO ARCADE --- */}
         {gameState === 'STAGE_SELECT' && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-6 text-center">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md p-6 text-center">
             <h2 className="font-cinzel text-3xl md:text-4xl font-bold text-amber-400 mb-1">Elige la Arena</h2>
             <p className="text-slate-400 text-sm mb-6">
               {DEITIES[p1DeityIndex].name} vs {DEITIES[p2DeityIndex].name}
             </p>
 
-            <div className="grid grid-cols-3 gap-3 w-full max-w-4xl">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-4xl">
               {[null, ...ARENAS].map((arena, idx) => {
                 const isSelected = stageSelected === idx;
                 return (
@@ -3474,7 +3466,7 @@ export default function App() {
           const run = towerRef.current;
           const rival = run.rivals[run.floor];
           return (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-6">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md p-6">
               <span className="text-violet-300 text-xs font-semibold tracking-widest uppercase">Torre de los Dioses</span>
               <h2 className="font-cinzel text-3xl font-extrabold text-amber-300 mb-4">
                 {rival.id === ORIGEN.id ? 'La cima: el creador te espera' : `Piso ${run.floor + 1}: ${run.hero.name} vs ${rival.name}`}
@@ -3513,7 +3505,7 @@ export default function App() {
         })()}
 
         {gameState === 'TOWER_END' && towerRef.current && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md p-6 text-center">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/90 backdrop-blur-md p-6 text-center">
             <span className="text-violet-300 text-xs font-semibold tracking-widest uppercase mb-2">Torre de los Dioses · Final</span>
             <Medallion deityId={towerRef.current.hero.id} size={180} />
             <h2 className="font-cinzel text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 mt-3 mb-4">
@@ -3531,7 +3523,7 @@ export default function App() {
           const won = winner.id === run.hero.id;
           const top = run.floor + 1 >= run.rivals.length;
           return (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-6 text-center">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md p-6 text-center">
               <span className="text-amber-400 text-sm font-semibold tracking-widest uppercase mb-1">K.O.</span>
               <h2 className="font-cinzel text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 mb-3">
                 {won ? (top ? '¡EL CREADOR HA CAÍDO!' : `¡PISO ${run.floor + 1} SUPERADO!`) : `¡VICTORIA DE ${winner.name.toUpperCase()}!`}
@@ -3565,7 +3557,7 @@ export default function App() {
         })()}
 
         {gameState === 'GAME_OVER' && winner && gameMode !== 'TOWER' && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-6 text-center">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md p-6 text-center">
             <span className="text-amber-400 text-sm font-semibold tracking-widest uppercase mb-1">
               K.O. - COMBATE FINALIZADO
             </span>
@@ -3598,72 +3590,9 @@ export default function App() {
           </div>
         )}
 
-        {/* CONTROLES TÁCTILES VIRTUALES */}
-        {showTouchControls && gameState === 'FIGHT' && (
-          <div
-            className={`absolute bottom-4 left-0 right-0 z-20 px-8 flex justify-between items-end pointer-events-none ${getControls().touchSwap ? 'flex-row-reverse' : ''}`}
-            style={{ zoom: { chico: 0.8, normal: 1, grande: 1.35 }[getControls().touchSize] }}
-          >
-            <div className="pointer-events-auto flex items-center gap-2 bg-black/60 p-2 rounded-xl backdrop-blur-md border border-white/10">
-              <button
-                onMouseDown={() => handleVirtualInput('left')}
-                onTouchStart={() => handleVirtualInput('left')}
-                className="w-14 h-14 bg-slate-800 hover:bg-slate-700 active:bg-amber-600 text-white font-bold rounded-lg flex items-center justify-center text-lg border border-slate-600 shadow"
-              >
-                ←
-              </button>
-              <div className="flex flex-col gap-2">
-                <button
-                  onMouseDown={() => handleVirtualInput('jump')}
-                  onTouchStart={() => handleVirtualInput('jump')}
-                  className="w-14 h-14 bg-slate-800 hover:bg-slate-700 active:bg-amber-600 text-white font-bold rounded-lg flex items-center justify-center text-lg border border-slate-600 shadow"
-                >
-                  ↑
-                </button>
-                <button
-                  onMouseDown={() => handleVirtualInput('block')}
-                  onMouseUp={() => handleVirtualInput('unblock')}
-                  onTouchStart={() => handleVirtualInput('block')}
-                  onTouchEnd={() => handleVirtualInput('unblock')}
-                  className="w-14 h-14 bg-slate-800 hover:bg-slate-700 active:bg-blue-600 text-white font-bold rounded-lg flex items-center justify-center text-xs border border-slate-600 shadow"
-                >
-                  DEF
-                </button>
-              </div>
-              <button
-                onMouseDown={() => handleVirtualInput('right')}
-                onTouchStart={() => handleVirtualInput('right')}
-                className="w-14 h-14 bg-slate-800 hover:bg-slate-700 active:bg-amber-600 text-white font-bold rounded-lg flex items-center justify-center text-lg border border-slate-600 shadow"
-              >
-                →
-              </button>
-            </div>
-
-            <div className="pointer-events-auto flex items-center gap-3 bg-black/60 p-2 rounded-xl backdrop-blur-md border border-white/10">
-              <button
-                onClick={() => handleVirtualInput('light')}
-                className="w-14 h-14 bg-blue-600/80 hover:bg-blue-500 active:scale-95 text-white font-bold rounded-full flex flex-col items-center justify-center text-xs border border-blue-400 shadow"
-              >
-                <span>J</span>
-                <span className="text-[9px] text-blue-200">GOLPE</span>
-              </button>
-              <button
-                onClick={() => handleVirtualInput('heavy')}
-                className="w-14 h-14 bg-orange-600/80 hover:bg-orange-500 active:scale-95 text-white font-bold rounded-full flex flex-col items-center justify-center text-xs border border-orange-400 shadow"
-              >
-                <span>K</span>
-                <span className="text-[9px] text-orange-200">FUERTE</span>
-              </button>
-              <button
-                onClick={() => handleVirtualInput('special')}
-                className="w-16 h-16 bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-extrabold rounded-full flex flex-col items-center justify-center text-xs border-2 border-amber-300 shadow-lg shadow-amber-500/30"
-              >
-                <span>L</span>
-                <span className="text-[9px] font-black">SUPER</span>
-              </button>
-            </div>
-          </div>
-        )}
+        {/* CONTROLES TÁCTILES: joystick y botones en versus, torre y arcade */}
+        {showTouchControls && gameState === 'FIGHT' && <TouchControls mode="versus" />}
+        {showTouchControls && gameState === 'ARCADE' && <TouchControls mode="arcade" />}
       </div>
     </div>
   );

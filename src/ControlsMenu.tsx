@@ -115,7 +115,7 @@ export default function ControlsMenu({ onBack }: { onBack: () => void }) {
   ];
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-sm p-6 text-center">
+    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-sm p-6 text-center">
       <h2 className="font-cinzel text-3xl md:text-4xl font-bold text-amber-400 mb-1">Configurar Controles</h2>
       <p className="text-slate-400 text-sm mb-5">
         {listening?.kind === 'key'

@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Pantallas bajitas: celular en horizontal */
+@custom-variant short (@media (max-height: 500px));
+
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;

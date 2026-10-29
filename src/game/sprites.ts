@@ -25,7 +25,7 @@ export interface SpriteSheetConfig {
   getupFrame?: number;
 }
 
-// Plantilla común: una hoja por deidad en public/sprites/<id>.png, una fila por animación
+// Plantilla común: una hoja por deidad en public/sprites/<id>.webp, una fila por animación
 const DEFAULT_SPRITE_LAYOUT: Omit<SpriteSheetConfig, 'src'> = {
   frameWidth: 128,
   frameHeight: 128,
@@ -74,9 +74,24 @@ export const SPRITE_SHEET_OVERRIDES: Record<string, Partial<SpriteSheetConfig>> 
 export function getSpriteSheetConfig(deity: DeityData): SpriteSheetConfig {
   return {
     ...DEFAULT_SPRITE_LAYOUT,
-    src: `${import.meta.env.BASE_URL}sprites/${deity.id}.png`,
+    src: `${import.meta.env.BASE_URL}sprites/${deity.id}.webp`,
     ...SPRITE_SHEET_OVERRIDES[deity.id]
   };
+}
+
+// Pantalla negra de carga: mejor que enseñar los dibujos por código mientras bajan las imágenes (en celular tardan)
+export function isLoading(entries: (SpriteSheetEntry | null | undefined)[]): boolean {
+  return entries.some(e => e?.status === 'loading');
+}
+
+export function drawLoading(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  ctx.fillStyle = '#04060a';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = 'bold 34px "Cinzel", serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('CARGANDO' + '.'.repeat(1 + (Math.floor(performance.now() / 400) % 3)), w / 2, h / 2);
 }
 
 export interface SpriteSheetEntry {

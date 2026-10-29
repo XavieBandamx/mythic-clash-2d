@@ -12,7 +12,7 @@ const PORTRAIT_IDS = new Set([
 ]);
 
 function getDeityPortrait(deityId: string): SpriteSheetEntry | null {
-  return PORTRAIT_IDS.has(deityId) ? loadSpriteSheet(`${import.meta.env.BASE_URL}portraits/${deityId}.png`) : null;
+  return PORTRAIT_IDS.has(deityId) ? loadSpriteSheet(`${import.meta.env.BASE_URL}portraits/${deityId}.webp`) : null;
 }
 
 // Para los lienzos de React que dibujan una sola vez: avisa cuando el medallón termina de cargar.

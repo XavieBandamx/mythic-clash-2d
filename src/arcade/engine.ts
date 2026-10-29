@@ -3,7 +3,7 @@ import type { DeityData } from '../game/deities';
 import { sounds } from '../game/sound';
 import { renderParticles, spawnBloodBurst, updateParticles } from '../game/core';
 import type { Difficulty, Particle } from '../game/core';
-import { GRID_4X4_ANIMATIONS, drawSpriteFrame, getSpriteSheetConfig, loadSpriteSheet } from '../game/sprites';
+import { GRID_4X4_ANIMATIONS, drawLoading, drawSpriteFrame, getSpriteSheetConfig, isLoading, loadSpriteSheet } from '../game/sprites';
 import type { SpriteSheetConfig, SpriteSheetEntry } from '../game/sprites';
 import { drawDeityPortraitIcon } from '../game/portraits';
 import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from '../game/styles';
@@ -830,7 +830,7 @@ export class Hero extends Actor {
   }
 }
 
-const monsterSpriteSrc = (spriteId: string) => `${import.meta.env.BASE_URL}sprites/monsters/${spriteId}.png`;
+const monsterSpriteSrc = (spriteId: string) => `${import.meta.env.BASE_URL}sprites/monsters/${spriteId}.webp`;
 
 // --------------------------------------------------------------------------
 // MONSTRUOS: rodean al héroe, avisan antes de golpear y se turnan para atacar
@@ -1118,7 +1118,7 @@ const BEAST_STRIKES: Record<BeastAttack, BeastStrike> = {
   thunder: { front: 120, back: 10, damage: 15, knockdown: true, heavy: true, duration: 28, from: 8, to: 20, lunge: 10 }
 };
 
-const beastSpriteSrc = (id: string) => `${import.meta.env.BASE_URL}sprites/beasts/${id}.png`;
+const beastSpriteSrc = (id: string) => `${import.meta.env.BASE_URL}sprites/beasts/${id}.webp`;
 
 export class Beast extends Actor {
   public def: BeastDef;
@@ -2459,8 +2459,13 @@ export class ArcadeGame {
   // --- PASO DE SIMULACIÓN (60 Hz) ---
 
   // Una entrada por jugador (o una sola en el modo de un jugador)
+  // Escenario del nivel y hojas de héroes y jefe todavía bajando
+  public get loading(): boolean {
+    return isLoading([this.art.background, this.art.floor, ...this.heroes.map(h => h.sheet), this.boss?.sheet]);
+  }
+
   public step(inputs: ArcadeInput | ArcadeInput[]) {
-    if (this.paused) return;
+    if (this.paused || this.loading) return;
     const list = Array.isArray(inputs) ? inputs : [inputs];
     const inputFor = (hero: Hero) => list[hero.index] ?? EMPTY_INPUT;
     this.tick++;
@@ -2700,6 +2705,10 @@ export class ArcadeGame {
   // --- RENDER ---
 
   public render(ctx: CanvasRenderingContext2D) {
+    if (this.loading) {
+      drawLoading(ctx, VIEW_W, VIEW_H);
+      return;
+    }
     ctx.save();
     if (this.shakeTicks > 0) {
       const amt = this.shakeIntensity * (this.shakeTicks / this.shakeDuration);
