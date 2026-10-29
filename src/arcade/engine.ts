@@ -3,7 +3,7 @@ import type { DeityData } from '../game/deities';
 import { sounds } from '../game/sound';
 import { renderParticles, spawnBloodBurst, updateParticles } from '../game/core';
 import type { Difficulty, Particle } from '../game/core';
-import { GRID_4X4_ANIMATIONS, drawLoading, drawSpriteFrame, getSpriteSheetConfig, isLoading, loadSpriteSheet } from '../game/sprites';
+import { EXTRA_ROWS, GRID_4X4_ANIMATIONS, drawLoading, drawSpriteFrame, getExtraSheetConfig, getSpriteSheetConfig, isLoading, loadSpriteSheet } from '../game/sprites';
 import type { SpriteSheetConfig, SpriteSheetEntry } from '../game/sprites';
 import { drawDeityPortraitIcon } from '../game/portraits';
 import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from '../game/styles';
@@ -360,6 +360,9 @@ export class Hero extends Actor {
   public defMul: number;
   public comboStep: number = 0;
   public canRevive: boolean = true; // Osiris: una vez por nivel
+  // Segunda hoja (salto, súper, remate) si el dios ya la tiene
+  private extraCfg: SpriteSheetConfig | null = null;
+  private extraSheet: SpriteSheetEntry | null = null;
   // Puntuación: combo de golpes conectados y estadísticas del nivel en curso
   public combo: number = 0;
   public comboTimer: number = 0;
@@ -384,6 +387,8 @@ export class Hero extends Actor {
     this.deity = deity;
     this.cfg = getSpriteSheetConfig(deity);
     this.sheet = loadSpriteSheet(this.cfg.src);
+    this.extraCfg = getExtraSheetConfig(deity);
+    this.extraSheet = this.extraCfg ? loadSpriteSheet(this.extraCfg.src) : null;
     this.displayHp = this.hp;
     // Las estadísticas del dios (1-5) definen velocidad, daño y resistencia
     this.walkSpeed = 2.6 + deity.stats.speed * 0.35;
@@ -788,13 +793,28 @@ export class Hero extends Actor {
       lift = Math.min(28, this.stateTimer * 1.4) + Math.sin(this.animClock * 0.2) * 3;
       this.renderRuneCircle(ctx, feetY);
     }
-    drawSpriteFrame(ctx, this.sheet, this.cfg, row, frame, this.x, feetY - lift, this.facing, {
-      flash: this.flash > 0,
-      alpha: blink ? 0.45 : 1,
-      scaleX,
-      scaleY: pose.sy,
-      rotation
-    });
+    // Salto, magia y remate del combo con la segunda hoja cuando existe
+    let extra: { row: number; frame: number } | null = null;
+    if (this.extraSheet?.status === 'ready' && this.extraCfg) {
+      if (this.state === 'jump') extra = { row: EXTRA_ROWS.jump, frame: this.vy > 4 ? 1 : this.vy < -4 ? 3 : 2 };
+      else if (this.state === 'magic') extra = { row: EXTRA_ROWS.super, frame: Math.min(3, Math.floor(this.stateTimer / 15)) };
+      else if (this.state === 'attack' && this.comboStep === 3) extra = { row: EXTRA_ROWS.finish, frame: this.stateTimer < 7 ? 0 : 1 };
+      else if (this.state === 'dashAttack') extra = { row: EXTRA_ROWS.finish, frame: 1 };
+    }
+    if (extra && this.extraSheet && this.extraCfg) {
+      drawSpriteFrame(ctx, this.extraSheet, this.extraCfg, extra.row, extra.frame, this.x, feetY - lift, this.facing, {
+        flash: this.flash > 0,
+        alpha: blink ? 0.45 : 1
+      });
+    } else {
+      drawSpriteFrame(ctx, this.sheet, this.cfg, row, frame, this.x, feetY - lift, this.facing, {
+        flash: this.flash > 0,
+        alpha: blink ? 0.45 : 1,
+        scaleX,
+        scaleY: pose.sy,
+        rotation
+      });
+    }
     if (this.state === 'spin') this.renderSpinSwoosh(ctx, feetY, true);
   }
 

@@ -79,6 +79,29 @@ export function getSpriteSheetConfig(deity: DeityData): SpriteSheetConfig {
   };
 }
 
+// Segunda hoja de cada dios (public/sprites/<id>-extra.webp), con los movimientos que la primera no trae:
+// fila 0 salto (despegue, sube, punto alto, aterriza) · fila 1 defensa (guardia, bloqueo empujado, agachado, agachado en guardia)
+// fila 2 súper (carga → suelta) · fila 3 golpe fuerte (preparación, impacto) y pose de victoria (2 cuadros).
+// scale = la del dios × (alto de pie en la primera hoja / alto de la guardia en la segunda), para que midan igual.
+export const EXTRA_ROWS = { jump: 0, defense: 1, super: 2, finish: 3 } as const;
+const EXTRA_SHEET_OVERRIDES: Record<string, Pick<SpriteSheetConfig, 'frameWidth' | 'frameHeight' | 'scale'>> = {
+  zeus: { frameWidth: 640, frameHeight: 282, scale: 0.749 },
+  poseidon: { frameWidth: 546, frameHeight: 281, scale: 0.716 },
+  hades: { frameWidth: 538, frameHeight: 284, scale: 0.788 }
+};
+
+export function getExtraSheetConfig(deity: DeityData): SpriteSheetConfig | null {
+  const extra = EXTRA_SHEET_OVERRIDES[deity.id];
+  if (!extra) return null;
+  return {
+    ...DEFAULT_SPRITE_LAYOUT,
+    pixelArt: false,
+    animations: GRID_4X4_ANIMATIONS,
+    src: `${import.meta.env.BASE_URL}sprites/${deity.id}-extra.webp`,
+    ...extra
+  };
+}
+
 // Pantalla negra de carga: mejor que enseñar los dibujos por código mientras bajan las imágenes (en celular tardan)
 export function isLoading(entries: (SpriteSheetEntry | null | undefined)[]): boolean {
   return entries.some(e => e?.status === 'loading');

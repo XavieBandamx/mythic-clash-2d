@@ -26,7 +26,7 @@ import type { FightStyle } from './game/styles';
 
 const STYLE_ICONS: Record<FightStyle, typeof Swords> = { Poder: Swords, Velocidad: Zap, 'Guardián': Shield, Alcance: Crosshair };
 import type { ArenaDef } from './game/arenas';
-import { drawLoading, getSpriteSheetConfig, isLoading, loadSpriteSheet } from './game/sprites';
+import { EXTRA_ROWS, drawLoading, getExtraSheetConfig, getSpriteSheetConfig, isLoading, loadSpriteSheet } from './game/sprites';
 import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from './game/sprites';
 
 /* ==========================================================================
@@ -1521,6 +1521,9 @@ export class CanvasFighter extends Fighter {
   public frameIndex: number = 0;
 
   public sheet: SpriteSheetEntry;
+  // Segunda hoja: salto, defensa, súper, golpe fuerte y victoria (si el dios ya la tiene)
+  private extraConfig: SpriteSheetConfig | null;
+  private extraSheet: SpriteSheetEntry | null;
   protected sizeMul: number = 1;
   private frameTick: number = 0;
   private lastLogicalState: Fighter['state'] = 'IDLE';
@@ -1531,6 +1534,30 @@ export class CanvasFighter extends Fighter {
     super(playerNumber, deity, isAI, startX, facing);
     this.spriteConfig = getSpriteSheetConfig(deity);
     this.sheet = loadSpriteSheet(this.spriteConfig.src);
+    this.extraConfig = getExtraSheetConfig(deity);
+    this.extraSheet = this.extraConfig ? loadSpriteSheet(this.extraConfig.src) : null;
+  }
+
+  // Cuadro de la segunda hoja para el estado actual, o null si se usa la primera
+  private extraPose(): { row: number; frame: number } | null {
+    if (this.extraSheet?.status !== 'ready') return null;
+    switch (this.state) {
+      case 'JUMP':
+        // y crece hacia abajo: subiendo vy < 0
+        return { row: EXTRA_ROWS.jump, frame: this.vy < -4 ? 1 : this.vy > 4 ? 3 : 2 };
+      case 'BLOCK':
+        return { row: EXTRA_ROWS.defense, frame: this.hitFlashTimer > 0 ? 1 : 0 };
+      case 'CROUCH':
+        return { row: EXTRA_ROWS.defense, frame: 2 };
+      case 'SPECIAL':
+        return { row: EXTRA_ROWS.super, frame: Math.min(3, Math.floor((this.animTimer / 54) * 4)) };
+      case 'ATTACK_HEAVY':
+        return { row: EXTRA_ROWS.finish, frame: this.animTimer < 9 ? 0 : 1 };
+      case 'VICTORY':
+        return { row: EXTRA_ROWS.finish, frame: 2 + (Math.floor(performance.now() / 500) % 2) };
+      default:
+        return null;
+    }
   }
 
   // Traduce el estado lógico (movido por teclado o IA) a la animación del sprite:
@@ -1624,10 +1651,12 @@ export class CanvasFighter extends Fighter {
     const expected = this.resolveAnimation();
     if (expected !== this.currentAnimation) this.setAnimation(expected);
 
-    const cfg = this.spriteConfig;
+    const extra = this.extraPose();
+    const cfg = extra && this.extraConfig ? this.extraConfig : this.spriteConfig;
+    const image = extra && this.extraSheet ? this.extraSheet.image : this.sheet.image;
     const anim = cfg.animations[this.currentAnimation];
-    const sx = this.frameIndex * cfg.frameWidth;
-    const sy = anim.row * cfg.frameHeight;
+    const sx = (extra ? extra.frame : this.frameIndex) * cfg.frameWidth;
+    const sy = (extra ? extra.row : anim.row) * cfg.frameHeight;
     const drawW = cfg.frameWidth * cfg.scale * this.sizeMul;
     const drawH = cfg.frameHeight * cfg.scale * this.sizeMul;
     const drawY = -drawH + cfg.footOffset * cfg.scale * this.sizeMul;
@@ -1655,11 +1684,11 @@ export class CanvasFighter extends Fighter {
     ctx.scale(this.facing, 1);
     ctx.imageSmoothingEnabled = !cfg.pixelArt;
 
-    const flashFrame = this.hitFlashTimer > 0 ? this.getFlashFrame(sx, sy) : null;
+    const flashFrame = this.hitFlashTimer > 0 && !extra ? this.getFlashFrame(sx, sy) : null;
     if (flashFrame) {
       ctx.drawImage(flashFrame, -drawW / 2, drawY, drawW, drawH);
     } else {
-      ctx.drawImage(this.sheet.image, sx, sy, cfg.frameWidth, cfg.frameHeight, -drawW / 2, drawY, drawW, drawH);
+      ctx.drawImage(image, sx, sy, cfg.frameWidth, cfg.frameHeight, -drawW / 2, drawY, drawW, drawH);
     }
 
     // El haz de Ra no viene en la hoja: se dibuja a la altura de su zona de daño mientras está activo
@@ -1945,7 +1974,11 @@ export default function App() {
 
   // Precarga todas las hojas de sprites para que la selección no muestre el dibujo procedural mientras descargan
   useEffect(() => {
-    DEITIES.forEach(d => loadSpriteSheet(getSpriteSheetConfig(d).src));
+    DEITIES.forEach(d => {
+      loadSpriteSheet(getSpriteSheetConfig(d).src);
+      const extra = getExtraSheetConfig(d);
+      if (extra) loadSpriteSheet(extra.src);
+    });
     [...ARENAS, ORIGEN_ARENA].forEach(a => loadSpriteSheet(a.src));
     loadSpriteSheet(getSpriteSheetConfig(ORIGEN).src);
   }, []);
