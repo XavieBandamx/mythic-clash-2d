@@ -229,7 +229,7 @@ function DeityLargePreviewCard({ deity, playerTag, tagColor, isReady }: LargePre
   }, [deity]);
 
   return (
-    <div className="bg-slate-900/90 border border-slate-700 rounded-2xl p-4 flex flex-col items-center text-center shadow-2xl relative overflow-hidden backdrop-blur-md">
+    <div className="w-full max-w-sm bg-slate-900/90 border border-slate-700 rounded-2xl p-4 flex flex-col items-center text-center shadow-2xl relative overflow-hidden backdrop-blur-md">
       {/* Etiqueta del Jugador */}
       <div className={`absolute top-3 left-3 text-[11px] font-bold px-2.5 py-1 rounded border ${tagColor}`}>
         {playerTag}
@@ -366,14 +366,14 @@ function DeityGridSlot({ deity, isP1, isP2, onClick, onMouseEnter }: GridSlotPro
     <button
       onClick={onClick}
       onMouseEnter={onMouseEnter}
-      className={`p-2 rounded-xl border flex flex-col items-center justify-center transition-all relative ${
+      className={`p-2 short:p-1 rounded-xl border flex flex-col items-center justify-center transition-all relative ${
         isP1 && isP2
-          ? 'ring-4 ring-purple-500 border-purple-400 bg-purple-950/70 scale-105 z-10 shadow-lg shadow-purple-900/50'
+          ? 'ring-4 ring-purple-500 border-purple-400 bg-purple-950/70 z-10 shadow-lg shadow-purple-900/50'
           : isP1
-          ? 'ring-4 ring-blue-500 border-blue-400 bg-blue-950/70 scale-105 z-10 shadow-lg shadow-blue-900/50'
+          ? 'ring-4 ring-blue-500 border-blue-400 bg-blue-950/70 z-10 shadow-lg shadow-blue-900/50'
           : isP2
-          ? 'ring-4 ring-red-500 border-red-400 bg-red-950/70 scale-105 z-10 shadow-lg shadow-red-900/50'
-          : 'border-slate-800 bg-slate-900/70 hover:border-slate-600 hover:bg-slate-800 hover:scale-102'
+          ? 'ring-4 ring-red-500 border-red-400 bg-red-950/70 z-10 shadow-lg shadow-red-900/50'
+          : 'border-slate-800 bg-slate-900/70 hover:border-slate-600 hover:bg-slate-800'
       }`}
     >
       {/* Indicadores flotantes de P1 / P2 */}
@@ -389,13 +389,13 @@ function DeityGridSlot({ deity, isP1, isP2, onClick, onMouseEnter }: GridSlotPro
       )}
 
       {/* Retrato Canvas Ilustrado */}
-      <canvas ref={canvasRef} width={80} height={80} className="w-[68px] h-[68px] my-1" />
+      <canvas ref={canvasRef} width={80} height={80} className="w-[68px] h-[68px] max-sm:w-14 max-sm:h-14 short:w-11 short:h-11 my-1 short:my-0" />
 
-      <span className="font-cinzel text-xs font-bold text-slate-100">{deity.name}</span>
+      <span className="font-cinzel text-xs max-sm:text-[10px] font-bold text-slate-100 w-full truncate">{deity.name}</span>
       {(() => {
         const StyleIcon = STYLE_ICONS[deity.style];
         return (
-          <span className="flex items-center gap-1 text-[10px] font-bold uppercase" style={{ color: STYLE_INFO[deity.style].color }}>
+          <span className="flex short:hidden items-center gap-1 text-[10px] font-bold uppercase" style={{ color: STYLE_INFO[deity.style].color }}>
             <StyleIcon className="w-3 h-3" />
             {deity.style}
           </span>
@@ -1968,6 +1968,23 @@ export default function App() {
     setGameState('CHAR_SELECT');
   };
 
+  // Opciones del menú principal. Con controles táctiles solo hay un jugador: se ocultan los modos de 2
+  const menuItems: { label: string; mode?: GameMode; screen?: GameState }[] = [
+    { label: 'Jugar Modo Versus Local (P1 vs P2)', mode: 'PVP' as GameMode },
+    { label: `Jugar contra la IA (${difficulty})`, mode: 'PVE' as GameMode },
+    { label: 'Modo Arcade: Camino de los Dioses', mode: 'ARCADE' as GameMode },
+    { label: 'Arcade Cooperativo (2 Jugadores)', mode: 'ARCADE_COOP' as GameMode },
+    { label: 'Torre de los Dioses', mode: 'TOWER' as GameMode },
+    { label: `Opciones de Dificultad: ${difficulty}`, screen: 'DIFFICULTY_MENU' as GameState },
+    { label: 'Configurar Controles', screen: 'CONTROLS_MENU' as GameState }
+  ].filter(item => !(showTouchControls && (item.mode === 'PVP' || item.mode === 'ARCADE_COOP')));
+  const menuIndex = Math.min(mainMenuSelected, menuItems.length - 1);
+  const chooseMenuItem = (item: (typeof menuItems)[number]) => {
+    sounds.playSelect();
+    if (item.mode) openCharSelect(item.mode);
+    else if (item.screen) setGameState(item.screen);
+  };
+
   // Mandos: se traducen a las mismas teclas (1.er mando = P1, 2.º = P2)
   useEffect(() => startGamepadBridge(), []);
   // Teclas reasignadas en el menú de controles → teclas que el juego ya entiende
@@ -1992,33 +2009,18 @@ export default function App() {
       if (gameState === 'MAIN_MENU') {
         if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
           setMainMenuSelected(prev => {
-            const next = prev > 0 ? prev - 1 : 6;
+            const next = prev > 0 ? Math.min(prev, menuItems.length) - 1 : menuItems.length - 1;
             sounds.playNav();
             return next;
           });
         } else if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') {
           setMainMenuSelected(prev => {
-            const next = prev < 6 ? prev + 1 : 0;
+            const next = prev < menuItems.length - 1 ? prev + 1 : 0;
             sounds.playNav();
             return next;
           });
         } else if (e.key === 'j' || e.key === 'J' || e.key === 'Enter' || e.key === ' ') {
-          sounds.playSelect();
-          if (mainMenuSelected === 0) {
-            openCharSelect('PVP');
-          } else if (mainMenuSelected === 1) {
-            openCharSelect('PVE');
-          } else if (mainMenuSelected === 2) {
-            openCharSelect('ARCADE');
-          } else if (mainMenuSelected === 3) {
-            openCharSelect('ARCADE_COOP');
-          } else if (mainMenuSelected === 4) {
-            openCharSelect('TOWER');
-          } else if (mainMenuSelected === 5) {
-            setGameState('DIFFICULTY_MENU');
-          } else if (mainMenuSelected === 6) {
-            setGameState('CONTROLS_MENU');
-          }
+          chooseMenuItem(menuItems[menuIndex]);
         }
       }
 
@@ -2160,7 +2162,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [gameState, gameMode, mainMenuSelected, diffMenuSelected, stageSelected, p1Ready, p2Ready, winner]);
+  }, [gameState, gameMode, mainMenuSelected, diffMenuSelected, stageSelected, p1Ready, p2Ready, winner, showTouchControls, difficulty]);
 
   useEffect(() => {
     if (gameState === 'CHAR_SELECT' && p1Ready && p2Ready) {
@@ -3116,44 +3118,29 @@ export default function App() {
         {gameState === 'MAIN_MENU' && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/75 backdrop-blur-sm p-6 text-center">
             <div className="mb-8 short:mb-3">
-              <span className="text-amber-400 text-xs font-semibold tracking-widest uppercase mb-2 block flex items-center justify-center gap-2">
+              <span className="text-amber-400 text-xs font-semibold tracking-widest uppercase mb-2 flex short:hidden items-center justify-center gap-2">
                 <Flame className="w-4 h-4" /> Torneo Arcano de Divinidades <Flame className="w-4 h-4" />
               </span>
               <h1 className="font-cinzel text-5xl md:text-7xl short:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-amber-200 via-amber-400 to-amber-600 tracking-wider drop-shadow-md">
                 MYTHIC CLASH 2D
               </h1>
-              <p className="text-slate-400 text-sm mt-3 max-w-lg mx-auto">
+              <p className="text-slate-400 text-sm mt-3 max-w-lg mx-auto short:hidden">
                 Combate con los dioses supremos de Grecia, Egipto, México y Japón. Retratos ilustrados, físicas de impacto y poderes celestiales.
               </p>
             </div>
 
-            <div className="w-full max-w-md space-y-3">
-              {[
-                { label: 'Jugar Modo Versus Local (P1 vs P2)', mode: 'PVP' as GameMode },
-                { label: `Jugar contra la IA (${difficulty})`, mode: 'PVE' as GameMode },
-                { label: 'Modo Arcade: Camino de los Dioses', mode: 'ARCADE' as GameMode },
-                { label: 'Arcade Cooperativo (2 Jugadores)', mode: 'ARCADE_COOP' as GameMode },
-                { label: 'Torre de los Dioses', mode: 'TOWER' as GameMode },
-                { label: `Opciones de Dificultad: ${difficulty}`, mode: null },
-                { label: 'Configurar Controles', mode: null, screen: 'CONTROLS_MENU' as GameState }
-              ].map((item, idx) => {
-                const isSelected = mainMenuSelected === idx;
+            <div className="w-full max-w-md short:max-w-3xl grid grid-cols-1 short:grid-cols-2 gap-3 short:gap-2">
+              {menuItems.map((item, idx) => {
+                const isSelected = menuIndex === idx;
                 return (
                   <button
-                    key={idx}
+                    key={item.label}
                     onMouseEnter={() => {
                       setMainMenuSelected(idx);
                       sounds.playNav();
                     }}
-                    onClick={() => {
-                      sounds.playSelect();
-                      if (item.mode) {
-                        openCharSelect(item.mode);
-                      } else {
-                        setGameState(('screen' in item && item.screen) || 'DIFFICULTY_MENU');
-                      }
-                    }}
-                    className={`w-full py-3.5 px-6 rounded-lg text-sm font-semibold transition-all flex items-center justify-between border ${
+                    onClick={() => chooseMenuItem(item)}
+                    className={`w-full py-3.5 short:py-2 px-6 rounded-lg text-sm font-semibold transition-all flex items-center justify-between border ${
                       isSelected
                         ? 'bg-gradient-to-r from-amber-600/30 to-amber-500/20 border-amber-400 text-amber-200 shadow-lg shadow-amber-900/30 translate-x-1'
                         : 'bg-slate-900/60 border-slate-700/60 text-slate-300 hover:border-slate-500'
@@ -3164,14 +3151,14 @@ export default function App() {
                       {item.label}
                     </span>
                     <span className="hidden sm:inline text-xs text-amber-400/70 font-mono">
-                      {isSelected ? '[ENTER / J]' : ''}
+                      {isSelected && !showTouchControls ? '[ENTER / J]' : ''}
                     </span>
                   </button>
                 );
               })}
             </div>
 
-            <div className="mt-8 p-4 rounded-lg bg-black/40 border border-white/10 text-xs text-slate-400 max-w-xl text-left hidden sm:grid grid-cols-2 gap-4">
+            <div className="mt-8 p-4 rounded-lg bg-black/40 border border-white/10 text-xs text-slate-400 max-w-xl text-left hidden sm:grid short:hidden grid-cols-2 gap-4">
               <div>
                 <span className="text-amber-300 font-semibold block mb-1">🎮 Jugador 1:</span>
                 <div>Mover: <b className="text-slate-200">A / D</b> · Saltar: <b className="text-slate-200">W</b> · Bloquear: <b className="text-slate-200">S</b></div>
@@ -3266,9 +3253,9 @@ export default function App() {
 
         {/* --- ESCENA 3: PANTALLA DE SELECCIÓN CON RETRATOS CANVAS Y VISTA PREVIA DETALLADA --- */}
         {gameState === 'CHAR_SELECT' && (
-          <div className="absolute inset-0 z-20 flex flex-col lg:justify-between bg-black/85 backdrop-blur-md px-3 sm:px-5 pt-16 overflow-y-auto">
+          <div className="absolute inset-0 z-20 flex flex-col lg:justify-between bg-black/85 backdrop-blur-md px-3 sm:px-5 pt-16 short:pt-11 overflow-y-auto">
             <div className="text-center mb-1">
-              <span className="text-amber-400 text-xs font-semibold tracking-widest uppercase">
+              <span className="text-amber-400 text-xs font-semibold tracking-widest uppercase short:hidden">
                 {gameMode === 'PVP'
                   ? 'Modo Versus Local (2 Jugadores)'
                   : gameMode === 'ARCADE'
@@ -3279,14 +3266,14 @@ export default function App() {
                   ? 'Torre de los Dioses'
                   : `Modo Solitario vs IA (${difficulty})`}
               </span>
-              <h2 className="font-cinzel text-2xl md:text-3xl font-extrabold text-slate-100">
+              <h2 className="font-cinzel text-xl md:text-3xl short:text-lg font-extrabold text-slate-100">
                 Selección de Divinidades
               </h2>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch max-w-7xl mx-auto w-full my-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch max-w-7xl mx-auto w-full lg:my-auto">
               {/* Tarjeta de Vista Previa Grande P1 (Izquierda) */}
-              <div className="lg:col-span-3 flex justify-center">
+              <div className="hidden lg:flex lg:col-span-3 justify-center">
                 <DeityLargePreviewCard
                   deity={DEITIES[p1DeityIndex]}
                   playerTag="JUGADOR 1"
@@ -3296,21 +3283,21 @@ export default function App() {
               </div>
 
               {/* Cuadrícula Central de los 12 Dioses con Iconos de Rostro Ilustrados */}
-              <div className="order-first lg:order-none lg:col-span-6 bg-slate-950/80 border border-slate-800 rounded-2xl p-3 sm:p-4 flex flex-col justify-between shadow-2xl">
+              <div className="order-first lg:order-none lg:col-span-6 bg-slate-950/80 border border-slate-800 rounded-2xl p-2 sm:p-4 flex flex-col short:grid short:grid-cols-2 short:gap-x-3 justify-between shadow-2xl">
                 {(['Grecia', 'Egipto', 'México', 'Japón'] as Pantheon[]).map(pantheon => {
                   const pantheonDeities = DEITIES.filter(d => d.pantheon === pantheon);
                   return (
                     <div key={pantheon} className="mb-2 last:mb-0">
-                      <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+                      <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 short:mb-0.5 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-amber-400" />
                         <span>Mitología de {pantheon}</span>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-3 gap-2 short:gap-1">
                         {pantheonDeities.map(d => {
                           const globalIdx = DEITIES.findIndex(x => x.id === d.id);
                           const isP1 = p1DeityIndex === globalIdx;
-                          const isP2 = gameMode !== 'ARCADE' && p2DeityIndex === globalIdx;
+                          const isP2 = gameMode !== 'ARCADE' && gameMode !== 'TOWER' && p2DeityIndex === globalIdx;
 
                           return (
                             <DeityGridSlot
@@ -3343,7 +3330,7 @@ export default function App() {
               </div>
 
               {/* Tarjeta de Vista Previa Grande P2 / IA (Derecha), o la ruta de jefes en modo arcade */}
-              <div className="lg:col-span-3 flex justify-center">
+              <div className="hidden lg:flex lg:col-span-3 justify-center">
                 {gameMode === 'ARCADE' ? (
                   <ArcadeRouteCard hero={DEITIES[p1DeityIndex]} />
                 ) : gameMode === 'TOWER' ? (
@@ -3370,8 +3357,22 @@ export default function App() {
             </div>
 
             {/* Barra Inferior de Confirmación e Instrucciones */}
-            <div className="sticky bottom-0 flex flex-col sm:flex-row items-center justify-between gap-3 max-w-6xl mx-auto w-full py-3 mt-3 border-t border-white/10 bg-black/90 text-xs text-slate-400">
-              <div className="hidden sm:flex gap-4">
+            <div className="sticky bottom-0 flex flex-row items-center justify-between gap-3 max-w-6xl mx-auto w-full py-2 sm:py-3 short:py-1 mt-2 sm:mt-3 short:mt-1 border-t border-white/10 bg-black/90 text-xs text-slate-400">
+              {/* Resumen en pantallas chicas */}
+              <div className="lg:hidden text-left text-sm leading-tight">
+                <div>
+                  <b className="text-blue-400">P1</b> <b className="text-slate-100">{DEITIES[p1DeityIndex].name}</b>{' '}
+                  <span style={{ color: STYLE_INFO[DEITIES[p1DeityIndex].style].color }}>· {DEITIES[p1DeityIndex].style}</span>
+                  <span className="text-slate-400"> · {DEITIES[p1DeityIndex].passive.name}</span>
+                </div>
+                {(gameMode === 'PVP' || gameMode === 'PVE' || gameMode === 'ARCADE_COOP') && (
+                  <div>
+                    <b className="text-red-400">{gameMode === 'PVE' ? 'IA' : 'P2'}</b> <b className="text-slate-100">{DEITIES[p2DeityIndex].name}</b>{' '}
+                    <span style={{ color: STYLE_INFO[DEITIES[p2DeityIndex].style].color }}>· {DEITIES[p2DeityIndex].style}</span>
+                  </div>
+                )}
+              </div>
+              <div className="hidden lg:flex gap-4">
                 <div>P1: <b className="text-slate-200">WASD</b> · <b className="text-blue-400">J</b> confirmar</div>
                 {gameMode === 'PVP' && (
                   <div>P2: <b className="text-slate-200">Flechas</b> · <b className="text-red-400">U</b> confirmar</div>
@@ -3409,12 +3410,12 @@ export default function App() {
         {/* --- ESCENA 4B: MODO ARCADE --- */}
         {gameState === 'STAGE_SELECT' && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md p-6 text-center">
-            <h2 className="font-cinzel text-3xl md:text-4xl font-bold text-amber-400 mb-1">Elige la Arena</h2>
+            <h2 className="font-cinzel text-2xl md:text-4xl font-bold text-amber-400 mb-1">Elige la Arena</h2>
             <p className="text-slate-400 text-sm mb-6">
               {DEITIES[p1DeityIndex].name} vs {DEITIES[p2DeityIndex].name}
             </p>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-4xl">
+            <div className="grid grid-cols-2 sm:grid-cols-3 short:grid-cols-6 gap-3 short:gap-2 w-full max-w-4xl short:max-w-none">
               {[null, ...ARENAS].map((arena, idx) => {
                 const isSelected = stageSelected === idx;
                 return (
@@ -3427,7 +3428,7 @@ export default function App() {
                     onClick={() => chooseStage(idx)}
                     className={`rounded-lg overflow-hidden border transition-all ${
                       isSelected
-                        ? 'border-amber-400 ring-2 ring-amber-400 scale-105 shadow-lg shadow-amber-500/30'
+                        ? 'border-amber-400 ring-2 ring-amber-400 shadow-lg shadow-amber-500/30'
                         : 'border-slate-700/60 opacity-70 hover:opacity-100'
                     }`}
                   >
@@ -3438,14 +3439,14 @@ export default function App() {
                     )}
                     <div className="bg-slate-900/90 px-2 py-2">
                       <div className="font-cinzel font-bold text-sm text-slate-100">{arena?.name ?? 'Aleatoria'}</div>
-                      <div className="text-xs text-slate-400">{arena ? arena.pantheon ?? 'Más allá de los reinos' : 'Cualquier reino'}</div>
+                      <div className="text-xs text-slate-400 short:hidden">{arena ? arena.pantheon ?? 'Más allá de los reinos' : 'Cualquier reino'}</div>
                     </div>
                   </button>
                 );
               })}
             </div>
 
-            <p className="mt-6 text-xs text-slate-400">A / D o ← / → para elegir · J o U para pelear · ESC para volver</p>
+            <p className="mt-6 text-xs text-slate-400 hidden lg:block">A / D o ← / → para elegir · J o U para pelear · ESC para volver</p>
           </div>
         )}
 
@@ -3472,7 +3473,7 @@ export default function App() {
                 {rival.id === ORIGEN.id ? 'La cima: el creador te espera' : `Piso ${run.floor + 1}: ${run.hero.name} vs ${rival.name}`}
               </h2>
               {/* La torre de abajo hacia arriba: Origen en la cima */}
-              <div className="flex flex-col-reverse items-center gap-1.5">
+              <div className="flex flex-col-reverse items-center gap-1.5 short:grid short:grid-cols-3 short:gap-1">
                 {run.rivals.map((d, i) => {
                   const beaten = i < run.floor;
                   const current = i === run.floor;
@@ -3481,7 +3482,7 @@ export default function App() {
                       key={d.id}
                       className={`flex items-center gap-3 rounded-lg px-3 py-1 border transition-all ${
                         current
-                          ? 'border-amber-400 bg-amber-500/15 scale-110 shadow-lg shadow-amber-500/20'
+                          ? 'border-amber-400 bg-amber-500/15 shadow-lg shadow-amber-500/20'
                           : beaten
                             ? 'border-slate-800 bg-slate-900/40 opacity-40'
                             : d.id === ORIGEN.id

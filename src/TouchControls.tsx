@@ -60,12 +60,24 @@ export default function TouchControls({ mode }: { mode: 'versus' | 'arcade' }) {
     setDirs(new Set());
   };
 
-  const labels = mode === 'versus' ? ['GOLPE', 'FUERTE', 'SÚPER'] : ['ATAQUE', 'SALTO', 'MAGIA'];
-  const buttons: { action: ControlAction; label: string; color: string }[] = [
-    { action: 'light', label: labels[0], color: 'bg-blue-600/70 border-blue-300' },
-    { action: 'heavy', label: labels[1], color: 'bg-orange-600/70 border-orange-300' },
-    { action: 'special', label: labels[2], color: 'bg-amber-500/80 border-amber-200 text-slate-950' }
-  ];
+  // Cuadro de 2x2: el botón más usado queda abajo a la derecha, bajo el pulgar. null = hueco
+  const blue = 'bg-blue-600/70 border-blue-300';
+  const orange = 'bg-orange-600/70 border-orange-300';
+  const gold = 'bg-amber-500/80 border-amber-200 text-slate-950';
+  const buttons: ({ action: ControlAction; label: string; color: string } | null)[] =
+    mode === 'versus'
+      ? [
+          { action: 'down', label: 'BLOQUEO', color: 'bg-slate-500/70 border-slate-200' },
+          { action: 'special', label: 'SÚPER', color: gold },
+          { action: 'heavy', label: 'FUERTE', color: orange },
+          { action: 'light', label: 'GOLPE', color: blue }
+        ]
+      : [
+          { action: 'special', label: 'MAGIA', color: gold },
+          { action: 'heavy', label: 'SALTO', color: orange },
+          null,
+          { action: 'light', label: 'ATAQUE', color: blue }
+        ];
   const btn = 64 * scale;
 
   return (
@@ -100,7 +112,7 @@ export default function TouchControls({ mode }: { mode: 'versus' | 'arcade' }) {
         />
       </div>
 
-      {/* Botones en arco, como en los juegos de pelea para celular */}
+      {/* Botones de ataque (y bloqueo en versus) */}
       <div className="pointer-events-auto flex flex-col items-end gap-2" style={{ touchAction: 'none' }}>
         {mode === 'arcade' && (
           <button
@@ -113,22 +125,22 @@ export default function TouchControls({ mode }: { mode: 'versus' | 'arcade' }) {
             PAUSA
           </button>
         )}
-        <div className="flex items-end gap-3">
-          {buttons.map(({ action, label, color }, i) => (
+        <div className="grid grid-cols-2 gap-3">
+          {buttons.map((b, i) => !b ? <span key={i} /> : (
             <button
-              key={action}
-              className={`rounded-full border-2 font-black text-[11px] text-white shadow-lg active:scale-90 transition-transform ${color}`}
-              style={{ width: btn, height: btn, marginBottom: i === 1 ? btn * 0.5 : 0, touchAction: 'none' }}
+              key={b.action}
+              className={`rounded-full border-2 font-black text-[11px] text-white shadow-lg active:scale-90 transition-transform ${b.color}`}
+              style={{ width: btn, height: btn, touchAction: 'none' }}
               onPointerDown={e => {
                 sounds.init();
                 capture(e);
-                press(action, true);
+                press(b.action, true);
               }}
-              onPointerUp={() => press(action, false)}
-              onPointerCancel={() => press(action, false)}
+              onPointerUp={() => press(b.action, false)}
+              onPointerCancel={() => press(b.action, false)}
               onContextMenu={e => e.preventDefault()}
             >
-              {label}
+              {b.label}
             </button>
           ))}
         </div>
