@@ -4,7 +4,7 @@
 import type { Pantheon } from './deities';
 
 export interface ArenaDef {
-  pantheon: Pantheon;
+  pantheon?: Pantheon; // Sin reino: arenas neutrales como Babel
   name: string;
   src: string;
   floorY: number;  // Fila de la imagen donde empieza el piso
@@ -18,12 +18,12 @@ export const ARENAS: ArenaDef[] = [
   { pantheon: 'Grecia', name: 'El Coliseo del Olimpo', src: url('grecia.webp'), floorY: 556, storm: '255, 236, 170' },
   { pantheon: 'Egipto', name: 'El Tribunal de Osiris', src: url('egipto.webp'), floorY: 560 },
   { pantheon: 'México', name: 'La Cancha de Tenochtitlan', src: url('mexico.webp'), floorY: 545 },
-  { pantheon: 'Japón', name: 'El Dojo de la Tormenta', src: url('japon.webp'), floorY: 612, storm: '200, 170, 255', petals: true }
+  { pantheon: 'Japón', name: 'El Dojo de la Tormenta', src: url('japon.webp'), floorY: 612, storm: '200, 170, 255', petals: true },
+  { name: 'La Torre de Babel', src: url('babel.webp'), floorY: 610, storm: '230, 230, 255' }
 ];
 
 // Arena de Origen en la cima de la torre (no se elige en el menú)
 export const ORIGEN_ARENA: ArenaDef = {
-  pantheon: 'Grecia',
   name: 'El Telar del Cosmos',
   src: `${import.meta.env.BASE_URL}backgrounds/telar-fondo.webp`,
   floorY: 548

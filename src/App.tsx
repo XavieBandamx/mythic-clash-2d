@@ -3413,12 +3413,12 @@ export default function App() {
               {DEITIES[p1DeityIndex].name} vs {DEITIES[p2DeityIndex].name}
             </p>
 
-            <div className="grid grid-cols-5 gap-3 w-full max-w-5xl">
+            <div className="grid grid-cols-3 gap-3 w-full max-w-4xl">
               {[null, ...ARENAS].map((arena, idx) => {
                 const isSelected = stageSelected === idx;
                 return (
                   <button
-                    key={arena?.pantheon ?? 'random'}
+                    key={arena?.name ?? 'random'}
                     onMouseEnter={() => {
                       if (!isSelected) sounds.playNav();
                       setStageSelected(idx);
@@ -3437,7 +3437,7 @@ export default function App() {
                     )}
                     <div className="bg-slate-900/90 px-2 py-2">
                       <div className="font-cinzel font-bold text-sm text-slate-100">{arena?.name ?? 'Aleatoria'}</div>
-                      <div className="text-xs text-slate-400">{arena?.pantheon ?? 'Cualquier reino'}</div>
+                      <div className="text-xs text-slate-400">{arena ? arena.pantheon ?? 'Más allá de los reinos' : 'Cualquier reino'}</div>
                     </div>
                   </button>
                 );
