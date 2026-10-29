@@ -3467,20 +3467,20 @@ export default function App() {
           const run = towerRef.current;
           const rival = run.rivals[run.floor];
           return (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md p-6">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md px-6 pb-3">
               <span className="text-violet-300 text-xs font-semibold tracking-widest uppercase">Torre de los Dioses</span>
-              <h2 className="font-cinzel text-3xl font-extrabold text-amber-300 mb-4">
+              <h2 className="font-cinzel text-2xl sm:text-3xl short:text-xl font-extrabold text-amber-300 mb-3 short:mb-2">
                 {rival.id === ORIGEN.id ? 'La cima: el creador te espera' : `Piso ${run.floor + 1}: ${run.hero.name} vs ${rival.name}`}
               </h2>
               {/* La torre de abajo hacia arriba: Origen en la cima */}
-              <div className="flex flex-col-reverse items-center gap-1.5 short:grid short:grid-cols-3 short:gap-1">
+              <div className="flex flex-col-reverse items-center gap-1 sm:gap-1.5 short:grid short:grid-cols-3 short:gap-1">
                 {run.rivals.map((d, i) => {
                   const beaten = i < run.floor;
                   const current = i === run.floor;
                   return (
                     <div
                       key={d.id}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-1 border transition-all ${
+                      className={`flex items-center gap-3 rounded-lg px-3 py-0.5 sm:py-1 border transition-all ${
                         current
                           ? 'border-amber-400 bg-amber-500/15 shadow-lg shadow-amber-500/20'
                           : beaten
@@ -3491,16 +3491,34 @@ export default function App() {
                       }`}
                     >
                       <span className="text-[10px] font-bold text-slate-500 w-10 text-right">{d.id === ORIGEN.id ? 'CIMA' : `PISO ${i + 1}`}</span>
-                      <Medallion deityId={d.id} size={d.id === ORIGEN.id ? 52 : 38} />
+                      <Medallion deityId={d.id} size={d.id === ORIGEN.id ? 44 : 34} />
                       <span className={`font-cinzel text-sm font-bold w-40 ${beaten ? 'line-through text-slate-500' : 'text-slate-100'}`}>{d.name}</span>
                       {current ? <Medallion deityId={run.hero.id} size={38} /> : <span className="w-[38px]" />}
                     </div>
                   );
                 })}
               </div>
-              <p className="mt-5 text-xs text-slate-400">
-                Continues: <b className="text-amber-300">{run.continues}</b> · J para pelear · ESC para salir
+              <p className="mt-4 short:mt-2 text-xs text-slate-400">
+                Continues: <b className="text-amber-300">{run.continues}</b>
+                <span className="hidden lg:inline"> · J para pelear · ESC para salir</span>
               </p>
+              <div className="flex gap-3 mt-3 short:mt-2 w-full max-w-md">
+                <button
+                  onClick={() => {
+                    sounds.playNav();
+                    setGameState('MAIN_MENU');
+                  }}
+                  className="flex-1 py-3 short:py-2 rounded-lg font-semibold bg-slate-800 text-slate-200 border border-slate-600"
+                >
+                  Salir
+                </button>
+                <button
+                  onClick={startTowerFight}
+                  className="flex-[2] py-3 short:py-2 rounded-lg font-bold bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg shadow-amber-900/40"
+                >
+                  ¡Pelear!
+                </button>
+              </div>
             </div>
           );
         })()}
@@ -3515,7 +3533,15 @@ export default function App() {
             <p className="text-slate-200 text-base max-w-2xl leading-relaxed font-cinzel">
               {TOWER_ENDINGS[towerRef.current.hero.id]}
             </p>
-            <p className="mt-8 text-xs text-slate-400">J o ENTER para volver al menú</p>
+            <button
+              onClick={() => {
+                sounds.playNav();
+                setGameState('MAIN_MENU');
+              }}
+              className="mt-8 px-8 py-3 rounded-lg font-bold bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950"
+            >
+              Volver al menú
+            </button>
           </div>
         )}
 
