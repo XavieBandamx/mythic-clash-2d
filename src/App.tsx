@@ -14,6 +14,8 @@ import { SIM_STEP_MS, checkAABB, spawnBloodBurst, renderParticles, updateParticl
 import type { Box, Difficulty, Particle } from './game/core';
 import { drawDeityPortraitIcon, onPortraitLoad } from './game/portraits';
 import { startGamepadBridge } from './game/gamepad';
+import { getControls, startKeyRemapper } from './game/controls';
+import ControlsMenu from './ControlsMenu';
 import { ARENAS, ORIGEN_ARENA, drawArena } from './game/arenas';
 import { ORIGEN } from './arcade/levels';
 import { TOWER_ENDINGS, buildTower, towerSkill } from './game/tower';
@@ -32,7 +34,7 @@ import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from '.
    Retratos Mitológicos Ilustrados y Efectos Visuales de Impacto
    ========================================================================== */
 
-export type GameState = 'MAIN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'STAGE_SELECT' | 'TOWER_MAP' | 'TOWER_END' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
+export type GameState = 'MAIN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'STAGE_SELECT' | 'TOWER_MAP' | 'TOWER_END' | 'CONTROLS_MENU' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
 export type GameMode = 'PVP' | 'PVE' | 'ARCADE' | 'ARCADE_COOP' | 'TOWER';
 
 // ==========================================================================
@@ -1966,6 +1968,8 @@ export default function App() {
 
   // Mandos: se traducen a las mismas teclas (1.er mando = P1, 2.º = P2)
   useEffect(() => startGamepadBridge(), []);
+  // Teclas reasignadas en el menú de controles → teclas que el juego ya entiende
+  useEffect(() => startKeyRemapper(), []);
 
   // Teclado Dual Controls
   useEffect(() => {
@@ -1986,13 +1990,13 @@ export default function App() {
       if (gameState === 'MAIN_MENU') {
         if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
           setMainMenuSelected(prev => {
-            const next = prev > 0 ? prev - 1 : 5;
+            const next = prev > 0 ? prev - 1 : 6;
             sounds.playNav();
             return next;
           });
         } else if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') {
           setMainMenuSelected(prev => {
-            const next = prev < 5 ? prev + 1 : 0;
+            const next = prev < 6 ? prev + 1 : 0;
             sounds.playNav();
             return next;
           });
@@ -2010,6 +2014,8 @@ export default function App() {
             openCharSelect('TOWER');
           } else if (mainMenuSelected === 5) {
             setGameState('DIFFICULTY_MENU');
+          } else if (mainMenuSelected === 6) {
+            setGameState('CONTROLS_MENU');
           }
         }
       }
@@ -3136,7 +3142,8 @@ export default function App() {
                 { label: 'Modo Arcade: Camino de los Dioses', mode: 'ARCADE' as GameMode },
                 { label: 'Arcade Cooperativo (2 Jugadores)', mode: 'ARCADE_COOP' as GameMode },
                 { label: 'Torre de los Dioses', mode: 'TOWER' as GameMode },
-                { label: `Opciones de Dificultad: ${difficulty}`, mode: null }
+                { label: `Opciones de Dificultad: ${difficulty}`, mode: null },
+                { label: 'Configurar Controles', mode: null, screen: 'CONTROLS_MENU' as GameState }
               ].map((item, idx) => {
                 const isSelected = mainMenuSelected === idx;
                 return (
@@ -3151,7 +3158,7 @@ export default function App() {
                       if (item.mode) {
                         openCharSelect(item.mode);
                       } else {
-                        setGameState('DIFFICULTY_MENU');
+                        setGameState(('screen' in item && item.screen) || 'DIFFICULTY_MENU');
                       }
                     }}
                     className={`w-full py-3.5 px-6 rounded-lg text-sm font-semibold transition-all flex items-center justify-between border ${
@@ -3186,6 +3193,8 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {gameState === 'CONTROLS_MENU' && <ControlsMenu onBack={() => setGameState('MAIN_MENU')} />}
 
         {/* --- ESCENA 2: MENÚ DE DIFICULTAD --- */}
         {gameState === 'DIFFICULTY_MENU' && (
@@ -3591,7 +3600,10 @@ export default function App() {
 
         {/* CONTROLES TÁCTILES VIRTUALES */}
         {showTouchControls && gameState === 'FIGHT' && (
-          <div className="absolute bottom-4 left-0 right-0 z-20 px-8 flex justify-between pointer-events-none">
+          <div
+            className={`absolute bottom-4 left-0 right-0 z-20 px-8 flex justify-between items-end pointer-events-none ${getControls().touchSwap ? 'flex-row-reverse' : ''}`}
+            style={{ zoom: { chico: 0.8, normal: 1, grande: 1.35 }[getControls().touchSize] }}
+          >
             <div className="pointer-events-auto flex items-center gap-2 bg-black/60 p-2 rounded-xl backdrop-blur-md border border-white/10">
               <button
                 onMouseDown={() => handleVirtualInput('left')}
