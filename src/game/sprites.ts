@@ -51,24 +51,30 @@ export const GRID_4X4_ANIMATIONS: SpriteSheetConfig['animations'] = {
 
 // Ajustes por deidad. Las hojas de public/sprites se generan con tools/process_sprites.py, que deja los pies
 // pegados al borde inferior de cada celda (footOffset 0) y el cuerpo centrado en horizontal.
-// La fila de golpe varía según la hoja: unas terminan tendidas (cuadro 3) y otras traen tendido (2) + levantándose (3).
-// scale = 175 px de altura en idle / altura medida del idle, × 1.08 para Poseidón y Hades y × 1.2 para Raijin
-// (dioses corpulentos; el aro de tambores de Raijin infla su altura medida).
+// La fila de golpe de las hojas rediseñadas trae golpe, caída, tendido (2) y levantándose (3).
+// Las hojas rediseñadas (art-src/gods/<id>-v2.webp) ya traen a todos con el mismo cuerpo que Susanoo, así que
+// comparten una sola escala: medir por la altura en idle encogería a los de corona o penacho alto (Osiris, Ra…).
+// 0.73 ≈ 175 px / 240 px de altura típica en idle.
+const REDESIGN_SCALE = 0.73;
+const redesigned = (frameWidth: number, frameHeight: number): Partial<SpriteSheetConfig> => ({
+  frameWidth, frameHeight, scale: REDESIGN_SCALE, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3
+});
 export const SPRITE_SHEET_OVERRIDES: Record<string, Partial<SpriteSheetConfig>> = {
-  amaterasu: { frameWidth: 496, frameHeight: 272, scale: 0.65, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  anubis: { frameWidth: 498, frameHeight: 272, scale: 0.68, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
-  hades: { frameWidth: 494, frameHeight: 270, scale: 0.74, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  huitzilopochtli: { frameWidth: 496, frameHeight: 274, scale: 0.66, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
-  mictlantecuhtli: { frameWidth: 492, frameHeight: 268, scale: 0.66, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  osiris: { frameWidth: 496, frameHeight: 274, scale: 0.68, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
-  poseidon: { frameWidth: 696, frameHeight: 272, scale: 0.7, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  quetzalcoatl: { frameWidth: 498, frameHeight: 273, scale: 0.66, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  ra: { frameWidth: 622, frameHeight: 272, scale: 0.65, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
-  raijin: { frameWidth: 462, frameHeight: 302, scale: 0.71, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  amaterasu: redesigned(444, 254),
+  anubis: redesigned(594, 245),
+  hades: redesigned(476, 255),
+  huitzilopochtli: redesigned(398, 266),
+  mictlantecuhtli: redesigned(436, 248),
+  osiris: redesigned(426, 256),
+  poseidon: redesigned(558, 255),
+  quetzalcoatl: redesigned(498, 253),
+  ra: redesigned(606, 264),
+  raijin: redesigned(478, 260),
+  // Hoja original (el modelo del rediseño): 175 px / altura medida en idle
   susanoo: { frameWidth: 614, frameHeight: 277, scale: 0.64, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
   // Jefe final: mide el doble que un dios (≈350 px en idle con la escala ×1.2 de los jefes)
   origen: { frameWidth: 376, frameHeight: 208, scale: 1.45, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
-  zeus: { frameWidth: 760, frameHeight: 268, scale: 0.7, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 }
+  zeus: redesigned(672, 246)
 };
 
 export function getSpriteSheetConfig(deity: DeityData): SpriteSheetConfig {
@@ -83,12 +89,9 @@ export function getSpriteSheetConfig(deity: DeityData): SpriteSheetConfig {
 // fila 0 salto (despegue, sube, punto alto, aterriza) · fila 1 defensa (guardia, bloqueo empujado, agachado, agachado en guardia)
 // fila 2 súper (carga → suelta) · fila 3 golpe fuerte (preparación, impacto) y pose de victoria (2 cuadros).
 // scale = la del dios × (alto de pie en la primera hoja / alto de la guardia en la segunda), para que midan igual.
+// Vacío mientras se rehacen las primeras hojas: las segundas se generan después a partir de las nuevas.
 export const EXTRA_ROWS = { jump: 0, defense: 1, super: 2, finish: 3 } as const;
-const EXTRA_SHEET_OVERRIDES: Record<string, Pick<SpriteSheetConfig, 'frameWidth' | 'frameHeight' | 'scale'>> = {
-  zeus: { frameWidth: 640, frameHeight: 282, scale: 0.749 },
-  poseidon: { frameWidth: 546, frameHeight: 281, scale: 0.716 },
-  hades: { frameWidth: 538, frameHeight: 284, scale: 0.788 }
-};
+const EXTRA_SHEET_OVERRIDES: Record<string, Pick<SpriteSheetConfig, 'frameWidth' | 'frameHeight' | 'scale'>> = {};
 
 export function getExtraSheetConfig(deity: DeityData): SpriteSheetConfig | null {
   const extra = EXTRA_SHEET_OVERRIDES[deity.id];

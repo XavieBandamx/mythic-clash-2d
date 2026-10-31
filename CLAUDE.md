@@ -50,7 +50,7 @@ src/
     ArcadeRouteCard.tsx Tarjeta de la ruta del arcade en la selección
 public/
   sprites/<dios>.webp          Hoja 4x4 de cada dios (filas: quieto, correr, ataque, golpe)
-  sprites/<dios>-extra.webp    Segunda hoja (solo zeus, poseidon y hades por ahora)
+  sprites/<dios>-extra.webp    Segunda hoja (ninguna por ahora, se rehacen tras el rediseño)
   sprites/monsters/*.webp      13 monstruos + 4 mini-jefes
   sprites/beasts/*.webp        4 bestias montables
   portraits/*.webp             Medallones (12 dioses + Origen)
@@ -76,7 +76,8 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
 ### Dioses
 - 12 dioses, cada uno con un **estilo** (Poder, Velocidad, Guardián, Alcance), una **pasiva única** (rayo de Zeus, quemadura de Ra, esquiva de Anubis, renacer de Osiris, doble salto de Quetzalcóatl…) y un **súper propio** en versus.
 - Las hojas principales están en **alta resolución** (~250–300 px de alto) y se escalan hacia abajo en `SPRITE_SHEET_OVERRIDES` (`sprites.ts`).
-- **Segunda hoja** (filas: salto, defensa, súper, golpe fuerte + victoria): solo **Zeus, Poseidón y Hades**. En versus se usa para salto, bloqueo, súper, golpe fuerte y victoria. En arcade, para salto, magia, remate del combo y embestida. Los demás dioses usan la hoja principal hasta tener la suya.
+- **Rediseño:** las hojas principales de 11 dioses se rehicieron en ChatGPT con **Susanoo como modelo** de altura, complexión y estilo (mismo tamaño en los 16 cuadros, de pie sin auras ni nubes). Los originales están en `art-src/gods/<dios>-v2.webp` (Susanoo conserva su hoja). Todas comparten una sola escala (`REDESIGN_SCALE` en `sprites.ts`), porque medir por la altura en idle encoge a los de corona o penacho alto.
+- **Segunda hoja** (filas: salto, defensa, súper, golpe fuerte + victoria): **por ahora ningún dios la tiene**. Las de Zeus, Poseidón y Hades se quitaron porque ya no combinan con el rediseño; se harán las de los 12 a partir de las hojas nuevas. El código sigue listo (`EXTRA_SHEET_OVERRIDES`): en versus se usa para salto, bloqueo, súper, golpe fuerte y victoria; en arcade, para salto, magia, remate del combo y embestida. Sin ella, el dios usa la hoja principal.
 
 ### Arcade
 - Oleadas, jinetes sobre **bestias montables** (Cerbero, Cocodrilo de Sobek, Jaguar de Guerra, Kirin), duende ladrón que suelta magia y comida, y **mini-jefe a mitad de nivel** (Cíclope, Escorpión Gigante, Guerrero Águila, Oni Gigante).
@@ -143,7 +144,7 @@ Plain solid pure black background. No text, no labels, no numbers, no grid lines
 
 ## Lo que falta (en orden de prioridad)
 
-1. **Segunda hoja de los otros 9 dioses:** Ra, Anubis, Osiris, Quetzalcóatl, Huitzilopochtli, Mictlantecuhtli, Amaterasu, Susanoo y Raijin. El usuario las genera en Gemini con la plantilla de arriba; luego se miden, se registran en `EXTRA_SHEET_OVERRIDES` y entran solas. Súper de cada uno (para la fila 3):
+1. **Segunda hoja de los 12 dioses**, hecha a partir de las hojas rediseñadas. Se generan con la plantilla de arriba; luego se miden, se registran en `EXTRA_SHEET_OVERRIDES` y entran solas. Zeus (rayo), Poseidón (marea) y Hades (fuego morado) tenían súper en la versión anterior. Súper de los demás (para la fila 3):
    - **Ra:** haz solar del báculo.
    - **Anubis:** embestida de sombras con garras doradas.
    - **Osiris:** pilares de arena y barrera verde.
