@@ -1,7 +1,7 @@
-"""Normaliza hojas de sprites irregulares (JPG con fondo liso) a PNG 4x4 con transparencia y pies alineados.
+"""Normaliza hojas de sprites irregulares (imágenes con fondo liso) a PNG 4x4 con transparencia y pies alineados.
 
 Uso:
-  python process_sprites.py <dir_origen> <dir_salida>                    (las hojas de los dioses)
+  python process_sprites.py <dir_origen> <dir_salida>                    (todas las hojas -original.webp del directorio)
   python process_sprites.py <dir_origen> <dir_salida> id=archivo [...]  (hojas concretas, p. ej. monstruos)
   python process_sprites.py <dir_origen> <dir_salida> --cols=3 id=archivo [...]  (hojas de 3 columnas)
 """
@@ -16,20 +16,9 @@ from PIL import Image, ImageDraw
 SRC, OUT = sys.argv[1], sys.argv[2]
 os.makedirs(OUT, exist_ok=True)
 
-FILES = {
-    'amaterasu': 'Amaterasu.jpg',
-    'anubis': 'Anubis.jpg',
-    'hades': 'Hades.jpg',
-    'huitzilopochtli': 'Huitzilopochtli.jpg',
-    'mictlantecuhtli': 'MICTLANTECUHTLI.jpg',
-    'osiris': 'Osiris.jpg',
-    'poseidon': 'Poseidon.jpg',
-    'quetzalcoatl': None,  # nombre con tilde: se busca abajo
-    'ra': 'Ra.jpg',
-    'raijin': 'Raijin.jpg',
-    'susanoo': 'Susanoo.jpg',
-    'zeus': 'Zeus.jpg',
-}
+# Originales y recortes comparten ubicación; este sufijo identifica solo las fuentes.
+FILES = {f.removesuffix('-original.webp'): f for f in sorted(os.listdir(SRC)) if f.lower().endswith('-original.webp')}
+
 ARGS = [a for a in sys.argv[3:] if not a.startswith('--cols=')]
 SRC_COLS = next((int(a[7:]) for a in sys.argv[3:] if a.startswith('--cols=')), 4)
 if ARGS:
@@ -144,7 +133,7 @@ def process(deity):
         near_bg |= np.roll(background, (dy, dx), (0, 1))
     alpha = np.where(near_bg, alpha, 1.0)
     alpha[background] = 0
-    if deity in IGNORE_LEFT:
+    if deity in IGNORE_LEFT and not path.lower().endswith('-original.webp'):
         alpha[:, :IGNORE_LEFT[deity]] = 0
     fg = alpha > 0.35
 

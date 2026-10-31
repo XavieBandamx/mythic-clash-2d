@@ -1,3 +1,4 @@
+import { victoryFrame, heavyFrame, jumpFrame, castFrame } from '../game/spriteMotion';
 import { profileFor } from '../game/combat';
 import { awardMastery } from '../game/progression';
 import { DEITIES } from '../game/deities';
@@ -5,7 +6,7 @@ import type { DeityData } from '../game/deities';
 import { sounds } from '../game/sound';
 import { renderParticles, spawnBloodBurst, updateParticles } from '../game/core';
 import type { Difficulty, Particle } from '../game/core';
-import { EXTRA_ROWS, GRID_4X4_ANIMATIONS, drawLoading, drawSpriteFrame, getExtraSheetConfig, getSpriteSheetConfig, isLoading, loadSpriteSheet } from '../game/sprites';
+import { EXTRA_ROWS, GRID_4X4_ANIMATIONS, drawLoading, drawSpriteFrame, getExtraSheetConfig, getSpriteSheetConfig, spriteAssetSrc, isLoading, loadSpriteSheet } from '../game/sprites';
 import type { SpriteSheetConfig, SpriteSheetEntry } from '../game/sprites';
 import { drawDeityPortraitIcon } from '../game/portraits';
 import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from '../game/styles';
@@ -39,6 +40,7 @@ interface TrailPoint {
   facing: 1 | -1;
   row: number;
   frame: number;
+  extra?: boolean;
 }
 
 export interface ArcadeInput {
@@ -80,7 +82,7 @@ interface StrikeSpec {
 type ActorState =
   | 'idle' | 'walk' | 'run' | 'attack' | 'jump' | 'jumpAttack' | 'dashAttack' | 'spin' | 'magic'
   | 'windup' | 'strike' | 'recover' | 'special' | 'hurt' | 'knockdown' | 'down' | 'getup' | 'dead'
-  | 'flee' | 'intro' | 'mountAttack' | 'guard';
+  | 'flee' | 'intro' | 'mountAttack' | 'guard' | 'victory';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -136,7 +138,7 @@ abstract class Actor {
   }
 
   public canBeHit(): boolean {
-    return !this.removed && this.invuln <= 0 && !this.isDown;
+    return !this.removed && this.invuln <= 0 && !this.isDown && this.state !== 'victory';
   }
 
   // Avanza la física; devuelve true en el tick en que aterriza
@@ -239,9 +241,9 @@ abstract class Actor {
   }
 
   // Guarda la pose actual mientras dura un ataque rápido; si no, la estela se va apagando
-  protected recordTrail(active: boolean, row: number, frame: number) {
+  protected recordTrail(active: boolean, row: number, frame: number, extra = false) {
     if (active) {
-      this.trail.push({ x: this.x, y: this.y, z: this.z, facing: this.facing, row, frame });
+      this.trail.push({ x: this.x, y: this.y, z: this.z, facing: this.facing, row, frame, extra });
       if (this.trail.length > TRAIL_LENGTH) this.trail.shift();
     } else if (this.trail.length > 0) {
       this.trail.shift();
@@ -284,7 +286,7 @@ function godFrame(actor: Actor, cfg: SpriteSheetConfig, clock: number, attackDur
     case 'hurt':
       return { row: a.hit.row, frame: 0 };
     case 'knockdown':
-      return { row: a.hit.row, frame: actor.vy > 0 ? 1 : lying };
+      return { row: a.hit.row, frame: actor.airborne ? 1 : lying };
     case 'down':
     case 'dead':
       return { row: a.hit.row, frame: lying };
@@ -401,6 +403,32 @@ export class Hero extends Actor {
     this.defMul = statDefenseMul(deity.stats.defense);
   }
 
+  public get loading() { return isLoading([this.sheet, this.extraSheet]); }
+
+  private extraPose(): { row: number; frame: number } | null {
+    if (this.extraSheet?.status !== 'ready' || !this.extraCfg) return null;
+    if (this.state === 'victory') return this.airborne
+      ? { row: EXTRA_ROWS.jump, frame: jumpFrame(3, this.vy, this.y) }
+      : { row: EXTRA_ROWS.finish, frame: victoryFrame(this.stateTimer) };
+    if (this.state === 'jump') return { row: EXTRA_ROWS.jump, frame: jumpFrame(this.stateTimer, this.vy, this.y) };
+    if (this.state === 'idle' && this.landTimer > 0) return { row: EXTRA_ROWS.jump, frame: 3 };
+    if (this.state === 'magic') return { row: EXTRA_ROWS.super, frame: castFrame(this.stateTimer, 40, 80) };
+    if (this.state === 'attack' && this.comboStep === 3) return { row: EXTRA_ROWS.finish, frame: heavyFrame(this.stateTimer, 7) };
+    if (this.state === 'dashAttack') return { row: EXTRA_ROWS.finish, frame: heavyFrame(this.stateTimer, 3) };
+    return null;
+  }
+
+  public celebrate() {
+    if (this.hp <= 0 || this.gameOver || this.isDown || this.state === 'victory') return;
+    dismount(this, false);
+    this.setState('victory'); this.vx = this.vz = 0;
+    this.trail = []; this.flash = 0; this.burnTicks = 0; this.invuln = 0;
+  }
+
+  public advanceCelebration() {
+    this.tickTimers(); this.animClock++; this.integrate();
+  }
+
   // Huitzilopochtli pega más fuerte con poca vida
   public get dmgMul(): number {
     const fury = this.deity.id === 'huitzilopochtli' && this.hp < this.maxHp * PASSIVE.furyBelow ? PASSIVE.furyMul : 1;
@@ -452,12 +480,14 @@ export class Hero extends Actor {
   }
 
   public update(input: ArcadeInput, world: ArcadeGame, tick: number) {
+    if (this.state === 'victory') { this.advanceCelebration(); return; }
     this.tickTimers();
     if (this.evadeCooldown > 0) this.evadeCooldown--;
     this.animClock++;
     const fast = this.state === 'dashAttack' || this.state === 'spin' || this.state === 'jumpAttack' || (this.state === 'attack' && this.comboStep === 3);
-    const pose = godFrame(this, this.cfg, this.animClock, this.comboDuration);
-    this.recordTrail(fast, pose.row, pose.frame);
+    const extra = this.extraPose();
+    const pose = extra ?? godFrame(this, this.cfg, this.animClock, this.comboDuration);
+    this.recordTrail(fast, pose.row, pose.frame, !!extra);
     if (this.comboWindow > 0) this.comboWindow--;
     if (this.displayHp > this.hp) this.displayHp = Math.max(this.hp, this.displayHp - 0.6);
     else this.displayHp = this.hp;
@@ -771,7 +801,7 @@ export class Hero extends Actor {
     // Imágenes fantasma en los ataques rápidos (embestida, giro, tajo aéreo, remate del combo)
     for (let i = this.trail.length % 2; i < this.trail.length - 1; i += 2) {
       const p = this.trail[i];
-      drawSpriteFrame(ctx, this.sheet, this.cfg, p.row, p.frame, p.x, screenY(p.z, p.y), p.facing, {
+      drawSpriteFrame(ctx, p.extra && this.extraSheet ? this.extraSheet : this.sheet, p.extra && this.extraCfg ? this.extraCfg : this.cfg, p.row, p.frame, p.x, screenY(p.z, p.y), p.facing, {
         tint: this.deity.accentColor,
         alpha: 0.15 + 0.25 * (i / this.trail.length)
       });
@@ -793,14 +823,8 @@ export class Hero extends Actor {
       lift = Math.min(28, this.stateTimer * 1.4) + Math.sin(this.animClock * 0.2) * 3;
       this.renderRuneCircle(ctx, feetY);
     }
-    // Salto, magia y remate del combo con la segunda hoja cuando existe
-    let extra: { row: number; frame: number } | null = null;
-    if (this.extraSheet?.status === 'ready' && this.extraCfg) {
-      if (this.state === 'jump') extra = { row: EXTRA_ROWS.jump, frame: this.vy > 4 ? 1 : this.vy < -4 ? 3 : 2 };
-      else if (this.state === 'magic') extra = { row: EXTRA_ROWS.super, frame: Math.min(3, Math.floor(this.stateTimer / 15)) };
-      else if (this.state === 'attack' && this.comboStep === 3) extra = { row: EXTRA_ROWS.finish, frame: this.stateTimer < 7 ? 0 : 1 };
-      else if (this.state === 'dashAttack') extra = { row: EXTRA_ROWS.finish, frame: 1 };
-    }
+    // Conserva las hojas y escalas calibradas; elige el cuadro según la acción real.
+    const extra = this.extraPose();
     if (extra && this.extraSheet && this.extraCfg) {
       drawSpriteFrame(ctx, this.extraSheet, this.extraCfg, extra.row, extra.frame, this.x, feetY - lift, this.facing, {
         flash: this.flash > 0,
@@ -857,7 +881,7 @@ export class Hero extends Actor {
   }
 }
 
-const monsterSpriteSrc = (spriteId: string) => `${import.meta.env.BASE_URL}sprites/monsters/${spriteId}.webp`;
+
 
 // --------------------------------------------------------------------------
 // MONSTRUOS: rodean al héroe, avisan antes de golpear y se turnan para atacar
@@ -891,7 +915,7 @@ export class Monster extends Actor {
     const meta = skin.spriteId ? MONSTER_SPRITES[skin.spriteId] : undefined;
     if (skin.spriteId && meta) {
       const cfg: SpriteSheetConfig = {
-        src: monsterSpriteSrc(skin.spriteId),
+        src: spriteAssetSrc(skin.spriteId),
         frameWidth: meta.frameWidth,
         frameHeight: meta.frameHeight,
         scale: stats.height / meta.idleHeight,
@@ -1153,7 +1177,7 @@ const BEAST_STRIKES: Record<BeastAttack, BeastStrike> = {
   thunder: { front: 120, back: 10, damage: 15, knockdown: true, heavy: true, duration: 28, from: 8, to: 20, lunge: 10 }
 };
 
-const beastSpriteSrc = (id: string) => `${import.meta.env.BASE_URL}sprites/beasts/${id}.webp`;
+
 
 export class Beast extends Actor {
   public def: BeastDef;
@@ -1168,7 +1192,7 @@ export class Beast extends Actor {
     super(x, z, 1, 120, def.height);
     this.def = def;
     this.cfg = {
-      src: beastSpriteSrc(def.id),
+      src: spriteAssetSrc(def.id),
       frameWidth: def.frameWidth,
       frameHeight: def.frameHeight,
       scale: def.height / def.idleHeight,
@@ -1308,6 +1332,8 @@ export class Boss extends Actor {
   public deity: DeityData;
   public cfg: SpriteSheetConfig;
   public sheet: SpriteSheetEntry;
+  private extraCfg: SpriteSheetConfig | null;
+  private extraSheet: SpriteSheetEntry | null;
   public specials: BossSpecial[];
   public damage: number;
   public introTargetX: number;
@@ -1342,12 +1368,35 @@ export class Boss extends Actor {
     this.deity = deity;
     this.cfg = getSpriteSheetConfig(deity);
     this.sheet = loadSpriteSheet(this.cfg.src);
+    this.extraCfg = getExtraSheetConfig(deity);
+    this.extraSheet = this.extraCfg ? loadSpriteSheet(this.extraCfg.src) : null;
     this.specials = BOSS_SPECIALS[deity.id] ?? ['orb', 'charge'];
     this.damage = 10 * dmgMul;
     this.introTargetX = introTargetX;
     this.displayHp = hp;
     this.facing = -1;
     this.setState('intro');
+  }
+
+  public get loading() { return isLoading([this.sheet, this.extraSheet]); }
+
+  private extraPose(): { row: number; frame: number } | null {
+    if (this.extraSheet?.status !== 'ready' || !this.extraCfg) return null;
+    if (this.state === 'special' && this.currentSpecial === 'slam' && this.airborne) {
+      return { row: EXTRA_ROWS.jump, frame: jumpFrame(this.stateTimer - 20, this.vy, this.y) };
+    }
+    if (this.state === 'special' && this.currentSpecial !== 'charge' && this.currentSpecial !== 'teleport') {
+      const release = this.currentSpecial === 'collapse' ? COLLAPSE_TICKS : this.currentSpecial === 'orb' ? 28 : this.currentSpecial === 'thunder' ? 10 : 20;
+      const duration = this.currentSpecial === 'collapse' ? COLLAPSE_TICKS + 40 : this.currentSpecial === 'orb' ? 75 : 100;
+      return { row: EXTRA_ROWS.super, frame: castFrame(this.stateTimer, release, duration) };
+    }
+    if (this.state === 'guard') return { row: EXTRA_ROWS.defense, frame: this.guardedHits > 0 && this.stateTimer % 12 < 6 ? 1 : 0 };
+    if ((this.state === 'recover' || this.state === 'idle') && this.landTimer > 0) return { row: EXTRA_ROWS.jump, frame: 3 };
+    if (this.state === 'jump') return { row: EXTRA_ROWS.jump, frame: jumpFrame(this.stateTimer, this.vy, this.y) };
+    if (this.comboHits >= 1 && (this.state === 'windup' || this.state === 'strike')) {
+      return { row: EXTRA_ROWS.finish, frame: this.state === 'windup' ? 0 : heavyFrame(this.stateTimer, 3) };
+    }
+    return null;
   }
 
   private get enraged(): boolean {
@@ -1526,8 +1575,9 @@ export class Boss extends Actor {
   public update(world: ArcadeGame) {
     this.tickTimers();
     this.animClock++;
-    const pose = godFrame(this, this.cfg, this.animClock, 14);
-    this.recordTrail(this.charging || (this.state === 'special' && this.currentSpecial === 'slam' && this.y > 0), pose.row, pose.frame);
+    const extra = this.extraPose();
+    const pose = extra ?? godFrame(this, this.cfg, this.animClock, 14);
+    this.recordTrail(this.charging || (this.state === 'special' && this.currentSpecial === 'slam' && this.y > 0), pose.row, pose.frame, !!extra);
     if (this.cooldown > 0) this.cooldown--;
     if (this.specialCooldown > 0) this.specialCooldown--;
     if (this.escapeCooldown > 0) this.escapeCooldown--;
@@ -1787,7 +1837,7 @@ export class Boss extends Actor {
     }
     for (let i = this.trail.length % 2; i < this.trail.length - 1; i += 2) {
       const p = this.trail[i];
-      drawSpriteFrame(ctx, this.sheet, this.cfg, p.row, p.frame, p.x, screenY(p.z, p.y), p.facing, {
+      drawSpriteFrame(ctx, p.extra && this.extraSheet ? this.extraSheet : this.sheet, p.extra && this.extraCfg ? this.extraCfg : this.cfg, p.row, p.frame, p.x, screenY(p.z, p.y), p.facing, {
         scale: 1.2,
         tint: this.deity.accentColor,
         alpha: (0.15 + 0.25 * (i / this.trail.length)) * alpha
@@ -1798,14 +1848,24 @@ export class Boss extends Actor {
     // Al canalizar sus esferas o rayos se eleva un poco, como el héroe con su magia
     const casting = this.state === 'special' && (this.currentSpecial === 'orb' || this.currentSpecial === 'thunder');
     const lift = casting ? Math.min(22, this.stateTimer * 1.2) : 0;
-    drawSpriteFrame(ctx, this.sheet, this.cfg, row, frame, this.x, feetY - lift, this.facing, {
-      scale: 1.2,
-      flash: this.flash > 0,
-      alpha,
-      scaleX: pose.sx,
-      scaleY: pose.sy,
-      rotation: pose.rot
-    });
+    // Se mantiene la integración de la segunda hoja para poderes, guardia y salto.
+    const extra = this.extraPose();
+    if (extra && this.extraSheet && this.extraCfg) {
+      drawSpriteFrame(ctx, this.extraSheet, this.extraCfg, extra.row, extra.frame, this.x, feetY - lift, this.facing, {
+        scale: 1.2,
+        flash: this.flash > 0,
+        alpha
+      });
+    } else {
+      drawSpriteFrame(ctx, this.sheet, this.cfg, row, frame, this.x, feetY - lift, this.facing, {
+        scale: 1.2,
+        flash: this.flash > 0,
+        alpha,
+        scaleX: pose.sx,
+        scaleY: pose.sy,
+        rotation: pose.rot
+      });
+    }
     if (this.state === 'guard') {
       ctx.save();
       ctx.globalAlpha = 0.45 + (this.guardedHits > 0 && this.stateTimer % 6 < 3 ? 0.4 : 0);
@@ -2034,11 +2094,13 @@ export class ArcadeGame {
     const bossId = this.level.bossOrder.find(id => !playerIds.includes(id)) ?? this.level.bossOrder[0];
     this.bossDeity = final ? ORIGEN : DEITIES.find(d => d.id === bossId) ?? DEITIES[0];
     loadSpriteSheet(getSpriteSheetConfig(this.bossDeity).src);
+    const bossExtra = getExtraSheetConfig(this.bossDeity);
+    if (bossExtra) loadSpriteSheet(bossExtra.src);
     // Escenario pintado del nivel, si lo tiene (se carga con la misma caché que los sprites)
     const loadArt = (file?: string) => (file ? loadSpriteSheet(`${import.meta.env.BASE_URL}backgrounds/${file}`) : null);
     this.art = { background: loadArt(this.level.art?.background), floor: loadArt(this.level.art?.floor) };
 
-    loadSpriteSheet(beastSpriteSrc(BEASTS[this.level.pantheon].id));
+    loadSpriteSheet(spriteAssetSrc(BEASTS[this.level.pantheon].id));
     const propCount = final ? 0 : PROP_COUNT[this.level.pantheon] ?? 0;
     this.props = Array.from({ length: propCount }, (_, i) =>
       loadSpriteSheet(`${import.meta.env.BASE_URL}props/${PROP_SLUG[this.level.pantheon]}-${i}.webp`)
@@ -2048,7 +2110,7 @@ export class ArcadeGame {
       loadSpriteSheet(`${import.meta.env.BASE_URL}items/${name}.webp`);
     }
     for (const skin of [...Object.values(this.level.skins), THIEF_SKIN]) {
-      if (skin.spriteId && MONSTER_SPRITES[skin.spriteId]) loadSpriteSheet(monsterSpriteSrc(skin.spriteId));
+      if (skin.spriteId && MONSTER_SPRITES[skin.spriteId]) loadSpriteSheet(spriteAssetSrc(skin.spriteId));
     }
 
     const levelName = final ? 'FINAL' : `${index + 1} · ${this.level.pantheon.toUpperCase()}`;
@@ -2652,7 +2714,7 @@ export class ArcadeGame {
   // Una entrada por jugador (o una sola en el modo de un jugador)
   // Escenario del nivel y hojas de héroes y jefe todavía bajando
   public get loading(): boolean {
-    return isLoading([this.art.background, this.art.floor, ...this.heroes.map(h => h.sheet), this.boss?.sheet]);
+    return isLoading([this.art.background, this.art.floor]) || this.heroes.some(hero => hero.loading) || !!this.boss?.loading;
   }
 
   public step(inputs: ArcadeInput | ArcadeInput[]) {
@@ -2679,6 +2741,7 @@ export class ArcadeGame {
       return;
     }
     if (this.phase === 'victory') {
+      for (const hero of this.activeHeroes) { hero.celebrate(); if (hero.state === 'victory') hero.advanceCelebration(); }
       updateParticles(this.particles);
       this.phaseTimer++;
       if (list.some(i => i.attack) && this.phaseTimer > 60) this.exitRequested = true;
@@ -2728,7 +2791,8 @@ export class ArcadeGame {
         if (input.attack && this.coop) this.continueHero(hero);
         continue;
       }
-      hero.update(input, this, this.tick);
+      if (this.phase === 'levelClear') hero.celebrate();
+      hero.update(this.phase === 'levelClear' ? EMPTY_INPUT : input, this, this.tick);
     }
     for (const hero of this.heroes) {
       if (hero.comboTimer > 0 && --hero.comboTimer === 0) hero.combo = 0;
@@ -2774,7 +2838,7 @@ export class ArcadeGame {
       this.bossDown = true;
       this.phase = 'levelClear';
       this.phaseTimer = 0;
-      for (const hero of this.activeHeroes) hero.score += 5000;
+      for (const hero of this.activeHeroes) { hero.score += 5000; hero.celebrate(); }
       this.hitstop = 24;
       this.shake(18, 30);
       sounds.playKO();

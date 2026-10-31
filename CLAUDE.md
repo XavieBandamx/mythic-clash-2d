@@ -50,26 +50,23 @@ src/
     ArcadeMode.tsx     Canvas del arcade, teclado y botones tocables (continuar / volver)
     ArcadeRouteCard.tsx Tarjeta de la ruta del arcade en la selección
 public/
-  sprites/<dios>.webp          Hoja 4x4 de cada dios (filas: quieto, correr, ataque, golpe)
-  sprites/<dios>-extra.webp    Segunda hoja de los 12 dioses (originales en art-src/gods/<dios>-extra-v2.webp)
-  sprites/monsters/*.webp      13 monstruos + 4 mini-jefes
-  sprites/beasts/*.webp        4 bestias montables
   portraits/*.webp             Medallones (12 dioses + Origen), 256x256 con fondo transparente
   arenas/*.webp                Arenas del versus
   backgrounds/*.webp           Fondos y suelos del arcade + Telar del Cosmos
   items/*.webp                 Magia, comida, vasija-N / vasija-rota-N y trampa-N del arcade (N = nivel 0 Grecia … 3 Japón)
   props/<reino>-N.webp         Objetos de primer plano del arcade (6 por reino: grecia, egipto, mexico, japon)
-art-src/                       Imágenes originales tal como salieron de Gemini/Grok (no se publican)
+assets/sprites/                Todas las hojas: <id>.webp / <id>-extra.webp y sus fuentes <id>-original.webp / <id>-extra-original.webp
+art-src/                       Otros originales (fondos, objetos y medallones; no se publican)
 tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales con los pies alineados
 ```
 
-`public/sprites/sprites_homologados/` es un intento viejo de homologar sprites y **no se usa**. Nunca se ha subido a git y se puede borrar.
+Los originales y los recortes están juntos en `assets/sprites/`: 47 hojas de juego y 47 originales con sufijo `-original.webp`. `spriteAssetSrc()` resuelve las mismas URLs y caché para todos los modos. El glob de Vite excluye los originales del empaquetado; solo publica los recortes. No duplicar hojas en `public`, en `characters` ni por modo. Se retiraron las versiones antiguas con reemplazo vigente.
 
 ## Lo que ya existe
 
 ### Modos de juego (menú principal)
 - **Versus local (P1 vs P2)** y **contra la IA**, con 3 dificultades. Hay 5 arenas pintadas: Coliseo del Olimpo, Tribunal de Osiris, Cancha de Tenochtitlan, Dojo de la Tormenta y Torre de Babel. Antes de pelear se elige la arena (o aleatoria).
-- **Arcade (Camino de los Dioses)**: beat 'em up de 4 niveles (Grecia, Egipto, México, Japón) y un nivel final contra **Origen**, el Tejedor de Mundos, un jefe no jugable al doble de tamaño.
+- **Arcade (Camino de los Dioses)**: beat 'em up de 4 niveles (Grecia, Egipto, México, Japón) y un nivel final contra **Origen**, el Tejedor de Mundos, un jefe no jugable al doble de tamaño. Rediseñado como titán cósmico con máscara dorada, con sus dos hojas (`assets/sprites/origen-original.webp` y `origen-extra-v2.webp`).
 - **Arcade cooperativo** para 2 jugadores.
 - **Torre de los Dioses**: 8 pisos de versus contra rivales al azar (2 por reino), IA que sube de nivel, 3 continues, Origen en la cima y un final escrito para cada dios.
 - **Configurar Controles**: reasignar teclado (P1 y P2), botones del control y tamaño/lado de los botones táctiles.
@@ -78,9 +75,9 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
 ### Dioses
 - 12 dioses, cada uno con un **estilo** (Poder, Velocidad, Guardián, Alcance), una **pasiva única** (rayo de Zeus, quemadura de Ra, esquiva de Anubis, renacer de Osiris, doble salto de Quetzalcóatl…) y un **súper propio** en versus.
 - Las hojas principales están en **alta resolución** (~250–300 px de alto) y se escalan hacia abajo en `SPRITE_SHEET_OVERRIDES` (`sprites.ts`).
-- **Rediseño:** las hojas principales de 11 dioses se rehicieron en ChatGPT con **Susanoo como modelo** de altura, complexión y estilo (mismo tamaño en los 16 cuadros, de pie sin auras ni nubes). Los originales están en `art-src/gods/<dios>-v2.webp` (Susanoo conserva su hoja). Todas comparten una sola escala (`REDESIGN_SCALE` en `sprites.ts`), porque medir por la altura en idle encoge a los de corona o penacho alto.
-- Con el mismo modelo se rehicieron también las **4 bestias**, los **17 monstruos y mini-jefes** y los **13 medallones** (originales en `art-src/beasts`, `art-src/monsters` y `art-src/portraits`, con sufijo `-v2`).
-- **Segunda hoja** (filas: salto, defensa, súper, golpe fuerte + victoria): **los 12 dioses la tienen**, hecha en ChatGPT a partir de su hoja rediseñada (`EXTRA_SHEET_OVERRIDES`): en versus se usa para salto, bloqueo, súper, golpe fuerte y victoria; en arcade, para salto, magia, remate del combo y embestida. Sin ella, el dios usa la hoja principal.
+- **Rediseño:** las hojas principales de 11 dioses se rehicieron en ChatGPT con **Susanoo como modelo** de altura, complexión y estilo (mismo tamaño en los 16 cuadros, de pie sin auras ni nubes). Los originales están en `assets/sprites/<dios>-original.webp`. Después Susanoo también se rehízo, con Amaterasu nueva como modelo, para que no quedara atrás. Todas comparten una sola escala (`REDESIGN_SCALE` en `sprites.ts`), porque medir por la altura en idle encoge a los de corona o penacho alto.
+- Con el mismo modelo se rehicieron también las **4 bestias**, los **17 monstruos y mini-jefes** y los **13 medallones** (originales en `assets/sprites`, `assets/sprites` y `art-src/portraits`, con sufijo `-v2`).
+- **Segunda hoja** (filas: salto, defensa, súper, golpe fuerte + victoria): **los 12 dioses y Origen la tienen**, hecha en ChatGPT a partir de su hoja rediseñada (`EXTRA_SHEET_OVERRIDES`): en versus se usa para salto, bloqueo, súper, golpe fuerte y victoria; en arcade, para salto, magia, remate del combo y embestida del héroe, y para poderes, guardia y salto de los jefes. Sin ella, el dios usa la hoja principal.
 
 ### Arcade
 - Oleadas, jinetes sobre **bestias montables** (Cerbero, Cocodrilo de Sobek, Jaguar de Guerra, Kirin), duende ladrón que suelta magia y comida, y **mini-jefe a mitad de nivel** (Cíclope, Escorpión Gigante, Guerrero Águila, Oni Gigante).
@@ -101,11 +98,11 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
 
 ## Flujo para meter arte nuevo
 
-1. Guarda el original en `art-src/...`.
-2. Recorta la hoja 4x4: `python tools/process_sprites.py <carpeta_origen> <carpeta_salida> id=archivo.jpg`. Genera `id.png`, `_debug_id.png` (para revisar los cortes) y `_meta.json` con `frameWidth`, `frameHeight` e `idleHeight`.
+1. Guarda el original de una hoja en `assets/sprites/<id>-original.webp` (o `<id>-extra-original.webp`). Para fondos, props y otros tipos se conserva `art-src/...`.
+2. Recorta la hoja 4x4: `python tools/process_sprites.py assets/sprites <carpeta_temporal> id=id-original.webp`. Genera `id.png`, `_debug_id.png` (para revisar los cortes) y `_meta.json` con `frameWidth`, `frameHeight` e `idleHeight`. Usa una carpeta temporal para estos archivos intermedios; a `assets/sprites` solo regresa el WebP final.
    - Si salen chispas sueltas pegadas a otro cuadro, bórralas en el original y vuelve a procesar.
-   - Cuidado: el script tiene una regla vieja que recorta la columna izquierda si el id es `hades` o `quetzalcoatl`. Para esos procesa con otro id (por ejemplo `hades-hd`).
-3. Convierte a WebP (calidad 90) dentro de `public/...` y nunca subas PNG grandes:
+   - Cuidado: el script conserva una regla de recorte para hojas antiguas de `hades` o `quetzalcoatl`; no se aplica a los originales actuales `-original.webp`.
+3. Convierte a WebP (calidad 90) en `assets/sprites/<id>.webp` (o `<id>-extra.webp`) y nunca subas PNG grandes:
    ```python
    Image.open(png).save(webp, 'WEBP', quality=90, method=6)
    ```
@@ -123,11 +120,11 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
 - **Bestias:** `height` en `BEASTS` (`levels.ts`) = `idleHeight` × 0.73 (la escala de los dioses). `seat` es el punto de la silla en px de hoja desde el centro y desde los pies; se ajusta montando a un dios y viendo que se siente en la silla.
 
 ### Prompts que sí funcionaron
-- **Rediseño con modelo (ChatGPT):** adjuntar primero la hoja a corregir y luego `art-src/gods/susanoo.jpg`, diciendo "MASTER REFERENCE for size, body proportions and art quality only. Do NOT draw Susanoo". Pedir mismo tamaño en los 16 cuadros, idle de pie sin auras, efectos solo en el ataque, 4x4, 1536x1024 y fondo negro.
+- **Rediseño con modelo (ChatGPT):** adjuntar primero la hoja a corregir y luego `assets/sprites/susanoo-original.webp`, diciendo "MASTER REFERENCE for size, body proportions and art quality only. Do NOT draw Susanoo". Pedir mismo tamaño en los 16 cuadros, idle de pie sin auras, efectos solo en el ataque, 4x4, 1536x1024 y fondo negro.
 - **Medallones (ChatGPT):** adjuntar un medallón nuevo del mismo reino como modelo y pedir el **símbolo o animal sagrado** del dios tallado en relieve (no su cara), mismo aro dorado y mismo borde por reino (meandro griego, jeroglíficos con disco alado, escalonado azteca, olas y nubes con torii).
 - **Mejorar resolución de una hoja (Gemini Pro, chat nuevo, adjuntar la hoja):** pedir "high resolution upscale… This is an upscale, NOT a new drawing… keep the exact same 4x4 layout… copy every pose exactly… 4K… at least 250 pixels tall".
 - **Personaje nuevo con estilo de referencia (Gemini):** decir explícitamente "Use it ONLY as a reference for the art style… Do NOT draw the character from the reference". Si no, dibuja al de la referencia.
-- **Segunda hoja de un dios:** adjuntar su hoja rediseñada (`art-src/gods/<dios>-v2.webp`) y usar esta plantilla, cambiando los rasgos y el súper de cada dios:
+- **Segunda hoja de un dios:** adjuntar su hoja rediseñada (`assets/sprites/<dios>-original.webp`) y usar esta plantilla, cambiando los rasgos y el súper de cada dios:
 
 ```text
 The attached image is the sprite sheet of a character from my 2D fighting game. I need a SECOND sprite sheet of this exact same character with new animations.

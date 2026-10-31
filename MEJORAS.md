@@ -32,6 +32,19 @@ Selección inspirada en los juegos de pelea: dos vistas grandes, retratos de los
 
 Se guardan victorias, reinos completados, mejor combo y mejor calificación por dios en el navegador. Los títulos son cosméticos: Sin rango, Iniciado, Ascendente y Leyenda. No modifican estadísticas ni bloquean personajes. Los récords previos conservan su almacenamiento original.
 
+## Hojas nuevas y ubicación compartida
+
+Se conservaron las hojas y las escalas ajustadas por Claude, incluidas las nuevas de Susanoo, Amaterasu y Origen. Se verificó el contenido de cada archivo al moverlo.
+
+- Todos los sprites viven en **`assets/sprites/`**. Por ejemplo: `zeus-original.webp`, `zeus.webp`, `zeus-extra-original.webp` y `zeus-extra.webp`. El original es la fuente de trabajo; el otro archivo es el recorte transparente con cuadrícula y pies alineados.
+- Versus, torre, arcade, selección, monstruos y bestias usan el mismo resolvedor `spriteAssetSrc()` y la misma caché. Vite importa únicamente los recortes; los archivos `*-original.webp` se excluyen de la publicación.
+- Se retiraron 45 archivos obsoletos con reemplazo vigente: 10.63 MiB. Los originales actuales se conservan. Esto reduce los archivos del proyecto; no reescribe el historial de Git.
+- La animación fuerte coincide con su ventana de impacto. Saltar utiliza despegue, ascenso, punto alto y aterrizaje. La pose de bloqueo muestra el retroceso durante el aturdimiento de guardia.
+- Golpes leves, derribos y K.O. usan correctamente la hoja principal. Un K.O. se detiene en el cuerpo tendido y no muestra el cuadro de levantarse. Las victorias usan la hoja extra y un temporizador de simulación.
+- El arcade ahora celebra al superar el nivel, incluso al vencer montado; los jefes mantienen la segunda hoja añadida por Claude para sus poderes, guardia y salto. Las estelas recuerdan qué hoja produjo cada cuadro.
+- La pelea espera a que carguen ambas hojas. Si falla la extra, continúa con la principal.
+- En desarrollo, `http://localhost:3000/tools/animation-qa.html` permite revisar ocho poses de cada dios en versus, arcade y como jefe utilizando los renderizadores reales.
+
 ## Validación
 
 ```sh

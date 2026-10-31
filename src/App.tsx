@@ -10,6 +10,7 @@ import CharacterSelect from './CharacterSelect';
 import { moveRoster } from './game/roster';
 import { MatchFlow, VERSUS_HEALTH, drawMatchFlow } from './game/match';
 import type { RoundWinner } from './game/match';
+import { victoryFrame, heavyFrame, jumpFrame, castFrame, versusSuperRelease } from './game/spriteMotion';
 import { profileFor, GUARD_WINDOW, GUARD_RECOVERY, INPUT_BUFFER } from './game/combat';
 import { awardMastery } from './game/progression';
 import { DEITIES } from './game/deities';
@@ -88,6 +89,8 @@ export class Fighter {
   public hitRegistered: boolean = false;
   public isBlocking: boolean = false;
   public hitstunTimer: number = 0;
+  public fallingHit = false;
+  public landingPoseTicks = 0;
   public hitFlashTimer: number = 0; // Efecto de flash blanco al recibir golpe
   public pendingScreenShake: number = 0; // Intensidad de sacudida pedida al bucle cuando un especial conecta desde update()
 
@@ -105,6 +108,7 @@ export class Fighter {
   private queuedAttack: 'light' | 'heavy' | null = null;
   private queueTicks = 0;
 
+  public get heavyImpactTick() { return profileFor(this.deity.id).heavyStartup * this.attackSpeed; }
   public get attackDuration() {
     return Math.ceil((this.state === 'ATTACK_HEAVY' ? profileFor(this.deity.id).heavyDuration : 21) * this.attackSpeed);
   }
@@ -179,12 +183,19 @@ export class Fighter {
     this.facing = facing;
   }
 
+  public enterHitstun(ticks: number, falling = false) {
+    this.state = 'HITSTUN'; this.animTimer = 0;
+    this.hitstunTimer = ticks; this.fallingHit = falling;
+    this.isBlocking = false;
+  }
+
   public advanceFinish() {
     this.animTimer++;
     this.vy += this.gravity;
     this.x = Math.max(120, Math.min(1160, this.x + this.vx));
     this.y = Math.min(this.groundY, this.y + this.vy);
-    if (this.y >= this.groundY) this.vy = 0;
+    this.isGrounded = this.y >= this.groundY;
+    if (this.isGrounded) this.vy = 0;
     this.vx *= 0.9;
     if (this.hitFlashTimer > 0) this.hitFlashTimer--;
   }
@@ -233,7 +244,7 @@ export class Fighter {
         return { x: boxX, y: boxY, w: boxW, h: boxH };
       }
     } else if (this.state === 'ATTACK_HEAVY') {
-      if (this.animTimer >= profileFor(this.deity.id).heavyStartup * sp && this.animTimer <= (profileFor(this.deity.id).heavyStartup + 5) * sp) {
+      if (this.animTimer >= this.heavyImpactTick && this.animTimer <= this.heavyImpactTick + 5 * sp) {
         const boxW = profileFor(this.deity.id).heavyReach * reach;
         const boxH = 80;
         const boxX = this.facing === 1 ? this.x + 15 : this.x - 15 - boxW;
@@ -247,6 +258,7 @@ export class Fighter {
 
   public update(arenaWidth: number, opponent: Fighter, difficulty: Difficulty, particles: Particle[]) {
     this.animTimer++;
+    if (this.landingPoseTicks > 0) this.landingPoseTicks--;
     this.guardAge++;
     if (this.guardCooldown > 0) this.guardCooldown--;
     if (this.guardStun > 0) this.guardStun--;
@@ -343,6 +355,7 @@ export class Fighter {
     // Suelo y ráfagas de aire al aterrizar
     if (this.y >= this.groundY) {
       if (!this.isGrounded) {
+        this.landingPoseTicks = 6;
         sounds.playStep();
         // Anillos de impacto de aire en el suelo
         particles.push({
@@ -444,8 +457,7 @@ export class Fighter {
             opponent.hp = Math.max(0, opponent.hp - Math.round(12 * this.damageMul * opponent.defMul * opponent.damageTakenMul()));
             opponent.vx = this.facing * 8;
             opponent.vy = -10;
-            opponent.state = 'HITSTUN';
-            opponent.hitstunTimer = 25;
+            opponent.enterHitstun(25, true);
             opponent.hitFlashTimer = 4;
             sounds.playHitHeavy();
             spawnBloodBurst(particles, opponent.x, opponent.y - opponent.height * 0.6, this.facing, opponent.groundY);
@@ -488,8 +500,7 @@ export class Fighter {
           if (inBeamRange && opponent.hp > 0 && Math.abs(opponent.y - this.y) < 110 && !opponent.shielded) {
             opponent.hp = Math.max(0, opponent.hp - Math.round(7 * this.damageMul * opponent.defMul * opponent.damageTakenMul()));
             opponent.vx = this.facing * 10;
-            opponent.state = 'HITSTUN';
-            opponent.hitstunTimer = 18;
+            opponent.enterHitstun(18, false);
             opponent.hitFlashTimer = 3;
             sounds.playHitLight();
             // El rayo solar impacta a la altura del haz (y - 120, alto 75), en el costado que mira a Ra
@@ -544,9 +555,7 @@ export class Fighter {
     const dir = opponent.x >= this.x ? 1 : -1;
     opponent.vx = dir * knockX;
     opponent.vy = knockY;
-    opponent.state = 'HITSTUN';
-    opponent.isBlocking = false;
-    opponent.hitstunTimer = stun;
+    opponent.enterHitstun(stun, stun >= 24);
     opponent.hitFlashTimer = 4;
     sounds.playHitHeavy();
     spawnBloodBurst(particles, opponent.x, opponent.y - opponent.height * 0.6, dir, opponent.groundY);
@@ -806,9 +815,7 @@ export class Fighter {
     this.riposteTicks = 45;
     if (this.deity.id === 'anubis') this.vx = -attacker.facing * 9;
     if (this.deity.id === 'mictlantecuhtli') attacker.hp = Math.max(0, attacker.hp - Math.round(damage * PASSIVE.reflect));
-    attacker.state = 'HITSTUN';
-    attacker.isBlocking = false;
-    attacker.hitstunTimer = 18;
+    attacker.enterHitstun(18, false);
     attacker.comboCount = 0;
     return true;
   }
@@ -874,10 +881,12 @@ export class Fighter {
       this.vy = -16.5;
       this.isGrounded = false;
       this.state = 'JUMP';
+      this.animTimer = 0; this.landingPoseTicks = 0;
       this.airJumped = false;
       sounds.playJump();
     } else if (fresh && this.deity.id === 'quetzalcoatl' && this.state === 'JUMP' && !this.airJumped) {
       this.airJumped = true;
+      this.animTimer = 0;
       this.vy = -14;
       sounds.playJump();
     }
@@ -1280,23 +1289,27 @@ export class CanvasFighter extends Fighter {
     this.extraSheet = this.extraConfig ? loadSpriteSheet(this.extraConfig.src) : null;
   }
 
+  public get loading() { return isLoading([this.sheet, this.extraSheet]); }
+
   // Cuadro de la segunda hoja para el estado actual, o null si se usa la primera
-  private extraPose(): { row: number; frame: number } | null {
+  protected extraPose(): { row: number; frame: number } | null {
     if (this.extraSheet?.status !== 'ready') return null;
     switch (this.state) {
       case 'JUMP':
         // y crece hacia abajo: subiendo vy < 0
-        return { row: EXTRA_ROWS.jump, frame: this.vy < -4 ? 1 : this.vy > 4 ? 3 : 2 };
+        return { row: EXTRA_ROWS.jump, frame: jumpFrame(this.animTimer, -this.vy, this.groundY - this.y) };
       case 'BLOCK':
-        return { row: EXTRA_ROWS.defense, frame: this.hitFlashTimer > 0 ? 1 : 0 };
+        return { row: EXTRA_ROWS.defense, frame: this.hitFlashTimer > 0 || this.guardStun > 0 ? 1 : 0 };
       case 'CROUCH':
         return { row: EXTRA_ROWS.defense, frame: 2 };
+      case 'IDLE':
+        return this.landingPoseTicks > 0 ? { row: EXTRA_ROWS.jump, frame: 3 } : null;
       case 'SPECIAL':
-        return { row: EXTRA_ROWS.super, frame: Math.min(3, Math.floor((this.animTimer / 54) * 4)) };
+        return { row: EXTRA_ROWS.super, frame: castFrame(this.animTimer, versusSuperRelease(this.deity.id), 54) };
       case 'ATTACK_HEAVY':
-        return { row: EXTRA_ROWS.finish, frame: this.animTimer < 9 ? 0 : 1 };
+        return { row: EXTRA_ROWS.finish, frame: heavyFrame(this.animTimer, this.heavyImpactTick) };
       case 'VICTORY':
-        return { row: EXTRA_ROWS.finish, frame: 2 + (Math.floor(performance.now() / 500) % 2) };
+        return !this.isGrounded ? { row: EXTRA_ROWS.jump, frame: jumpFrame(3, -this.vy, this.groundY - this.y) } : { row: EXTRA_ROWS.finish, frame: victoryFrame(this.animTimer) };
       default:
         return null;
     }
@@ -1353,6 +1366,14 @@ export class CanvasFighter extends Fighter {
       return;
     }
 
+    if (this.state === 'HITSTUN') {
+      const lying = this.spriteConfig.lyingFrame ?? anim.frames - 1;
+      this.frameIndex = !this.fallingHit ? 0
+        : this.isGrounded && this.hitstunTimer <= 6 && this.spriteConfig.getupFrame !== undefined ? this.spriteConfig.getupFrame
+        : Math.min(lying, Math.floor(this.animTimer / anim.frameDuration));
+      return;
+    }
+
     // La fila de golpe se detiene en el cuadro tendido (algunas hojas traen después uno levantándose)
     const lastFrame = this.currentAnimation === 'hit' ? (this.spriteConfig.lyingFrame ?? anim.frames - 1) : anim.frames - 1;
     this.frameTick++;
@@ -1368,19 +1389,19 @@ export class CanvasFighter extends Fighter {
   }
 
   // Copia el cuadro actual teñido de blanco para el flash de impacto
-  private getFlashFrame(sx: number, sy: number): HTMLCanvasElement | null {
-    const { frameWidth, frameHeight } = this.spriteConfig;
+  private getFlashFrame(sx: number, sy: number, image: HTMLImageElement, cfg: SpriteSheetConfig): HTMLCanvasElement | null {
+    const { frameWidth, frameHeight } = cfg;
     if (!this.flashCanvas) {
       this.flashCanvas = document.createElement('canvas');
-      this.flashCanvas.width = frameWidth;
-      this.flashCanvas.height = frameHeight;
     }
+    if (this.flashCanvas.width !== frameWidth) this.flashCanvas.width = frameWidth;
+    if (this.flashCanvas.height !== frameHeight) this.flashCanvas.height = frameHeight;
     const fctx = this.flashCanvas.getContext('2d');
     if (!fctx) return null;
 
     fctx.globalCompositeOperation = 'source-over';
     fctx.clearRect(0, 0, frameWidth, frameHeight);
-    fctx.drawImage(this.sheet.image, sx, sy, frameWidth, frameHeight, 0, 0, frameWidth, frameHeight);
+    fctx.drawImage(image, sx, sy, frameWidth, frameHeight, 0, 0, frameWidth, frameHeight);
     fctx.globalCompositeOperation = 'source-atop';
     fctx.fillStyle = '#ffffff';
     fctx.fillRect(0, 0, frameWidth, frameHeight);
@@ -1431,7 +1452,7 @@ export class CanvasFighter extends Fighter {
     ctx.scale(this.facing, 1);
     ctx.imageSmoothingEnabled = !cfg.pixelArt;
 
-    const flashFrame = this.hitFlashTimer > 0 && !extra ? this.getFlashFrame(sx, sy) : null;
+    const flashFrame = this.hitFlashTimer > 0 ? this.getFlashFrame(sx, sy, image, cfg) : null;
     if (flashFrame) {
       ctx.drawImage(flashFrame, -drawW / 2, drawY, drawW, drawH);
     } else {
@@ -1474,6 +1495,17 @@ export class OrigenFighter extends CanvasFighter {
     this.hp = 180;
     this.displayHp = 180;
     this.aiSkill = 1;
+  }
+
+  public get heavyImpactTick() { return 8; }
+
+  protected extraPose(): { row: number; frame: number } | null {
+    const pose = super.extraPose();
+    if (pose && this.state === 'SPECIAL' && this.move) {
+      const release = this.move === 'collapse' ? COLLAPSE_WARN : 20;
+      return { row: EXTRA_ROWS.super, frame: castFrame(this.moveTimer, release, this.move === 'collapse' ? COLLAPSE_WARN + 30 : 65) };
+    }
+    return pose;
   }
 
   public damageTakenMul(): number {
@@ -1579,8 +1611,7 @@ export class OrigenFighter extends CanvasFighter {
   private hurt(opponent: Fighter, damage: number, particles: Particle[]) {
     opponent.hp = Math.max(0, opponent.hp - Math.round(damage * opponent.defMul));
     opponent.vx = (opponent.x >= this.x ? 1 : -1) * 9;
-    opponent.state = 'HITSTUN';
-    opponent.hitstunTimer = 30;
+    opponent.enterHitstun(30, true);
     opponent.hitFlashTimer = 4;
     sounds.playHitHeavy();
     spawnBloodBurst(particles, opponent.x, opponent.y - opponent.height * 0.6, opponent.x >= this.x ? 1 : -1, opponent.groundY);
@@ -2378,8 +2409,7 @@ export default function App() {
         if (guardBreak || defender.guardIntegrity <= 0) {
           defender.guardIntegrity = 55;
           defender.isBlocking = false;
-          defender.state = 'HITSTUN';
-          defender.hitstunTimer = 20;
+          defender.enterHitstun(20, false);
           popupText(defender.x, defender.y - 175, '¡GUARDIA ROTA!', '#f97316');
         }
         // Mictlantecuhtli regresa parte del golpe bloqueado
@@ -2444,8 +2474,7 @@ export default function App() {
         } else {
           defender.vx = attacker.facing * knockX;
           defender.vy = knockY;
-          defender.state = 'HITSTUN';
-          defender.hitstunTimer = hitstunTime;
+          defender.enterHitstun(hitstunTime, heavy);
         }
 
         if (attacker.deity.id === 'hades') attacker.hp = Math.min(attacker.maxHp, attacker.hp + Math.round(finalDamage * PASSIVE.lifesteal));
@@ -2661,7 +2690,7 @@ export default function App() {
 
   // La pelea espera a que bajen la arena y las hojas de los dos luchadores (el reloj no corre mientras)
   const fightLoading = () =>
-    isLoading([loadSpriteSheet(arenaRef.current.src), (p1Ref.current as CanvasFighter | null)?.sheet, (p2Ref.current as CanvasFighter | null)?.sheet]);
+    isLoading([loadSpriteSheet(arenaRef.current.src)]) || !!(p1Ref.current as CanvasFighter | null)?.loading || !!(p2Ref.current as CanvasFighter | null)?.loading;
 
   const renderFightOverlays = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
     const flash = Math.max(p1Ref.current?.screenFlash ?? 0, p2Ref.current?.screenFlash ?? 0);

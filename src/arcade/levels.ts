@@ -9,7 +9,7 @@ export type MonsterKind = 'grunt' | 'brute' | 'runner' | 'thief' | 'mini';
 // Aspecto procedural de un monstruo (se dibuja con formas hasta tener hojas de sprites propias)
 export interface MonsterSkin {
   name: string;
-  spriteId?: string; // Nombre de su hoja en public/sprites/monsters (sin extensión)
+  spriteId?: string; // Nombre de su hoja en assets/sprites (sin extensión)
   body: string;   // Color principal
   detail: string; // Color secundario (armadura, vendas, manchas)
   accent: string; // Ojos y brillos
@@ -40,11 +40,11 @@ export const MONSTER_STATS: Record<MonsterKind, MonsterStats> = {
   mini: { hp: 320, speed: 1.15, damage: 15, reach: 140, windup: 30, recover: 32, width: 110, height: 240, armor: true, score: 2500 }
 };
 
-// Hojas de monstruos ya procesadas con tools/process_sprites.py y copiadas a public/sprites/monsters.
+// Hojas de monstruos ya procesadas con tools/process_sprites.py y copiadas a assets/sprites.
 // Los datos salen de su _meta.json; los monstruos que no estén aquí se siguen dibujando por código.
 // pixelArt: hojas pequeñas que se amplían sin suavizado para no verse borrosas.
 export const MONSTER_SPRITES: Record<string, { frameWidth: number; frameHeight: number; idleHeight: number; pixelArt?: boolean }> = {
-  // Rediseñados con Susanoo como modelo de estilo (originales en art-src/monsters/<id>-v2.webp)
+  // Rediseñados con Susanoo como modelo de estilo (originales en assets/sprites/<id>-original.webp)
   hoplita: { frameWidth: 538, frameHeight: 252, idleHeight: 247.5 },
   momia: { frameWidth: 590, frameHeight: 239, idleHeight: 226 },
   minotauro: { frameWidth: 432, frameHeight: 259, idleHeight: 239 },
@@ -65,7 +65,7 @@ export const MONSTER_SPRITES: Record<string, { frameWidth: number; frameHeight: 
 };
 
 // --- BESTIAS DE MONTA (una por panteón) ---
-// Hojas 4x4 en public/sprites/beasts (quieto, correr, atacar, golpeada) con la montura vacía.
+// Hojas 4x4 en assets/sprites (quieto, correr, atacar, golpeada) con la montura vacía.
 // seat: centro de la montura medido en la hoja (px desde el eje del cuerpo y desde los pies).
 export type BeastAttack = 'fire' | 'tail' | 'pounce' | 'thunder';
 
@@ -81,7 +81,7 @@ export interface BeastDef {
   color: string;  // Color de su ataque (fuego, rayo...)
 }
 
-// Hojas rediseñadas junto a Susanoo (art-src/beasts/<id>-v2.webp): height = idleHeight × 0.73, la misma escala de los dioses.
+// Hojas rediseñadas junto a Susanoo (assets/sprites/<id>-original.webp): height = idleHeight × 0.73, la misma escala de los dioses.
 export const BEASTS: Record<Pantheon, BeastDef> = {
   Grecia: { id: 'cerbero', name: 'Cerbero', frameWidth: 474, frameHeight: 238, idleHeight: 215, height: 157, seat: { dx: -14, dy: 124 }, attack: 'fire', color: '#f97316' },
   Egipto: { id: 'cocodrilo', name: 'Cocodrilo de Sobek', frameWidth: 462, frameHeight: 211, idleHeight: 137, height: 100, seat: { dx: 10, dy: 116 }, attack: 'tail', color: '#d6a75c' },

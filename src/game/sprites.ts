@@ -1,4 +1,5 @@
 import type { DeityData } from './deities';
+import { SPRITE_ASSETS } from './spriteAssets';
 
 // ==========================================================================
 // MOTOR DE SPRITE SHEETS: LUCHADOR DIBUJADO CON ctx.drawImage()
@@ -25,7 +26,7 @@ export interface SpriteSheetConfig {
   getupFrame?: number;
 }
 
-// Plantilla común: una hoja por deidad en public/sprites/<id>.webp, una fila por animación
+// Plantilla común: una hoja por deidad en assets/sprites/<id>.webp, una fila por animación
 const DEFAULT_SPRITE_LAYOUT: Omit<SpriteSheetConfig, 'src'> = {
   frameWidth: 128,
   frameHeight: 128,
@@ -45,14 +46,14 @@ export const GRID_4X4_ANIMATIONS: SpriteSheetConfig['animations'] = {
   idle: { row: 0, frames: 4, frameDuration: 10, loop: true },
   run: { row: 1, frames: 4, frameDuration: 7, loop: true },
   attack: { row: 2, frames: 4, frameDuration: 5, loop: false },
-  // A 8 ticks por cuadro un golpe ligero (14 de hitstun) solo muestra el retroceso; los fuertes llegan al derribo
+  // Ocho ticks por cuadro para caídas; el motor mantiene el retroceso en golpes leves.
   hit: { row: 3, frames: 4, frameDuration: 8, loop: false }
 };
 
-// Ajustes por deidad. Las hojas de public/sprites se generan con tools/process_sprites.py, que deja los pies
+// Ajustes por deidad. Las hojas de assets/sprites se generan con tools/process_sprites.py, que deja los pies
 // pegados al borde inferior de cada celda (footOffset 0) y el cuerpo centrado en horizontal.
 // La fila de golpe de las hojas rediseñadas trae golpe, caída, tendido (2) y levantándose (3).
-// Las hojas rediseñadas (art-src/gods/<id>-v2.webp) ya traen a todos con el mismo cuerpo que Susanoo, así que
+// Las hojas rediseñadas (assets/sprites/<id>-original.webp) ya traen a todos con el mismo cuerpo que Susanoo, así que
 // comparten una sola escala: medir por la altura en idle encogería a los de corona o penacho alto (Osiris, Ra…).
 // 0.73 ≈ 175 px / 240 px de altura típica en idle.
 const REDESIGN_SCALE = 0.73;
@@ -70,27 +71,32 @@ export const SPRITE_SHEET_OVERRIDES: Record<string, Partial<SpriteSheetConfig>> 
   quetzalcoatl: redesigned(498, 253),
   ra: redesigned(606, 264),
   raijin: redesigned(478, 260),
-  // Hoja original (el modelo del rediseño): 175 px / altura medida en idle
-  susanoo: { frameWidth: 614, frameHeight: 277, scale: 0.64, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS },
+  susanoo: redesigned(418, 245),
   // Jefe final: mide el doble que un dios (≈350 px en idle con la escala ×1.2 de los jefes)
-  origen: { frameWidth: 376, frameHeight: 208, scale: 1.45, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
+  origen: { frameWidth: 442, frameHeight: 252, scale: 1.188, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3 },
   zeus: redesigned(672, 246)
 };
+
+// Una ubicación compartida por versus, torre, arcade, monturas y selección.
+export function spriteAssetSrc(id: string, extra = false) {
+  const file = `${id}${extra ? '-extra' : ''}.webp`;
+  return SPRITE_ASSETS[`../../assets/sprites/${file}`] ?? `${import.meta.env.BASE_URL}assets/sprites/${file}`;
+}
 
 export function getSpriteSheetConfig(deity: DeityData): SpriteSheetConfig {
   return {
     ...DEFAULT_SPRITE_LAYOUT,
-    src: `${import.meta.env.BASE_URL}sprites/${deity.id}.webp`,
+    src: spriteAssetSrc(deity.id),
     ...SPRITE_SHEET_OVERRIDES[deity.id]
   };
 }
 
-// Segunda hoja de cada dios (public/sprites/<id>-extra.webp), con los movimientos que la primera no trae:
+// Segunda hoja de cada dios (assets/sprites/<id>-extra.webp), con los movimientos que la primera no trae:
 // fila 0 salto (despegue, sube, punto alto, aterriza) · fila 1 defensa (guardia, bloqueo empujado, agachado, agachado en guardia)
 // fila 2 súper (carga → suelta) · fila 3 golpe fuerte (preparación, impacto) y pose de victoria (2 cuadros).
 // scale = la del dios × alto de pie en la primera hoja / promedio de la guardia (fila 2, cuadro 1) y la victoria
 // (fila 4, cuadro 3) en la segunda: la guardia sale más agachada y la victoria más erguida que la pose de pie.
-// Originales en art-src/gods/<id>-extra-v2.webp.
+// Originales en assets/sprites/<id>-extra-original.webp.
 export const EXTRA_ROWS = { jump: 0, defense: 1, super: 2, finish: 3 } as const;
 const EXTRA_SHEET_OVERRIDES: Record<string, Pick<SpriteSheetConfig, 'frameWidth' | 'frameHeight' | 'scale'>> = {
   zeus: { frameWidth: 346, frameHeight: 258, scale: 0.754 },
@@ -102,9 +108,10 @@ const EXTRA_SHEET_OVERRIDES: Record<string, Pick<SpriteSheetConfig, 'frameWidth'
   quetzalcoatl: { frameWidth: 410, frameHeight: 244, scale: 0.754 },
   huitzilopochtli: { frameWidth: 486, frameHeight: 252, scale: 0.779 },
   mictlantecuhtli: { frameWidth: 394, frameHeight: 251, scale: 0.721 },
-  amaterasu: { frameWidth: 470, frameHeight: 257, scale: 0.727 },
-  susanoo: { frameWidth: 464, frameHeight: 252, scale: 0.73 },
-  raijin: { frameWidth: 414, frameHeight: 246, scale: 0.754 }
+  amaterasu: { frameWidth: 446, frameHeight: 246, scale: 0.719 },
+  susanoo: { frameWidth: 424, frameHeight: 246, scale: 0.741 },
+  raijin: { frameWidth: 414, frameHeight: 246, scale: 0.754 },
+  origen: { frameWidth: 384, frameHeight: 254, scale: 1.202 }
 };
 
 export function getExtraSheetConfig(deity: DeityData): SpriteSheetConfig | null {
@@ -114,7 +121,7 @@ export function getExtraSheetConfig(deity: DeityData): SpriteSheetConfig | null 
     ...DEFAULT_SPRITE_LAYOUT,
     pixelArt: false,
     animations: GRID_4X4_ANIMATIONS,
-    src: `${import.meta.env.BASE_URL}sprites/${deity.id}-extra.webp`,
+    src: spriteAssetSrc(deity.id, true),
     ...extra
   };
 }

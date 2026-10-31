@@ -1,31 +1,120 @@
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const storage = new Map<string, string>();
 Object.assign(globalThis, {
   localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
   Image: class {
     onload: (() => void) | null = null;
+    private imageSrc = '';
     width = 2688; height = 984;
-    set src(_value: string) { this.onload?.(); }
+    set src(value: string) { this.imageSrc = value; this.onload?.(); }
+    get src() { return this.imageSrc; }
     addEventListener() {} removeEventListener() {}
   }
 });
 const { sounds } = await import('../src/game/sound');
 sounds.isMuted = true;
-const { Fighter } = await import('../src/App');
+const { Fighter, CanvasFighter, OrigenFighter } = await import('../src/App');
 const { DEITIES } = await import('../src/game/deities');
 const { ArcadeGame, Boss, Monster, Beast } = await import('../src/arcade/engine');
-const { LEVELS, BEASTS, buildWaves } = await import('../src/arcade/levels');
+const { LEVELS, BEASTS, MONSTER_SPRITES, buildWaves, ORIGEN } = await import('../src/arcade/levels');
 const { readMastery, awardMastery } = await import('../src/game/progression');
 const { MatchFlow, ROUND_INTRO_TICKS, ROUND_KO_TICKS, VERSUS_HEALTH } = await import('../src/game/match');
 const { moveRoster, ROSTER_PAGE_SIZE } = await import('../src/game/roster');
 const { LIFE_LOSS_TICKS } = await import('../src/arcade/engine');
+const { getSpriteSheetConfig, getExtraSheetConfig, loadSpriteSheet, spriteAssetSrc, EXTRA_ROWS } = await import('../src/game/sprites');
+const { victoryFrame, jumpFrame, castFrame } = await import('../src/game/spriteMotion');
 const god = (id: string) => DEITIES.find(d => d.id === id)!;
 const fighter = (id = 'zeus') => new Fighter(1, god(id), false, 300, 1);
 const opponent = fighter('hades'); opponent.x = 900;
 const step = (f: InstanceType<typeof Fighter>, n = 1) => { for (let i = 0; i < n; i++) f.update(1280, opponent, 'NORMAL', []); };
 let passed = 0;
 function test(name: string, run: () => void) { run(); passed++; console.log(`✓ ${name}`); }
+
+function webpSize(path: string): [number, number] {
+  const bytes = readFileSync(path);
+  for (let offset = 12; offset + 8 < bytes.length;) {
+    const type = bytes.toString('ascii', offset, offset + 4), data = offset + 8;
+    if (type === 'VP8X') return [bytes.readUIntLE(data + 4, 3) + 1, bytes.readUIntLE(data + 7, 3) + 1];
+    if (type === 'VP8 ') return [bytes.readUInt16LE(data + 6) & 0x3fff, bytes.readUInt16LE(data + 8) & 0x3fff];
+    if (type === 'VP8L') { const packed = bytes.readUInt32LE(data + 1); return [(packed & 0x3fff) + 1, ((packed >>> 14) & 0x3fff) + 1]; }
+    const length = bytes.readUInt32LE(offset + 4); offset = data + length + (length % 2);
+  }
+  throw new Error(`Dimensiones WebP desconocidas: ${path}`);
+}
+
+test('Las hojas principales y extra de cada dios coinciden con su cuadrícula 4×4', () => {
+  for (const deity of [...DEITIES, ORIGEN]) {
+    for (const cfg of [getSpriteSheetConfig(deity), getExtraSheetConfig(deity)]) {
+      assert.ok(cfg, `Falta la hoja extra de ${deity.id}`);
+      assert.deepEqual(webpSize(`.${cfg.src}`), [cfg.frameWidth * 4, cfg.frameHeight * 4], cfg.src);
+    }
+  }
+});
+test('El inventario compartido coincide con los personajes usados y sus originales', () => {
+  const ids = [...DEITIES, ORIGEN].flatMap(d => [d.id, `${d.id}-extra`]);
+  ids.push(...Object.keys(MONSTER_SPRITES), ...Object.values(BEASTS).map(b => b.id));
+  assert.equal(new Set(ids).size, ids.length, 'No debe haber IDs de sprite duplicados');
+  assert.deepEqual(readdirSync('assets/sprites').sort(), ids.flatMap(id => [`${id}.webp`, `${id}-original.webp`]).sort());
+  for (const [id, meta] of Object.entries(MONSTER_SPRITES)) {
+    assert.deepEqual(webpSize(`.${spriteAssetSrc(id)}`), [meta.frameWidth * 4, meta.frameHeight * 4]);
+  }
+  for (const beast of Object.values(BEASTS)) {
+    assert.deepEqual(webpSize(`.${spriteAssetSrc(beast.id)}`), [beast.frameWidth * 4, beast.frameHeight * 4]);
+  }
+});
+test('La pose fuerte coincide con el primer tick activo de cada dios', () => {
+  for (const deity of [...DEITIES, ORIGEN]) {
+    const f = new CanvasFighter(1, deity, false, 300, 1); f.executeHeavyAttack();
+    f.animTimer = Math.ceil(f.heavyImpactTick) - 1;
+    assert.equal((f as any).extraPose().frame, 0); assert.equal(f.getHitbox(), null);
+    f.animTimer++; assert.equal((f as any).extraPose().frame, 1); assert.ok(f.getHitbox());
+  }
+});
+test('Salto y aterrizaje usan los cuatro cuadros sin quedarse en pose aérea', () => {
+  assert.deepEqual([jumpFrame(1, 12, 10), jumpFrame(5, 10, 50), jumpFrame(17, 0, 100), jumpFrame(30, -8, 15)], [0, 1, 2, 3]);
+  const f = new CanvasFighter(1, god('zeus'), false, 300, 1); f.jump();
+  let ticks = 0;
+  while (!f.isGrounded && ticks++ < 90) f.update(1280, opponent, 'NORMAL', []);
+  assert.equal((f as any).extraPose().frame, 3);
+  step(f, 7); assert.equal((f as any).extraPose(), null);
+});
+test('Un golpe ligero no dibuja el cuerpo tendido; un K.O. nunca usa victoria o levantarse', () => {
+  const f = new CanvasFighter(1, god('zeus'), false, 300, 1); f.enterHitstun(17);
+  step(f, 16); assert.equal(f.frameIndex, 0);
+  f.state = 'DEFEAT'; f.animTimer = 0;
+  for (let i = 0; i < 45; i++) f.advanceFinish();
+  assert.equal((f as any).extraPose(), null); assert.equal(f.frameIndex, f.spriteConfig.lyingFrame);
+});
+test('Victoria es determinista y espera a tocar el suelo', () => {
+  assert.equal(victoryFrame(0), 2); assert.equal(victoryFrame(18), 3); assert.equal(victoryFrame(1000), 3);
+  const f = new CanvasFighter(1, god('zeus'), false, 300, 1); f.state = 'VICTORY'; f.isGrounded = false; f.y = 450; f.vy = 2;
+  assert.equal((f as any).extraPose().row, EXTRA_ROWS.jump);
+  for (let i = 0; i < 60; i++) f.advanceFinish();
+  assert.deepEqual((f as any).extraPose(), { row: EXTRA_ROWS.finish, frame: 3 });
+});
+test('Origen usa el tiempo real de sus poderes y su golpe fuerte', () => {
+  const f = new OrigenFighter(ORIGEN, 900, -1);
+  (f as any).move = 'collapse'; f.state = 'SPECIAL'; (f as any).moveTimer = 149;
+  assert.equal((f as any).extraPose().frame, 1);
+  (f as any).moveTimer = 150; assert.equal((f as any).extraPose().frame, 2);
+  assert.equal(f.heavyImpactTick, 8);
+});
+test('Cargar y soltar magia usa el cuadro de liberación al aplicar el daño', () => {
+  assert.equal(castFrame(39, 40, 80), 1); assert.equal(castFrame(40, 40, 80), 2); assert.equal(castFrame(79, 40, 80), 3);
+});
+test('Las hojas extra pendientes detienen el reloj y un fallo permite continuar con la principal', () => {
+  const g = new ArcadeGame(god('zeus'), 'NORMAL');
+  const entry = loadSpriteSheet(getExtraSheetConfig(g.hero.deity)!.src);
+  try {
+    entry.status = 'loading'; assert.equal(g.loading, true);
+    const tick = g.tick; g.step({ left:false,right:false,up:false,down:false,attack:false,jump:false,magic:false,tapLeft:false,tapRight:false }); assert.equal(g.tick, tick);
+    const f = new CanvasFighter(1, god('zeus'), false, 300, 1); assert.equal(f.loading, true);
+    entry.status = 'error'; assert.equal(g.loading, false); assert.equal(f.loading, false);
+    f.state = 'VICTORY'; assert.equal((f as any).extraPose(), null);
+  } finally { entry.status = 'ready'; }
+});
 
 test('Ataques no se cancelan con guardia ni salto', () => {
   const f = fighter(); f.executeHeavyAttack(); f.crouchOrBlock(true); f.jump();
@@ -69,6 +158,52 @@ test('Los perfiles cambian alcance y tiempo de preparación', () => {
   step(p, 6); assert.ok(p.getHitbox()!.w > a.getHitbox()!.w);
 });
 const idle = { left: false, right: false, up: false, down: false, attack: false, jump: false, magic: false, tapLeft: false, tapRight: false };
+test('Arcade celebra con la hoja extra y bloquea ataques durante los resultados', () => {
+  const g = new ArcadeGame(god('zeus'), 'NORMAL'); g.phase = 'levelClear';
+  const magic = g.hero.magic;
+  g.step({ ...idle, attack: true, magic: true, jump: true });
+  assert.equal(g.hero.state, 'victory'); assert.equal(g.hero.magic, magic);
+  assert.deepEqual((g.hero as any).extraPose(), { row: EXTRA_ROWS.finish, frame: 2 });
+  for (let i = 0; i < 30; i++) g.step(idle);
+  assert.deepEqual((g.hero as any).extraPose(), { row: EXTRA_ROWS.finish, frame: 3 });
+  assert.equal(g.hero.receiveHit({ damage: 10, knockdown: true, heavy: true, dir: 1 }), false);
+  g.phase = 'victory'; const timer = g.hero.stateTimer; g.step(idle); assert.ok(g.hero.stateTimer > timer);
+});
+test('Celebrar desmonta al héroe y no sustituye la caída de un jugador muerto', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL');
+  const beast = new Beast(BEASTS.Grecia, g.hero.x, g.hero.z);
+  g.hero.mount = beast; beast.rider = g.hero; g.hero.celebrate();
+  assert.equal(g.hero.mount, null); assert.equal(beast.rider, null);
+  const fallen = g.heroes[1]; fallen.hp = 0; fallen.setState('down'); fallen.celebrate();
+  assert.equal(fallen.state, 'down');
+});
+test('El salto aplastante y el remate de los jefes conservan las hojas de Claude', () => {
+  const boss = new Boss(ORIGEN, 900, 100, 500, 1, 900);
+  boss.setState('special'); (boss as any).currentSpecial = 'slam'; boss.stateTimer = 24; boss.y = 50; boss.vy = 10;
+  assert.equal((boss as any).extraPose().row, EXTRA_ROWS.jump);
+  boss.y = 0; boss.vy = 0; (boss as any).currentSpecial = 'collapse'; boss.stateTimer = 149;
+  assert.equal((boss as any).extraPose().frame, 1);
+  boss.stateTimer = 150; assert.equal((boss as any).extraPose().frame, 2);
+  (boss as any).comboHits = 1; boss.setState('windup');
+  assert.deepEqual((boss as any).extraPose(), { row: EXTRA_ROWS.finish, frame: 0 });
+  boss.setState('strike'); boss.stateTimer = 3;
+  assert.deepEqual((boss as any).extraPose(), { row: EXTRA_ROWS.finish, frame: 1 });
+});
+test('Las estelas guardan la hoja extra que usó el ataque', () => {
+  const g = new ArcadeGame(god('zeus'), 'NORMAL'); g.hero.setState('attack'); g.hero.comboStep = 3; g.hero.stateTimer = 8;
+  g.step(idle);
+  assert.equal(g.hero.trail[0].extra, true);
+  assert.equal(g.hero.trail[0].row, EXTRA_ROWS.finish);
+  assert.equal(g.hero.trail[0].frame, 1);
+});
+test('La carga de la hoja extra del jefe también detiene la simulación', () => {
+  const g = new ArcadeGame(god('zeus'), 'NORMAL'); g.boss = new Boss(ORIGEN, 900, 100, 500, 1, 900);
+  const entry = loadSpriteSheet(getExtraSheetConfig(ORIGEN)!.src);
+  try {
+    entry.status = 'loading'; assert.equal(g.boss.loading, true); assert.equal(g.loading, true);
+    const tick = g.tick; g.step(idle); assert.equal(g.tick, tick);
+  } finally { entry.status = 'ready'; }
+});
 test('Versus requiere dos rondas y preserva el marcador entre ellas', () => {
   const flow = new MatchFlow();
   assert.ok(VERSUS_HEALTH > 100);
