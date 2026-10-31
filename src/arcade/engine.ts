@@ -1848,7 +1848,7 @@ type Phase = 'play' | 'bossIntro' | 'boss' | 'levelClear' | 'gameOver' | 'finalO
 const CONTINUE_TICKS = 600;    // Cuenta regresiva de 10 s para continuar
 const COMBO_WINDOW = 180;      // Sin conectar un golpe en 3 s, el combo se pierde
 const RESULTS_TICKS = 600;     // Pantalla de resultados de cada nivel (se salta con ataque)
-const PROP_COUNT: Partial<Record<string, number>> = { Grecia: 6, Egipto: 6 }; // Objetos de primer plano por reino
+const PROP_COUNT: Partial<Record<string, number>> = { Grecia: 6, Egipto: 6, 'México': 6, 'Japón': 6 }; // Objetos de primer plano por reino
 const PROP_SLUG: Record<string, string> = { Grecia: 'grecia', Egipto: 'egipto', 'México': 'mexico', 'Japón': 'japon' };
 const RECORDS_KEY = 'mythic-clash-records';
 

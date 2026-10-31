@@ -57,7 +57,7 @@ public/
   portraits/*.webp             Medallones (12 dioses + Origen), 256x256 con fondo transparente
   arenas/*.webp                Arenas del versus
   backgrounds/*.webp           Fondos y suelos del arcade + Telar del Cosmos
-  props/<reino>-N.webp         Objetos de primer plano del arcade (grecia y egipto)
+  props/<reino>-N.webp         Objetos de primer plano del arcade (6 por reino: grecia, egipto, mexico, japon)
 art-src/                       Imágenes originales tal como salieron de Gemini/Grok (no se publican)
 tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales con los pies alineados
 ```
@@ -89,7 +89,7 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
   - **Resultados por nivel** con bonos de tiempo, sin morir y combo, más calificación **S/A/B/C** (`levelRank`).
   - **Récord por dios** en localStorage (`mythic-clash-records`).
 - **¿CONTINUAR?** con cuenta regresiva de 10 s y botón tocable. Continuar cuesta la mitad de los puntos.
-- **Ambiente animado por reino** (hojas, arena, brasas, pétalos, polvo de estrellas) y **objetos de primer plano con parallax**, que por ahora solo hay en Grecia y Egipto.
+- **Ambiente animado por reino** (hojas, arena, brasas, pétalos, polvo de estrellas) y **objetos de primer plano con parallax**: 6 por reino en los 4 reinos.
 
 ### Celular
 - Pantallas adaptables en vertical y horizontal. La variante de Tailwind `short:` (definida en `index.css`) aplica a pantallas de menos de 500 px de alto, o sea el celular en horizontal.
@@ -112,7 +112,7 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
    - **Dios:** `SPRITE_SHEET_OVERRIDES`, con `scale` ≈ (alto deseado en pantalla) / `idleHeight`.
    - **Segunda hoja:** `EXTRA_SHEET_OVERRIDES`, con `scale` = escala del dios × (alto de pie en la 1.ª hoja / alto de la guardia de pie en la 2.ª, fila 2 cuadro 1).
    - **Monstruo:** `MONSTER_SPRITES` en `levels.ts`.
-5. **Objetos de primer plano:** van sobre fondo verde (#00FF00). Se recortan por figura conectada (no por columnas, porque se pegan), se quita el halo verde y se guardan como `public/props/<reino>-N.webp`. Después se agrega el reino a `PROP_COUNT` en `engine.ts`. No hay scipy instalado: el recorte se hizo con un BFS sobre una rejilla de 4 px.
+5. **Objetos de primer plano:** van sobre fondo verde (#00FF00), 6 en fila. Se recortan con `python tools/cut_props.py art-src/props/<reino>-v2.webp public/props/<reino> 0.56` (por figura conectada, une chispas y pétalos sueltos al objeto más cercano, quita el halo verde y escala para que el más alto mida ~515 px). Después se agrega el reino a `PROP_COUNT` en `engine.ts`.
 6. Para que el usuario pase imágenes en alta, debe **descargarlas con el botón de Gemini/Grok**. Si las copia y pega se achican a 1024 px.
 
 ### Herramientas en esta compu
@@ -164,18 +164,15 @@ Plain solid pure black background. No text, no labels, no numbers, no grid lines
    - **Amaterasu:** destello del espejo sagrado.
    - **Susanoo:** ráfaga de cortes de viento.
    - **Raijin:** ondas eléctricas de los tambores.
-2. **Objetos de primer plano de México y Japón** (Grok, fondo verde, 6 objetos en fila). Los prompts ya se le dieron al usuario:
-   - **México:** cabeza de serpiente de piedra, helecho, pilar con grabados aztecas, brasero, cactus y agave.
-   - **Japón:** linterna de piedra, pilar de torii, rama de cerezo, bambú, farol de papel y zorro de piedra.
-3. **Música:** hoy solo hay sonidos sintetizados. Faltan una pista por reino, una de menú, una de jefe y una de Origen, de OpenGameArt o Pixabay Music (gratis y libres). Suno gratis no deja descargar.
-4. **Variedad en el arcade:** objetos que se rompen (vasijas y estatuas que sueltan comida, magia o puntos) y trampas por reino (rayos, arenas movedizas, lava, viento).
-5. **Fondos del arcade en capas** para un parallax real. Hoy cada fondo es una sola imagen.
-6. **Lo que hace volver a jugar:** desbloquear dioses, logros, aspectos alternos de colores y reto diario.
-7. **Ajustes pendientes de probar jugando:**
+2. **Música:** hoy solo hay sonidos sintetizados. Faltan una pista por reino, una de menú, una de jefe y una de Origen, de OpenGameArt o Pixabay Music (gratis y libres). Suno gratis no deja descargar.
+3. **Variedad en el arcade:** objetos que se rompen (vasijas y estatuas que sueltan comida, magia o puntos) y trampas por reino (rayos, arenas movedizas, lava, viento).
+4. **Fondos del arcade en capas** para un parallax real. Hoy cada fondo es una sola imagen.
+5. **Lo que hace volver a jugar:** desbloquear dioses, logros, aspectos alternos de colores y reto diario.
+6. **Ajustes pendientes de probar jugando:**
    - Dificultad de Origen (en arcade y torre).
    - Dureza de los mini-jefes.
    - Que el joystick se sienta bien en un celular real.
-8. **Detalles chicos:**
+7. **Detalles chicos:**
    - Las poses de agachado de la segunda hoja no se usan (el juego no distingue entre bloquear de pie y agachado).
    - `tools/process_sprites.py` guarda PNG, que luego hay que pasar a WebP a mano.
    - Los textos de ayuda que mencionan J/K/L no cambian si el jugador reasigna las teclas.
