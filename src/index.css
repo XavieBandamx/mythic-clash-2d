@@ -18,6 +18,140 @@
   font-family: 'Cinzel', serif;
 }
 
+/* Pantalla de título: los mismos personajes y la misma identidad de la selección. */
+.title-screen { position:absolute; inset:0; z-index:20; overflow:hidden; display:flex; flex-direction:column; padding:80px 5vw 18px; gap:18px; background:#080e18; }
+.title-backdrop { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.12; filter:grayscale(.7); mask-image:linear-gradient(90deg,transparent,#000 80%); pointer-events:none; }
+.title-screen:after { content:''; position:absolute; inset:0; pointer-events:none; background:linear-gradient(90deg,#080e18 0%,#080e18ba 40%,transparent 78%),linear-gradient(0deg,#080e18 0%,transparent 45%); }
+.title-grain { position:absolute; inset:0; pointer-events:none; background:repeating-linear-gradient(0deg,transparent,transparent 3px,#89b9e504 4px); z-index:1; }
+.title-layout { position:relative; z-index:2; flex:1; min-height:0; display:grid; grid-template-columns:minmax(330px,.85fr) minmax(0,1.3fr); grid-template-rows:auto minmax(0,1fr); gap:24px 4vw; max-width:1500px; width:100%; margin:auto; }
+.title-copy { grid-column:1; padding-top:8px; }
+.title-eyebrow { display:flex; gap:10px; align-items:center; font-size:9px; font-weight:600; letter-spacing:3px; color:#9fb4c9; }
+.title-eyebrow i { width:18px; height:2px; background:#72c6ff; }
+.title-copy h1 { font-size:clamp(62px,7.6vw,116px); font-weight:950; font-style:italic; letter-spacing:-.065em; line-height:.84; margin:19px 0 15px; color:#f0f5fa; filter:drop-shadow(0 7px 20px #0004); }
+.title-copy h1>span { display:block; }
+.title-copy h1>span:nth-child(2) { color:#86caff; }
+.title-copy h1 small { display:inline-block; font-size:20px; font-style:normal; letter-spacing:-1px; margin-left:18px; color:#d0e8f9; padding:5px 7px; border:1px solid #8dc9ee66; vertical-align:middle; transform:translateY(-10px); }
+.title-copy>p { font-size:12px; color:#92a7bd; letter-spacing:1px; }
+.title-menu { grid-column:1; grid-row:2; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:6px; max-width:460px; }
+.title-menu-heading { display:flex; align-items:center; gap:18px; font-size:8px; letter-spacing:2px; color:#637e97; margin-bottom:5px; }
+.title-menu-heading i { flex:1; height:1px; background:#69839b25; }
+.title-mode { display:flex; flex-shrink:0; align-items:center; gap:12px; width:100%; min-height:46px; padding:10px 14px; position:relative; text-align:left; border:1px solid #607b951a; background:#14202e80; color:#bacadc; transition:background .15s,border-color .15s; cursor:pointer; }
+.title-mode-index { width:15px; font-size:9px; color:#5a738b; }
+.title-mode-icon { flex-shrink:0; color:#7895af; }
+.title-mode strong { flex:1; font-size:13px; font-weight:650; }
+.title-mode-tag { font-size:7px; letter-spacing:1px; color:#66849e; white-space:nowrap; }
+.title-mode-arrow { flex-shrink:0; opacity:0; color:#c9eaff; }
+.title-mode[data-active=true] { border-color:#7dcaff8f; background:linear-gradient(90deg,#28527399,#19354a66); color:#f2f8ff; box-shadow:inset 3px 0 #8ed4ff; }
+.title-mode[data-active=true] .title-mode-icon { color:#a2dcff; }
+.title-mode[data-active=true] .title-mode-index { color:#9ec8e4; }
+.title-mode[data-active=true] .title-mode-arrow { opacity:1; }
+.title-mode:hover { border-color:#91bfdf77; }
+.title-settings { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+.title-settings button { display:flex; align-items:center; gap:8px; min-width:0; padding:9px 4px; text-align:left; color:#7f97ac; border-top:1px solid #61798c3b; font-size:10px; cursor:pointer; }
+.title-settings b { margin-left:auto; font-size:9px; color:#c0d6e7; font-weight:500; }
+.title-settings button[data-active=true] { color:#d2efff; border-color:#8acfff; }
+.title-showcase { position:relative; grid-column:2; grid-row:1 / 3; min-width:0; min-height:0; }
+.title-halo { position:absolute; width:90%; aspect-ratio:1; left:5%; top:0; border-radius:50%; border:1px solid #91c7e415; background:radial-gradient(circle,#20446244,transparent 68%); }
+.title-halo:after { content:''; position:absolute; inset:13%; border-radius:50%; border:1px solid #91c7e40b; }
+.title-slash { position:absolute; top:3%; width:38%; height:75%; transform:skewX(-19deg); border:1px solid #aacdf810; pointer-events:none; }
+.title-slash-blue { left:8%; background:linear-gradient(0deg,transparent,#4f8ab027,transparent); }
+.title-slash-red { right:8%; top:10%; background:linear-gradient(0deg,transparent,#b65d7220,transparent); }
+.title-stage-caption { position:absolute; top:6%; right:0; color:#6e829477; font-size:8px; letter-spacing:2px; writing-mode:vertical-rl; }
+.title-fighters { position:absolute; inset:-16% -15% 14% -15%; animation:title-appear .28s ease-out; pointer-events:none; }
+.title-fighters canvas { width:100%; height:100%; object-fit:contain; filter:drop-shadow(0 12px 14px #0007); }
+.title-stage-floor { position:absolute; width:95%; left:2%; bottom:18%; height:1px; background:linear-gradient(90deg,transparent,#6b9cc844,transparent); }
+.title-feature { position:absolute; bottom:2%; left:9%; right:4%; border-left:2px solid #65b3e56b; padding-left:17px; }
+.title-feature>span { font-size:8px; font-weight:600; color:#7cb7db; letter-spacing:3px; }
+.title-feature h2 { font-size:clamp(18px,2vw,27px); font-style:italic; font-weight:800; color:#dce9f4; margin:5px 0 6px; }
+.title-feature p { font-size:11px; color:#8ca5bb; line-height:1.6; max-width:350px; }
+.title-footer { position:relative; z-index:2; display:flex; align-items:center; justify-content:space-between; color:#5c7892; border-top:1px solid #8fb6d51b; padding-top:12px; flex-shrink:0; font-size:8px; letter-spacing:2px; }
+.title-footer>span,.title-footer>div { display:flex; align-items:center; gap:9px; }
+.title-footer b { color:#9abbd4; font-weight:500; font-size:10px; }
+.title-footer i { display:inline-block; width:16px; height:1px; background:#526d8255; margin:0 4px; }
+.title-footer>div { font-size:9px; letter-spacing:0; color:#69859d; }
+.title-footer kbd { color:#b5cbde; font-size:9px; font-family:inherit; border:1px solid #55748e44; padding:3px 6px; }
+.title-screen button:focus-visible { outline:2px solid #e4f4ff; outline-offset:3px; }
+@keyframes title-appear { from { opacity:.25; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@media (max-width:760px) and (min-height:501px) {
+ .title-screen { padding:62px 18px 12px; gap:10px; }
+ .title-layout { grid-template-columns:1fr; grid-template-rows:auto minmax(70px,1fr) auto; gap:8px; }
+ .title-copy { grid-column:1; grid-row:1; padding:0; }
+ .title-eyebrow { font-size:7px; letter-spacing:2px; gap:7px; }
+ .title-copy h1 { display:flex; align-items:center; gap:8px; font-size:clamp(34px,9vw,58px); margin:10px 0 8px; line-height:1; }
+ .title-copy h1>span { display:inline; white-space:nowrap; }
+ .title-copy h1 small { font-size:10px; margin-left:7px; padding:3px; transform:translateY(-3px); }
+ .title-copy>p { font-size:10px; letter-spacing:.3px; }
+ .title-menu { grid-column:1; grid-row:3; max-width:none; gap:5px; }
+ .title-menu-heading { font-size:7px; margin-bottom:3px; }
+ .title-mode { min-height:41px; padding:8px 10px; gap:9px; }
+ .title-mode strong { font-size:12px; }
+ .title-mode-tag { font-size:6px; }
+ .title-mode-index { font-size:8px; }
+ .title-settings { margin-top:6px; gap:14px; }
+ .title-settings button { font-size:10px; padding:8px 2px; }
+ .title-showcase { grid-column:1; grid-row:2; }
+ .title-halo { width:65%; left:17%; top:-20%; }
+ .title-fighters { inset:-35% -12% 4%; }
+ .title-stage-caption { display:none; }
+ .title-slash { top:-5%; height:90%; }
+ .title-stage-floor { bottom:12%; }
+ .title-feature { bottom:0; right:0; left:auto; border:0; padding:0; text-align:right; max-width:70%; }
+ .title-feature>span { font-size:6px; letter-spacing:2px; }
+ .title-feature h2 { font-size:13px; margin:3px 0 0; }
+ .title-feature p { display:none; }
+ .title-footer { padding-top:8px; font-size:7px; letter-spacing:1px; }
+ .title-footer>div { font-size:8px; }
+ .title-footer kbd { font-size:7px; padding:2px 3px; }
+ .title-footer>div>i { display:none; }
+ .title-footer>div { gap:4px; }
+}
+@media (max-width:760px) and (max-height:650px) and (min-height:501px) {
+ .title-screen { padding-top:56px; gap:7px; }
+ .title-mode { min-height:35px; padding:6px 9px; }
+ .title-mode strong { font-size:11px; }
+ .title-copy h1 { font-size:33px; margin:8px 0 6px; }
+ .title-feature h2 { font-size:11px; }
+ .title-settings button { padding:6px 2px; }
+ .title-footer>div { font-size:7px; }
+ .title-footer>span { gap:4px; }
+}
+@media (max-height:500px) {
+ .title-screen { padding:48px 24px 8px; gap:8px; }
+ .title-layout { grid-template-columns:minmax(230px,.95fr) minmax(0,1fr); gap:8px 28px; }
+ .title-copy { padding:0; }
+ .title-copy h1 { font-size:51px; margin:10px 0 0; }
+ .title-copy h1 small { font-size:12px; margin-left:10px; padding:3px 5px; transform:translateY(-5px); }
+ .title-copy>p,.title-menu-heading { display:none; }
+ .title-eyebrow { font-size:7px; letter-spacing:2px; }
+ .title-menu { gap:3px; justify-content:center; }
+ .title-mode { min-height:27px; padding:4px 9px; gap:8px; }
+ .title-mode strong { font-size:10px; }
+ .title-mode-icon { width:13px; height:13px; }
+ .title-mode-index { font-size:7px; width:12px; }
+ .title-mode-tag { display:none; }
+ .title-mode-arrow { width:13px; height:13px; }
+ .title-settings { margin-top:3px; gap:12px; }
+ .title-settings button { font-size:9px; padding:5px 0; gap:5px; }
+ .title-settings b { font-size:8px; }
+ .title-feature { bottom:2%; left:1%; padding-left:10px; }
+ .title-feature h2 { font-size:15px; }
+ .title-feature>span { font-size:7px; }
+ .title-feature p,.title-stage-caption { display:none; }
+ .title-fighters { inset:-17% -18% 5%; }
+ .title-stage-floor { bottom:16%; }
+ .title-footer { padding-top:6px; font-size:7px; }
+ .title-footer>div { font-size:8px; }
+ .title-footer kbd { padding:1px 4px; font-size:8px; }
+}
+@media (max-height:350px) {
+ .title-screen { padding-top:43px; gap:5px; }
+ .title-layout { gap:5px 20px; }
+ .title-copy h1 { font-size:39px; margin-top:7px; }
+ .title-mode { min-height:23px; padding:3px 8px; }
+ .title-settings button { padding:3px 0; }
+}
+@media (prefers-reduced-motion:reduce) { .title-fighters { animation:none; } .title-mode { transition:none; } }
+
 /* Selector por casillas: páginas de 18 sin depender de reinos ni del número de dioses. */
 .fighter-select { position:absolute; inset:0; z-index:20; display:flex; flex-direction:column; gap:12px; padding:72px max(20px,5vw) 16px; overflow:hidden; background:radial-gradient(ellipse at 15% 30%,#173046 0,transparent 50%),radial-gradient(ellipse at 85% 30%,#382126 0,transparent 50%),#080d16; }
 .select-heading,.select-footer,.select-roster-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-shrink:0; }

@@ -4,9 +4,10 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Volume2, VolumeX, Eye, RefreshCw, Home, Swords, Gamepad2, Music, Flame } from 'lucide-react';
+import { Volume2, VolumeX, Eye, RefreshCw, Home, Swords, Gamepad2, Music } from 'lucide-react';
 import ArcadeMode from './arcade/ArcadeMode';
 import CharacterSelect from './CharacterSelect';
+import MainMenu from './MainMenu';
 import { moveRoster } from './game/roster';
 import { MatchFlow, VERSUS_HEALTH, drawMatchFlow } from './game/match';
 import type { RoundWinner } from './game/match';
@@ -1809,6 +1810,10 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       sounds.init();
 
+      // Enter y espacio activan normalmente los controles de la barra superior.
+      if (gameState === 'MAIN_MENU' && (e.key === 'Enter' || e.code === 'Space') &&
+        e.target instanceof HTMLElement && e.target.closest('header button')) return;
+
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault();
       }
@@ -1834,6 +1839,7 @@ export default function App() {
             return next;
           });
         } else if (e.key === 'j' || e.key === 'J' || e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
           chooseMenuItem(menuItems[menuIndex]);
         }
       }
@@ -2912,12 +2918,12 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="hidden sm:flex short:hidden items-center gap-1.5 px-2.5 py-1 text-xs text-slate-400 bg-white/5 rounded border border-white/10">
+          {gameState !== 'MAIN_MENU' && <div className="hidden sm:flex short:hidden items-center gap-1.5 px-2.5 py-1 text-xs text-slate-400 bg-white/5 rounded border border-white/10">
             <Music className="w-3.5 h-3.5 text-amber-400" />
             <span>{gameState === 'FIGHT' ? 'BGM: Furia Divina' : 'BGM: Ecos del Olimpo'}</span>
-          </div>
+          </div>}
 
-          <button
+          {gameState !== 'MAIN_MENU' && <button
             onClick={() => setShowHitboxes(prev => !prev)}
             className={`hidden sm:flex short:hidden items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border transition-colors ${
               showHitboxes
@@ -2928,7 +2934,7 @@ export default function App() {
           >
             <Eye className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Hitboxes (B)</span>
-          </button>
+          </button>}
 
           <button
             onClick={() => setShowTouchControls(prev => !prev)}
@@ -2973,64 +2979,11 @@ export default function App() {
           className="w-full h-full max-w-[1400px] max-h-[787px] object-contain portrait:object-top shadow-2xl bg-black"
         />
 
-        {/* --- ESCENA 1: MENÚ PRINCIPAL --- */}
-        {gameState === 'MAIN_MENU' && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/75 backdrop-blur-sm p-6 text-center">
-            <div className="mb-8 short:mb-3">
-              <span className="text-amber-400 text-xs font-semibold tracking-widest uppercase mb-2 flex short:hidden items-center justify-center gap-2">
-                <Flame className="w-4 h-4" /> Torneo Arcano de Divinidades <Flame className="w-4 h-4" />
-              </span>
-              <h1 className="font-cinzel text-5xl md:text-7xl short:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-amber-200 via-amber-400 to-amber-600 tracking-wider drop-shadow-md">
-                MYTHIC CLASH 2D
-              </h1>
-              <p className="text-slate-400 text-sm mt-3 max-w-lg mx-auto short:hidden">
-                Combate con los dioses supremos de Grecia, Egipto, México y Japón. Retratos ilustrados, físicas de impacto y poderes celestiales.
-              </p>
-            </div>
-
-            <div className="w-full max-w-md short:max-w-3xl grid grid-cols-1 short:grid-cols-2 gap-3 short:gap-2">
-              {menuItems.map((item, idx) => {
-                const isSelected = menuIndex === idx;
-                return (
-                  <button
-                    key={item.label}
-                    onMouseEnter={() => {
-                      setMainMenuSelected(idx);
-                      sounds.playNav();
-                    }}
-                    onClick={() => chooseMenuItem(item)}
-                    className={`w-full py-3.5 short:py-2 px-6 rounded-lg text-sm font-semibold transition-all flex items-center justify-between border ${
-                      isSelected
-                        ? 'bg-gradient-to-r from-amber-600/30 to-amber-500/20 border-amber-400 text-amber-200 shadow-lg shadow-amber-900/30 translate-x-1'
-                        : 'bg-slate-900/60 border-slate-700/60 text-slate-300 hover:border-slate-500'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-amber-400 animate-pulse' : 'bg-transparent'}`} />
-                      {item.label}
-                    </span>
-                    <span className="hidden sm:inline text-xs text-amber-400/70 font-mono">
-                      {isSelected && !showTouchControls ? '[ENTER / J]' : ''}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-8 p-4 rounded-lg bg-black/40 border border-white/10 text-xs text-slate-400 max-w-xl text-left hidden sm:grid short:hidden grid-cols-2 gap-4">
-              <div>
-                <span className="text-amber-300 font-semibold block mb-1">🎮 Jugador 1:</span>
-                <div>Mover: <b className="text-slate-200">A / D</b> · Saltar: <b className="text-slate-200">W</b> · Bloquear: <b className="text-slate-200">S</b></div>
-                <div>Golpe: <b className="text-slate-200">J</b> · Fuerte (mantén y suelta): <b className="text-slate-200">K</b> · <span className="text-amber-300 font-bold">Super: L</span></div>
-              </div>
-              <div>
-                <span className="text-amber-300 font-semibold block mb-1">⚔️ Jugador 2 / IA:</span>
-                <div>Mover: <b className="text-slate-200">← →</b> · Saltar: <b className="text-slate-200">↑</b> · Bloquear: <b className="text-slate-200">↓</b></div>
-                <div>Golpe: <b className="text-slate-200">U</b> · Fuerte (mantén y suelta): <b className="text-slate-200">I</b> · <span className="text-amber-300 font-bold">Super: O</span></div>
-              </div>
-            </div>
-          </div>
-        )}
+        {gameState === 'MAIN_MENU' && <MainMenu
+          items={menuItems} selected={menuIndex} difficulty={difficulty} touch={showTouchControls}
+          highlight={index => { if (index !== menuIndex) { setMainMenuSelected(index); sounds.playNav(); } }}
+          choose={chooseMenuItem}
+        />}
 
         {gameState === 'CONTROLS_MENU' && <ControlsMenu onBack={() => setGameState('MAIN_MENU')} />}
 
