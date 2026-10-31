@@ -22,7 +22,8 @@ Juego de peleas 2D en navegador (React + Canvas) con dioses de **Grecia, Egipto,
 - **No quiere letreros flotantes de reacción** sobre los jefes ("¡BLOQUEA!", "¡CASTIGO!", "¡SE ZAFA!", "ORIGEN APRENDE…"): se quitaron por cursis. Sí se quedan los carteles de juego (nivel, jefe, mini-jefe, resultados).
 - **No le gustó pixelear ni homologar el tamaño del pixel** de los sprites ("se ven horribles"). Para mejorar arte se piden versiones en alta resolución a Gemini.
 - Lo juega y lo enseña **en celular** (Brave/Android), en vertical y en horizontal. Todo cambio de pantalla debe probarse en tamaño celular y **sin scroll** en las pantallas principales.
-- Genera el arte él mismo. Las hojas de personajes las hace en **Gemini Pro**; los fondos y objetos, en **Grok**. ChatGPT ya no tiene créditos. Claude no genera imágenes: hay que darle prompts completos, listos para copiar.
+- Genera el arte él mismo. Desde el rediseño usa **ChatGPT** (de pago) para hojas de personajes, bestias, monstruos y medallones; antes usaba **Gemini Pro**. Los fondos y objetos los hace en **Grok**. Claude no genera imágenes: hay que darle **prompts completos, uno por personaje, listos para copiar** (no plantillas con huecos que llenar).
+- Pega las imágenes en el chat; llegan a 1536x1024 (hojas) o 1254x1254 (medallones), igual que si las descargara.
 
 ## Estructura
 
@@ -53,7 +54,7 @@ public/
   sprites/<dios>-extra.webp    Segunda hoja (ninguna por ahora, se rehacen tras el rediseño)
   sprites/monsters/*.webp      13 monstruos + 4 mini-jefes
   sprites/beasts/*.webp        4 bestias montables
-  portraits/*.webp             Medallones (12 dioses + Origen)
+  portraits/*.webp             Medallones (12 dioses + Origen), 256x256 con fondo transparente
   arenas/*.webp                Arenas del versus
   backgrounds/*.webp           Fondos y suelos del arcade + Telar del Cosmos
   props/<reino>-N.webp         Objetos de primer plano del arcade (grecia y egipto)
@@ -77,6 +78,7 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
 - 12 dioses, cada uno con un **estilo** (Poder, Velocidad, Guardián, Alcance), una **pasiva única** (rayo de Zeus, quemadura de Ra, esquiva de Anubis, renacer de Osiris, doble salto de Quetzalcóatl…) y un **súper propio** en versus.
 - Las hojas principales están en **alta resolución** (~250–300 px de alto) y se escalan hacia abajo en `SPRITE_SHEET_OVERRIDES` (`sprites.ts`).
 - **Rediseño:** las hojas principales de 11 dioses se rehicieron en ChatGPT con **Susanoo como modelo** de altura, complexión y estilo (mismo tamaño en los 16 cuadros, de pie sin auras ni nubes). Los originales están en `art-src/gods/<dios>-v2.webp` (Susanoo conserva su hoja). Todas comparten una sola escala (`REDESIGN_SCALE` en `sprites.ts`), porque medir por la altura en idle encoge a los de corona o penacho alto.
+- Con el mismo modelo se rehicieron también las **4 bestias**, los **17 monstruos y mini-jefes** y los **13 medallones** (originales en `art-src/beasts`, `art-src/monsters` y `art-src/portraits`, con sufijo `-v2`).
 - **Segunda hoja** (filas: salto, defensa, súper, golpe fuerte + victoria): **por ahora ningún dios la tiene**. Las de Zeus, Poseidón y Hades se quitaron porque ya no combinan con el rediseño; se harán las de los 12 a partir de las hojas nuevas. El código sigue listo (`EXTRA_SHEET_OVERRIDES`): en versus se usa para salto, bloqueo, súper, golpe fuerte y victoria; en arcade, para salto, magia, remate del combo y embestida. Sin ella, el dios usa la hoja principal.
 
 ### Arcade
@@ -113,7 +115,15 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
 5. **Objetos de primer plano:** van sobre fondo verde (#00FF00). Se recortan por figura conectada (no por columnas, porque se pegan), se quita el halo verde y se guardan como `public/props/<reino>-N.webp`. Después se agrega el reino a `PROP_COUNT` en `engine.ts`. No hay scipy instalado: el recorte se hizo con un BFS sobre una rejilla de 4 px.
 6. Para que el usuario pase imágenes en alta, debe **descargarlas con el botón de Gemini/Grok**. Si las copia y pega se achican a 1024 px.
 
+### Herramientas en esta compu
+- Python 3.13 está en `%LOCALAPPDATA%\Programs\Python\Python313\python.exe` (con numpy y Pillow). En Git Bash: `"$LOCALAPPDATA/Programs/Python/Python313/python.exe"`.
+- Si `process_sprites.py` dice "no se encontraron 3 huecos entre cuadros", hay cuadros pegados (lanzas, garrotes, efectos). Se borra una columna de 3 px en el punto más delgado cerca de x = 384, 768 o 1152 de esa fila y se vuelve a procesar. Si un arma se mete en el cuadro vecino, se borra solo la punta.
+- **Medallones:** se recorta el círculo (caja de lo que no es negro), se pone máscara circular y se guarda a 256x256 WebP en `public/portraits/`.
+- **Bestias:** `height` en `BEASTS` (`levels.ts`) = `idleHeight` × 0.73 (la escala de los dioses). `seat` es el punto de la silla en px de hoja desde el centro y desde los pies; se ajusta montando a un dios y viendo que se siente en la silla.
+
 ### Prompts que sí funcionaron
+- **Rediseño con modelo (ChatGPT):** adjuntar primero la hoja a corregir y luego `art-src/gods/susanoo.jpg`, diciendo "MASTER REFERENCE for size, body proportions and art quality only. Do NOT draw Susanoo". Pedir mismo tamaño en los 16 cuadros, idle de pie sin auras, efectos solo en el ataque, 4x4, 1536x1024 y fondo negro.
+- **Medallones (ChatGPT):** adjuntar un medallón nuevo del mismo reino como modelo y pedir el **símbolo o animal sagrado** del dios tallado en relieve (no su cara), mismo aro dorado y mismo borde por reino (meandro griego, jeroglíficos con disco alado, escalonado azteca, olas y nubes con torii).
 - **Mejorar resolución de una hoja (Gemini Pro, chat nuevo, adjuntar la hoja):** pedir "high resolution upscale… This is an upscale, NOT a new drawing… keep the exact same 4x4 layout… copy every pose exactly… 4K… at least 250 pixels tall".
 - **Personaje nuevo con estilo de referencia (Gemini):** decir explícitamente "Use it ONLY as a reference for the art style… Do NOT draw the character from the reference". Si no, dibuja al de la referencia.
 - **Segunda hoja de un dios:** adjuntar `art-src/gods/<dios>.jpg` y usar esta plantilla, cambiando los rasgos y el súper de cada dios:
@@ -169,7 +179,6 @@ Plain solid pure black background. No text, no labels, no numbers, no grid lines
    - Las poses de agachado de la segunda hoja no se usan (el juego no distingue entre bloquear de pie y agachado).
    - `tools/process_sprites.py` guarda PNG, que luego hay que pasar a WebP a mano.
    - Los textos de ayuda que mencionan J/K/L no cambian si el jugador reasigna las teclas.
-   - Opcional: mejorar en alta los 5 monstruos de Gemini que vienen a media resolución (guerrero-jaguar, tzitzimitl, oni-menor, oni-mayor y kappa).
 
 ## Cómo probar sin jugar a mano
 

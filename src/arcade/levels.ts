@@ -44,23 +44,24 @@ export const MONSTER_STATS: Record<MonsterKind, MonsterStats> = {
 // Los datos salen de su _meta.json; los monstruos que no estén aquí se siguen dibujando por código.
 // pixelArt: hojas pequeñas que se amplían sin suavizado para no verse borrosas.
 export const MONSTER_SPRITES: Record<string, { frameWidth: number; frameHeight: number; idleHeight: number; pixelArt?: boolean }> = {
-  hoplita: { frameWidth: 460, frameHeight: 202, idleHeight: 198 },
-  momia: { frameWidth: 460, frameHeight: 200, idleHeight: 189 },
-  minotauro: { frameWidth: 398, frameHeight: 217, idleHeight: 210.5 },
-  'duende-ladron': { frameWidth: 450, frameHeight: 179, idleHeight: 158 },
-  arpia: { frameWidth: 414, frameHeight: 180, idleHeight: 155.5 },
-  'guardian-chacal': { frameWidth: 450, frameHeight: 221, idleHeight: 214.5 },
-  'sombra-set': { frameWidth: 388, frameHeight: 195, idleHeight: 190.5 },
-  'guerrero-calavera': { frameWidth: 448, frameHeight: 214, idleHeight: 210 },
-  'guerrero-jaguar': { frameWidth: 244, frameHeight: 144, idleHeight: 133 },
-  tzitzimitl: { frameWidth: 236, frameHeight: 136, idleHeight: 132 },
-  'oni-menor': { frameWidth: 220, frameHeight: 140, idleHeight: 128.5 },
-  kappa: { frameWidth: 216, frameHeight: 131, idleHeight: 127 },
-  'oni-mayor': { frameWidth: 220, frameHeight: 142, idleHeight: 128.5 },
-  ciclope: { frameWidth: 506, frameHeight: 260, idleHeight: 247 },
-  escorpion: { frameWidth: 558, frameHeight: 260, idleHeight: 244 },
-  'guerrero-aguila': { frameWidth: 528, frameHeight: 265, idleHeight: 260 },
-  'oni-gigante': { frameWidth: 498, frameHeight: 268, idleHeight: 258 }
+  // Rediseñados con Susanoo como modelo de estilo (originales en art-src/monsters/<id>-v2.webp)
+  hoplita: { frameWidth: 538, frameHeight: 252, idleHeight: 247.5 },
+  momia: { frameWidth: 590, frameHeight: 239, idleHeight: 226 },
+  minotauro: { frameWidth: 432, frameHeight: 259, idleHeight: 239 },
+  'duende-ladron': { frameWidth: 512, frameHeight: 242, idleHeight: 233.5 },
+  arpia: { frameWidth: 550, frameHeight: 237, idleHeight: 233 },
+  'guardian-chacal': { frameWidth: 470, frameHeight: 250, idleHeight: 236.5 },
+  'sombra-set': { frameWidth: 530, frameHeight: 245, idleHeight: 241 },
+  'guerrero-calavera': { frameWidth: 410, frameHeight: 260, idleHeight: 232.5 },
+  'guerrero-jaguar': { frameWidth: 620, frameHeight: 256, idleHeight: 226.5 },
+  tzitzimitl: { frameWidth: 520, frameHeight: 254, idleHeight: 250 },
+  'oni-menor': { frameWidth: 450, frameHeight: 255, idleHeight: 231 },
+  kappa: { frameWidth: 474, frameHeight: 251, idleHeight: 211 },
+  'oni-mayor': { frameWidth: 454, frameHeight: 268, idleHeight: 235 },
+  ciclope: { frameWidth: 446, frameHeight: 259, idleHeight: 243.5 },
+  escorpion: { frameWidth: 400, frameHeight: 248, idleHeight: 221 },
+  'guerrero-aguila': { frameWidth: 516, frameHeight: 256, idleHeight: 251 },
+  'oni-gigante': { frameWidth: 464, frameHeight: 272, idleHeight: 249.5 }
 };
 
 // --- BESTIAS DE MONTA (una por panteón) ---
@@ -80,11 +81,12 @@ export interface BeastDef {
   color: string;  // Color de su ataque (fuego, rayo...)
 }
 
+// Hojas rediseñadas junto a Susanoo (art-src/beasts/<id>-v2.webp): height = idleHeight × 0.73, la misma escala de los dioses.
 export const BEASTS: Record<Pantheon, BeastDef> = {
-  Grecia: { id: 'cerbero', name: 'Cerbero', frameWidth: 326, frameHeight: 225, idleHeight: 175, height: 155, seat: { dx: -8, dy: 100 }, attack: 'fire', color: '#f97316' },
-  Egipto: { id: 'cocodrilo', name: 'Cocodrilo de Sobek', frameWidth: 304, frameHeight: 159, idleHeight: 89, height: 92, seat: { dx: 10, dy: 70 }, attack: 'tail', color: '#d6a75c' },
-  México: { id: 'jaguar', name: 'Jaguar de Guerra', frameWidth: 266, frameHeight: 131, idleHeight: 110, height: 125, seat: { dx: 2, dy: 72 }, attack: 'pounce', color: '#14b8a6' },
-  Japón: { id: 'kirin', name: 'Kirin', frameWidth: 278, frameHeight: 203, idleHeight: 165.5, height: 170, seat: { dx: -2, dy: 92 }, attack: 'thunder', color: '#60a5fa' }
+  Grecia: { id: 'cerbero', name: 'Cerbero', frameWidth: 474, frameHeight: 238, idleHeight: 215, height: 157, seat: { dx: -14, dy: 124 }, attack: 'fire', color: '#f97316' },
+  Egipto: { id: 'cocodrilo', name: 'Cocodrilo de Sobek', frameWidth: 462, frameHeight: 211, idleHeight: 137, height: 100, seat: { dx: 10, dy: 116 }, attack: 'tail', color: '#d6a75c' },
+  México: { id: 'jaguar', name: 'Jaguar de Guerra', frameWidth: 516, frameHeight: 212, idleHeight: 195.5, height: 143, seat: { dx: 11, dy: 132 }, attack: 'pounce', color: '#14b8a6' },
+  Japón: { id: 'kirin', name: 'Kirin', frameWidth: 436, frameHeight: 295, idleHeight: 239.5, height: 175, seat: { dx: 20, dy: 155 }, attack: 'thunder', color: '#60a5fa' }
 };
 
 // El duende ladrón es igual en todos los niveles: suelta vasijas de magia y comida al golpearlo
