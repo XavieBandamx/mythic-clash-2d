@@ -10,6 +10,7 @@ import CharacterSelect from './CharacterSelect';
 import MainMenu from './MainMenu';
 import DifficultyMenu from './DifficultyMenu';
 import ArenaSelect from './ArenaSelect';
+import TowerMenu, { TowerEnding, TowerResult } from './TowerMenu';
 import { moveRoster } from './game/roster';
 import { MatchFlow, VERSUS_HEALTH, drawMatchFlow } from './game/match';
 import type { RoundWinner } from './game/match';
@@ -21,14 +22,14 @@ import type { DeityData } from './game/deities';
 import { sounds } from './game/sound';
 import { SIM_STEP_MS, checkAABB, spawnBloodBurst, renderParticles, updateParticles as updateParticlesList } from './game/core';
 import type { Box, Difficulty, Particle } from './game/core';
-import { drawDeityPortraitIcon, onPortraitLoad } from './game/portraits';
+import { drawDeityPortraitIcon } from './game/portraits';
 import { startGamepadBridge } from './game/gamepad';
 import { startKeyRemapper } from './game/controls';
 import ControlsMenu from './ControlsMenu';
 import TouchControls from './TouchControls';
 import { ARENAS, ORIGEN_ARENA, drawArena } from './game/arenas';
 import { ORIGEN } from './arcade/levels';
-import { TOWER_ENDINGS, buildTower, towerSkill } from './game/tower';
+import { buildTower, towerSkill } from './game/tower';
 import type { TowerRun } from './game/tower';
 import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from './game/styles';
 
@@ -44,22 +45,6 @@ import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from '.
 
 export type GameState = 'MAIN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'STAGE_SELECT' | 'TOWER_MAP' | 'TOWER_END' | 'CONTROLS_MENU' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
 export type GameMode = 'PVP' | 'PVE' | 'ARCADE' | 'ARCADE_COOP' | 'TOWER';
-
-// Medallón de un dios dibujado en canvas (se redibuja cuando carga su imagen)
-function Medallion({ deityId, size }: { deityId: string; size: number }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  useEffect(() => {
-    const ctx = canvasRef.current?.getContext('2d');
-    if (!ctx) return;
-    const draw = () => {
-      ctx.clearRect(0, 0, size, size);
-      drawDeityPortraitIcon(ctx, deityId, size / 2, size / 2, size * 0.86);
-    };
-    draw();
-    return onPortraitLoad(deityId, draw);
-  }, [deityId, size]);
-  return <canvas ref={canvasRef} width={size} height={size} style={{ width: size, height: size }} className="shrink-0" />;
-}
 
 export class Fighter {
   public playerNumber: 1 | 2;
@@ -1813,7 +1798,7 @@ export default function App() {
       sounds.init();
 
       // Enter y espacio activan normalmente los controles de la barra superior.
-      if ((gameState === 'MAIN_MENU' || gameState === 'DIFFICULTY_MENU' || gameState === 'STAGE_SELECT') && (e.key === 'Enter' || e.code === 'Space') &&
+      if ((gameState === 'MAIN_MENU' || gameState === 'DIFFICULTY_MENU' || gameState === 'STAGE_SELECT' || gameState === 'TOWER_MAP' || gameState === 'TOWER_END' || (gameState === 'GAME_OVER' && gameMode === 'TOWER')) && (e.key === 'Enter' || e.code === 'Space') &&
         e.target instanceof HTMLElement && e.target.closest('header button, .options-back')) return;
 
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
@@ -3031,87 +3016,10 @@ export default function App() {
         )}
 
         {/* --- ESCENA 5: GAME OVER --- */}
-        {gameState === 'TOWER_MAP' && towerRef.current && (() => {
-          const run = towerRef.current;
-          const rival = run.rivals[run.floor];
-          return (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md px-6 pb-3">
-              <span className="text-violet-300 text-xs font-semibold tracking-widest uppercase">Torre de los Dioses</span>
-              <h2 className="font-cinzel text-2xl sm:text-3xl short:text-xl font-extrabold text-amber-300 mb-3 short:mb-2">
-                {rival.id === ORIGEN.id ? 'La cima: el creador te espera' : `Piso ${run.floor + 1}: ${run.hero.name} vs ${rival.name}`}
-              </h2>
-              {/* La torre de abajo hacia arriba: Origen en la cima */}
-              <div className="flex flex-col-reverse items-center gap-1 sm:gap-1.5 short:grid short:grid-cols-3 short:gap-1">
-                {run.rivals.map((d, i) => {
-                  const beaten = i < run.floor;
-                  const current = i === run.floor;
-                  return (
-                    <div
-                      key={d.id}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-0.5 sm:py-1 border transition-all ${
-                        current
-                          ? 'border-amber-400 bg-amber-500/15 shadow-lg shadow-amber-500/20'
-                          : beaten
-                            ? 'border-slate-800 bg-slate-900/40 opacity-40'
-                            : d.id === ORIGEN.id
-                              ? 'border-violet-400/50 bg-violet-950/50'
-                              : 'border-slate-700/60 bg-slate-900/70'
-                      }`}
-                    >
-                      <span className="text-[10px] font-bold text-slate-500 w-10 text-right">{d.id === ORIGEN.id ? 'CIMA' : `PISO ${i + 1}`}</span>
-                      <Medallion deityId={d.id} size={d.id === ORIGEN.id ? 44 : 34} />
-                      <span className={`font-cinzel text-sm font-bold w-40 ${beaten ? 'line-through text-slate-500' : 'text-slate-100'}`}>{d.name}</span>
-                      {current ? <Medallion deityId={run.hero.id} size={38} /> : <span className="w-[38px]" />}
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="mt-4 short:mt-2 text-xs text-slate-400">
-                Continues: <b className="text-amber-300">{run.continues}</b>
-                <span className="hidden lg:inline"> · J para pelear · ESC para salir</span>
-              </p>
-              <div className="flex gap-3 mt-3 short:mt-2 w-full max-w-md">
-                <button
-                  onClick={() => {
-                    sounds.playNav();
-                    setGameState('MAIN_MENU');
-                  }}
-                  className="flex-1 py-3 short:py-2 rounded-lg font-semibold bg-slate-800 text-slate-200 border border-slate-600"
-                >
-                  Salir
-                </button>
-                <button
-                  onClick={startTowerFight}
-                  className="flex-[2] py-3 short:py-2 rounded-lg font-bold bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg shadow-amber-900/40"
-                >
-                  ¡Pelear!
-                </button>
-              </div>
-            </div>
-          );
-        })()}
-
-        {gameState === 'TOWER_END' && towerRef.current && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/90 backdrop-blur-md p-6 text-center">
-            <span className="text-violet-300 text-xs font-semibold tracking-widest uppercase mb-2">Torre de los Dioses · Final</span>
-            <Medallion deityId={towerRef.current.hero.id} size={180} />
-            <h2 className="font-cinzel text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 mt-3 mb-4">
-              {towerRef.current.hero.name.toUpperCase()} CONQUISTA LA TORRE
-            </h2>
-            <p className="text-slate-200 text-base max-w-2xl leading-relaxed font-cinzel">
-              {TOWER_ENDINGS[towerRef.current.hero.id]}
-            </p>
-            <button
-              onClick={() => {
-                sounds.playNav();
-                setGameState('MAIN_MENU');
-              }}
-              className="mt-8 px-8 py-3 rounded-lg font-bold bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950"
-            >
-              Volver al menú
-            </button>
-          </div>
-        )}
+        {gameState === 'TOWER_MAP' && towerRef.current && <TowerMenu run={towerRef.current} fight={startTowerFight}
+          back={() => { sounds.playNav(); setGameState('MAIN_MENU'); }} />}
+        {gameState === 'TOWER_END' && towerRef.current && <TowerEnding run={towerRef.current}
+          back={() => { sounds.playNav(); setGameState('MAIN_MENU'); }} />}
 
         {gameState === 'GAME_OVER' && !winner && <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 gap-4 text-center p-5">
           <span className="text-xs tracking-widest text-slate-400">DOBLE K.O.</span>
@@ -3121,43 +3029,9 @@ export default function App() {
           <button onClick={() => setGameState('MAIN_MENU')}>Volver al menú</button>
         </div>}
 
-        {gameState === 'GAME_OVER' && winner && gameMode === 'TOWER' && towerRef.current && (() => {
-          const run = towerRef.current;
-          const won = winner.id === run.hero.id;
-          const top = run.floor + 1 >= run.rivals.length;
-          return (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md p-6 text-center">
-              <span className="text-amber-400 text-sm font-semibold tracking-widest uppercase mb-1">K.O.</span>
-              <h2 className="font-cinzel text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 mb-3">
-                {won ? (top ? '¡EL CREADOR HA CAÍDO!' : `¡PISO ${run.floor + 1} SUPERADO!`) : `¡VICTORIA DE ${winner.name.toUpperCase()}!`}
-              </h2>
-              <p className="text-slate-300 text-sm mb-6">
-                {won
-                  ? top ? 'La torre es tuya.' : `Siguiente: ${run.rivals[run.floor + 1].name}`
-                  : run.continues > 0
-                    ? `Te quedan ${run.continues} continue${run.continues === 1 ? '' : 's'}`
-                    : `Sin continues. Llegaste al piso ${run.floor + 1} de ${run.rivals.length}.`}
-              </p>
-              <div className="flex gap-4 w-full max-w-md">
-                <button
-                  onClick={advanceTower}
-                  className="flex-1 py-3 px-6 rounded-lg font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-900/50"
-                >
-                  {won ? (top ? 'Ver tu final (ENTER)' : 'Subir de piso (ENTER)') : run.continues > 0 ? 'Continuar (ENTER)' : 'Volver al menú (ENTER)'}
-                </button>
-                <button
-                  onClick={() => {
-                    sounds.playNav();
-                    setGameState('MAIN_MENU');
-                  }}
-                  className="flex-1 py-3 px-6 rounded-lg font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600"
-                >
-                  Salir de la torre (ESC)
-                </button>
-              </div>
-            </div>
-          );
-        })()}
+        {gameState === 'GAME_OVER' && winner && gameMode === 'TOWER' && towerRef.current && <TowerResult
+          run={towerRef.current} won={winner.id === towerRef.current.hero.id} next={advanceTower}
+          back={() => { sounds.playNav(); setGameState('MAIN_MENU'); }} />}
 
         {gameState === 'GAME_OVER' && winner && gameMode !== 'TOWER' && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md p-6 text-center">

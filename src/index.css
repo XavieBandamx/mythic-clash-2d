@@ -18,6 +18,148 @@
   font-family: 'Cinzel', serif;
 }
 
+/* Torre: el duelo actual y la ruta se leen de un vistazo. */
+.tower-screen .options-shell { max-width:1180px; gap:18px; }
+.tower-layout { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr); gap:26px; height:100%; min-height:0; }
+.tower-encounter { display:flex; flex-direction:column; min-height:0; border:1px solid #7da9c449; background:radial-gradient(ellipse at 65% 40%,#43699a38,transparent 65%),linear-gradient(145deg,#142a3ecc,#101c2b); padding:24px; position:relative; overflow:hidden; }
+.tower-encounter:before { content:''; position:absolute; width:75%; aspect-ratio:1; border:1px solid #85b6dc17; border-radius:50%; left:15%; top:3%; pointer-events:none; }
+.tower-encounter-top { display:flex; align-items:center; justify-content:space-between; font-size:9px; color:#95cbed; letter-spacing:3px; }
+.tower-duel { display:flex; flex:1; min-height:0; align-items:center; justify-content:center; gap:14px; position:relative; }
+.tower-duel>div { display:flex; flex-direction:column; align-items:center; text-align:center; min-width:0; }
+.tower-hero { flex:1; }
+.tower-rival { flex:1.4; }
+.tower-duel img { width:100%; object-fit:contain; max-height:215px; filter:drop-shadow(0 10px 18px #0008); }
+.tower-hero img { max-width:130px; }
+.tower-rival img { max-width:205px; }
+.tower-duel span { font-size:7px; letter-spacing:2px; color:#81a7c1; margin-top:8px; }
+.tower-duel strong { font-size:clamp(14px,1.8vw,23px); font-weight:800; font-style:italic; color:#d4eafa; margin-top:4px; overflow-wrap:anywhere; }
+.tower-vs { color:#6998ba; font-style:italic; font-size:20px; }
+.tower-encounter-bottom { display:flex; flex-direction:column; gap:16px; }
+.tower-encounter-bottom>span { font-size:11px; color:#8eacc1; }
+.tower-reserves { display:flex; align-items:center; gap:12px; padding-top:14px; border-top:1px solid #7ba3c12c; }
+.tower-reserves strong { font-size:32px; font-weight:800; color:#b8dfff; }
+.tower-reserves span { font-size:8px; letter-spacing:1.5px; color:#8daac1; line-height:1.5; }
+.tower-route { display:flex; flex-direction:column; gap:10px; min-height:0; }
+.tower-route-heading { display:flex; justify-content:space-between; color:#7da4bf; font-size:8px; letter-spacing:2px; flex-shrink:0; }
+.tower-floors { display:flex; flex-direction:column-reverse; gap:4px; flex:1; min-height:0; margin:0; padding:0; list-style:none; }
+.tower-floors li { display:flex; align-items:center; gap:12px; flex:1; min-height:0; background:#14243699; border:1px solid #58768e2e; padding:3px 12px; position:relative; }
+.tower-floor-number { display:flex; align-items:center; justify-content:center; color:#6f94b0; font-size:10px; width:22px; flex-shrink:0; }
+.tower-floors img,.tower-secret { width:30px; height:30px; flex-shrink:0; object-fit:contain; }
+.tower-secret { display:flex; align-items:center; justify-content:center; color:#7693b6; }
+.tower-floor-name { display:flex; flex:1; min-width:0; flex-direction:column; gap:2px; }
+.tower-floor-name strong { color:#a9c3d6; font-size:11px; font-weight:600; }
+.tower-floor-name>span { color:#627f98; font-size:6px; letter-spacing:1px; }
+.tower-floor-state { display:flex; color:#9ed9ff; }
+.tower-floors li[data-current=true] { border-color:#8dcefa; background:#29577677; box-shadow:inset 3px 0 #9bdcff; }
+.tower-floors li[data-current=true] strong { color:#eef8ff; }
+.tower-floors li[data-beaten=true] { opacity:.5; }
+.tower-floors li[data-summit=true] { border-color:#9c91ca66; background:#33315344; }
+.tower-floors li[data-summit=true][data-current=true] { border-color:#b5b2ff; }
+.tower-ending,.tower-result { display:flex; align-items:center; justify-content:center; height:100%; min-height:0; gap:6vw; }
+.tower-ending>div { flex:0 1 32%; position:relative; text-align:center; }
+.tower-ending img { width:100%; max-height:280px; object-fit:contain; }
+.tower-ending-crown { margin:0 auto 15px; width:38px; height:38px; color:#a8d8fb; }
+.tower-ending article { flex:0 1 55%; }
+.tower-ending article>span,.tower-result span { font-size:8px; letter-spacing:2px; color:#79aaca; }
+.tower-ending h3,.tower-result h3 { font-size:clamp(28px,4vw,50px); font-weight:850; font-style:italic; color:#e2f1fc; margin:9px 0 18px; }
+.tower-ending p { font-size:14px; line-height:1.9; color:#a4bed2; }
+.tower-result>img { width:28%; max-height:250px; object-fit:contain; }
+.tower-result>div { max-width:480px; }
+.tower-result p { font-size:14px; line-height:1.6; color:#a4bed2; }
+@media (max-width:760px) and (min-height:501px) {
+ .tower-screen .options-shell { gap:12px; }
+ .tower-layout { grid-template-columns:1fr; grid-template-rows:minmax(150px,1fr) minmax(190px,1fr); gap:14px; }
+ .tower-encounter { padding:14px 16px; }
+ .tower-encounter-top { font-size:8px; letter-spacing:2px; }
+ .tower-duel { gap:12px; }
+ .tower-duel img { max-height:115px; }
+ .tower-hero img { max-width:80px; }
+ .tower-rival img { max-width:110px; }
+ .tower-duel strong { font-size:16px; }
+ .tower-encounter-bottom { flex-direction:row; align-items:center; justify-content:space-between; gap:12px; }
+ .tower-encounter-bottom>span { max-width:55%; font-size:9px; }
+ .tower-reserves { padding:0; border:0; gap:8px; }
+ .tower-reserves strong { font-size:26px; }
+ .tower-reserves span { font-size:6px; letter-spacing:1px; }
+ .tower-floors { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(3,minmax(0,1fr)); gap:5px; }
+ .tower-floors li { padding:6px; gap:5px; flex-wrap:wrap; align-content:center; }
+ .tower-floor-number { width:15px; font-size:8px; }
+ .tower-floors img,.tower-secret { width:27px; height:27px; }
+ .tower-floor-name { flex-basis:100%; gap:2px; }
+ .tower-floor-name strong { font-size:9px; line-height:1.2; overflow-wrap:anywhere; }
+ .tower-floor-name>span { font-size:5px; letter-spacing:.4px; }
+ .tower-floor-state { position:absolute; top:9px; right:6px; }
+ .tower-floor-state svg { width:12px; height:12px; }
+ .tower-ending { flex-direction:column; gap:12px; text-align:center; }
+ .tower-ending>div { flex:0 1 30%; min-height:0; }
+ .tower-ending img { height:100%; max-height:130px; }
+ .tower-ending-crown { position:absolute; right:-30px; top:0; width:25px; }
+ .tower-ending article { flex:0 1 auto; }
+ .tower-ending h3 { font-size:30px; margin:6px 0 12px; }
+ .tower-ending p { font-size:12px; line-height:1.7; }
+ .tower-result { flex-direction:column; gap:18px; text-align:center; }
+ .tower-result>img { width:45%; max-height:150px; }
+ .tower-result h3 { font-size:30px; margin:8px 0 12px; }
+ .tower-result p { font-size:12px; }
+}
+@media (max-width:760px) and (min-height:501px) and (max-height:650px) {
+ .tower-layout { grid-template-rows:minmax(130px,1fr) minmax(165px,1fr); gap:8px; }
+ .tower-screen .options-heading h2 { font-size:26px; }
+ .tower-encounter { padding:8px 12px; }
+ .tower-duel img { max-height:65px; }
+ .tower-duel span { margin-top:2px; font-size:6px; }
+ .tower-duel strong { font-size:13px; margin-top:2px; }
+ .tower-encounter-bottom>span { display:none; }
+ .tower-encounter-bottom { justify-content:flex-end; }
+ .tower-reserves strong { font-size:17px; }
+ .tower-reserves span br { display:none; }
+ .tower-reserves span { font-size:5px; }
+ .tower-route { gap:6px; }
+ .tower-floors li { padding:4px; gap:3px; }
+ .tower-floors img,.tower-secret { width:20px; height:20px; }
+ .tower-floor-name strong { font-size:8px; }
+ .tower-floor-name>span { display:none; }
+ .tower-floor-state { top:5px; right:4px; }
+ .tower-ending-screen .options-heading h2 { font-size:26px; }
+ .tower-ending img { max-height:85px; }
+ .tower-ending p { font-size:11px; line-height:1.65; }
+ .tower-ending h3 { font-size:26px; margin-bottom:7px; }
+}
+@media (max-height:500px) {
+ .tower-screen .options-shell { gap:9px; }
+ .tower-layout { grid-template-columns:1fr 1.1fr; gap:14px; }
+ .tower-encounter { padding:12px; }
+ .tower-encounter-top { font-size:7px; letter-spacing:2px; }
+ .tower-duel { gap:7px; }
+ .tower-duel img { max-height:95px; }
+ .tower-hero img { max-width:70px; }
+ .tower-rival img { max-width:90px; }
+ .tower-duel strong { font-size:14px; }
+ .tower-duel span { font-size:6px; margin-top:3px; }
+ .tower-encounter-bottom>span { display:none; }
+ .tower-reserves { padding-top:8px; gap:8px; }
+ .tower-reserves strong { font-size:22px; }
+ .tower-reserves span { font-size:6px; }
+ .tower-route { gap:6px; }
+ .tower-floors { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(3,minmax(0,1fr)); gap:4px; }
+ .tower-floors li { padding:5px; gap:4px; flex-wrap:wrap; align-content:center; }
+ .tower-floor-number { width:14px; font-size:8px; }
+ .tower-floors img,.tower-secret { width:22px; height:22px; }
+ .tower-floor-name { flex-basis:100%; }
+ .tower-floor-name strong { font-size:8px; line-height:1.2; overflow-wrap:anywhere; }
+ .tower-floor-name>span { display:none; }
+ .tower-floor-state { position:absolute; top:7px; right:5px; }
+ .tower-floor-state svg { width:10px; }
+ .tower-ending { gap:25px; }
+ .tower-ending-crown { width:25px; height:25px; margin-bottom:3px; }
+ .tower-ending img { max-height:145px; }
+ .tower-ending h3 { font-size:26px; margin:5px 0 8px; }
+ .tower-ending p { font-size:11px; line-height:1.6; }
+ .tower-result>img { max-height:150px; }
+ .tower-result h3 { font-size:28px; margin-bottom:10px; }
+ .tower-result p { font-size:11px; }
+}
+
 /* Arcade táctil: campo completo y consola próxima a la acción. */
 .arcade-screen { position:absolute; inset:0; z-index:20; background:#000; padding-top:56px; display:flex; align-items:center; justify-content:center; overflow:hidden; }
 .arcade-console { width:100%; height:100%; position:relative; min-height:0; }
