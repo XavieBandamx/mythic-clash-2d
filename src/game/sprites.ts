@@ -88,10 +88,24 @@ export function getSpriteSheetConfig(deity: DeityData): SpriteSheetConfig {
 // Segunda hoja de cada dios (public/sprites/<id>-extra.webp), con los movimientos que la primera no trae:
 // fila 0 salto (despegue, sube, punto alto, aterriza) · fila 1 defensa (guardia, bloqueo empujado, agachado, agachado en guardia)
 // fila 2 súper (carga → suelta) · fila 3 golpe fuerte (preparación, impacto) y pose de victoria (2 cuadros).
-// scale = la del dios × (alto de pie en la primera hoja / alto de la guardia en la segunda), para que midan igual.
-// Vacío mientras se rehacen las primeras hojas: las segundas se generan después a partir de las nuevas.
+// scale = la del dios × alto de pie en la primera hoja / promedio de la guardia (fila 2, cuadro 1) y la victoria
+// (fila 4, cuadro 3) en la segunda: la guardia sale más agachada y la victoria más erguida que la pose de pie.
+// Originales en art-src/gods/<id>-extra-v2.webp.
 export const EXTRA_ROWS = { jump: 0, defense: 1, super: 2, finish: 3 } as const;
-const EXTRA_SHEET_OVERRIDES: Record<string, Pick<SpriteSheetConfig, 'frameWidth' | 'frameHeight' | 'scale'>> = {};
+const EXTRA_SHEET_OVERRIDES: Record<string, Pick<SpriteSheetConfig, 'frameWidth' | 'frameHeight' | 'scale'>> = {
+  zeus: { frameWidth: 346, frameHeight: 258, scale: 0.754 },
+  poseidon: { frameWidth: 426, frameHeight: 265, scale: 0.809 },
+  hades: { frameWidth: 488, frameHeight: 247, scale: 0.741 },
+  ra: { frameWidth: 470, frameHeight: 259, scale: 0.754 },
+  anubis: { frameWidth: 568, frameHeight: 264, scale: 0.739 },
+  osiris: { frameWidth: 376, frameHeight: 256, scale: 0.722 },
+  quetzalcoatl: { frameWidth: 410, frameHeight: 244, scale: 0.754 },
+  huitzilopochtli: { frameWidth: 486, frameHeight: 252, scale: 0.779 },
+  mictlantecuhtli: { frameWidth: 394, frameHeight: 251, scale: 0.721 },
+  amaterasu: { frameWidth: 470, frameHeight: 257, scale: 0.727 },
+  susanoo: { frameWidth: 464, frameHeight: 252, scale: 0.73 },
+  raijin: { frameWidth: 414, frameHeight: 246, scale: 0.754 }
+};
 
 export function getExtraSheetConfig(deity: DeityData): SpriteSheetConfig | null {
   const extra = EXTRA_SHEET_OVERRIDES[deity.id];

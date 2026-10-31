@@ -313,7 +313,7 @@ export const BOSS_CAM_X = LEVEL_LENGTH - 1280;
 
 // Oleadas crecientes por nivel: más soldados, corredores desde el nivel 2 y brutos en las oleadas finales
 export function buildWaves(levelIndex: number): Wave[] {
-  const positions = [450, 1150, 1850, 2500];
+  const positions = [[450, 1150, 1850, 2500], [350, 1050, 1900, 2550], [500, 1350, 2050, 2600], [400, 1200, 1800, 2650]][levelIndex % 4];
   return positions.map((camX, k) => {
     const spawns: WaveSpawn[] = [];
     let delay = 0;
@@ -329,8 +329,9 @@ export function buildWaves(levelIndex: number): Wave[] {
       }
     };
 
-    push('grunt', 2 + Math.floor((k + levelIndex) / 2));
-    push('runner', (k % 2 === 1 ? 2 : 0) + (levelIndex >= 2 ? 1 : 0));
+    // Grecia enseña el grupo; Egipto cubre tiradores; México presiona con cargas; Japón mezcla flancos.
+    push('grunt', 2 + Math.floor((k + levelIndex) / 2) - (levelIndex === 1 ? 1 : 0));
+    push('runner', (k % 2 === 1 ? 2 : 0) + (levelIndex >= 1 ? 1 : 0));
     push('brute', k >= 2 ? 1 + (levelIndex >= 3 && k === 3 ? 1 : 0) : levelIndex >= 1 && k === 1 ? 1 : 0);
     // Jinetes: uno en la 2.ª oleada de cada nivel y otro en la última desde el nivel 3
     if (k === 1 || (k === 3 && levelIndex >= 2)) spawns.push({ kind: 'grunt', side: 'right', delay: 120, zFrac: 0.5, mounted: true });

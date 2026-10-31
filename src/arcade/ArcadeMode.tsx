@@ -59,6 +59,10 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
   // Fase de la partida para mostrar botones tocables encima del canvas (continuar, volver al menú)
   const gameRef = useRef<ArcadeGame | null>(null);
   const [phase, setPhase] = useState<ArcadeGame['phase']>('play');
+  const [relic, setRelic] = useState<number | null>(null);
+  const [showRelics, setShowRelics] = useState(false);
+  const [relicCursor, setRelicCursor] = useState(0);
+  const [lifeMessage, setLifeMessage] = useState('');
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -69,6 +73,10 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
     const game = new ArcadeGame(deities, difficulty);
     gameRef.current = game;
     let shownPhase = game.phase;
+    let shownRelic = game.relicChoice;
+    let shownRelics = false;
+    let shownCursor = 0;
+    let shownLifeMessage = '';
     const keyMaps = deities.length > 1 ? COOP_KEYS : [SOLO_KEYS];
     const held = new Set<string>();
     const pressed = new Set<string>(); // Pulsadas desde el último paso de simulación
@@ -83,6 +91,10 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
     const handleKeyDown = (e: KeyboardEvent) => {
       if (GAME_KEYS.includes(e.code)) e.preventDefault();
       if (e.repeat) return;
+      if (game.phase === 'levelClear' && /^Digit[123]$/.test(e.code)) {
+        game.chooseRelic(Number(e.code.slice(-1)) - 1);
+        return;
+      }
       held.add(e.code);
       pressed.add(e.code);
 
@@ -135,6 +147,13 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
         accumulator -= SIM_STEP_MS;
       }
       game.render(ctx);
+      const loss = game.lifeLoss;
+      const message = loss ? `${loss.hero.deity.name} ha caído. ${loss.remaining} vidas restantes.` : '';
+      if (message !== shownLifeMessage) { shownLifeMessage = message; setLifeMessage(message); }
+      const offerRelics = game.relicOfferReady;
+      if (offerRelics !== shownRelics) { shownRelics = offerRelics; setShowRelics(offerRelics); }
+      if (shownRelic !== game.relicChoice) { shownRelic = game.relicChoice; setRelic(game.relicChoice); }
+      if (shownCursor !== game.relicCursor) { shownCursor = game.relicCursor; setRelicCursor(game.relicCursor); }
       if (game.phase !== shownPhase) {
         shownPhase = game.phase;
         setPhase(game.phase);
@@ -164,6 +183,19 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
         height={VIEW_H}
         className="w-full h-full max-w-[1400px] max-h-[787px] object-contain portrait:object-top shadow-2xl bg-black"
       />
+      <div className="sr-only" role="status" aria-live="assertive">{lifeMessage}</div>
+      {showRelics && <div className="absolute inset-0 z-50 bg-slate-950/95 flex flex-col justify-center items-center p-4 text-center gap-4 short:gap-2">
+        <span className="text-[10px] tracking-[0.3em] text-slate-400 uppercase">Reino completado</span>
+        <h2 className="text-2xl short:text-lg font-bold">Elige una bendición</h2>
+        <p className="text-xs text-slate-400 max-w-md">El efecto dura hasta elegir otra bendición. En cooperativo se aplica a ambos dioses.</p>
+        <div className="grid grid-cols-3 gap-2 max-w-2xl w-full">{[
+          ['Fuerza', '+12% al daño de tus ataques.'],
+          ['Refugio', 'Recupera 35 de vida y recibe 12% menos daño.'],
+          ['Sabiduría', 'Recibe 2 vasijas; magia un 15% más potente.']
+        ].map(([title, desc], i) => <button key={title} disabled={relic !== null} aria-pressed={relic === i || relic === null && relicCursor === i} onClick={() => gameRef.current?.chooseRelic(i)} className={`border p-4 short:p-2 text-left ${relic === i || relic === null && relicCursor === i ? 'border-amber-300 bg-amber-300/10' : 'border-slate-700 bg-slate-900'} disabled:cursor-default`}><span className="text-[10px] text-slate-500">0{i + 1}</span><strong className="block text-sm my-2 text-slate-100">{title}</strong><span className="text-[10px] text-slate-400">{desc}</span></button>)}</div>
+        <p className="text-[10px] text-slate-500">← / → + Ataque · Atajos: 1 / 2 / 3 · También puedes tocar una tarjeta</p>
+        {relic !== null && <span className="text-xs text-amber-200">Bendición recibida. Preparando el siguiente reino…</span>}
+      </div>}
       {(phase === 'gameOver' || phase === 'finalOver' || phase === 'victory') && (
         <div className="absolute left-1/2 -translate-x-1/2 bottom-[20%] portrait:bottom-auto portrait:top-[42%] z-30 flex gap-3">
           {phase === 'gameOver' && (

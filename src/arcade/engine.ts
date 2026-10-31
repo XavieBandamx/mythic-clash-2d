@@ -1,3 +1,5 @@
+import { profileFor } from '../game/combat';
+import { awardMastery } from '../game/progression';
 import { DEITIES } from '../game/deities';
 import type { DeityData } from '../game/deities';
 import { sounds } from '../game/sound';
@@ -9,7 +11,7 @@ import { drawDeityPortraitIcon } from '../game/portraits';
 import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from '../game/styles';
 import { BEASTS, BOSS_CAM_X, BOSS_SPECIALS, FINAL_LEVEL, LEVELS, MONSTER_SPRITES, MONSTER_STATS, ORIGEN, THIEF_SKIN, buildWaves, origenSpecials } from './levels';
 import type { BeastAttack, BeastDef, BossSpecial, LevelDef, MonsterKind, MonsterSkin, MonsterStats, Wave, WaveSpawn } from './levels';
-import { DEPTH, VIEW_H, VIEW_W, drawAmbient, drawBackground, drawForeground, drawItem, drawMonsterOutlined, drawOrb, drawTelegraph, screenY } from './draw';
+import { DEPTH, VIEW_H, VIEW_W, drawAmbient, drawBackground, drawBreakable, drawForeground, drawHazard, drawItem, drawMonsterOutlined, drawOrb, drawTelegraph, screenY } from './draw';
 import type { MonsterPose } from './draw';
 
 // ==========================================================================
@@ -21,6 +23,7 @@ const GRAVITY = 0.75;
 const Z_REACH = 28; // Diferencia de profundidad máxima para que un golpe conecte
 const THIEF_MAX_DROPS = 3; // Objetos que suelta el duende ladrón
 const MAX_MAGIC = 6;       // Vasijas de magia que caben en el HUD
+export const LIFE_LOSS_TICKS = 132; // Caída legible antes de reaparecer o pedir continue.
 const RESPAWN_MAGIC = 2;   // Vasijas que regala cada vida perdida
 const REINFORCEMENT_HEAL = 20; // Vida por cada refuerzo del jefe derrotado (además de 1 vasija)
 const COOP_HP_MUL = 1.3;       // Monstruos más resistentes cuando juegan dos
@@ -359,6 +362,8 @@ export class Hero extends Actor {
   public walkSpeed: number;
   public defMul: number;
   public comboStep: number = 0;
+  public evadeCooldown = 0;
+  public blessing: 'might' | 'vitality' | 'arcana' | null = null;
   public canRevive: boolean = true; // Osiris: una vez por nivel
   // Segunda hoja (salto, súper, remate) si el dios ya la tiene
   private extraCfg: SpriteSheetConfig | null = null;
@@ -399,11 +404,11 @@ export class Hero extends Actor {
   // Huitzilopochtli pega más fuerte con poca vida
   public get dmgMul(): number {
     const fury = this.deity.id === 'huitzilopochtli' && this.hp < this.maxHp * PASSIVE.furyBelow ? PASSIVE.furyMul : 1;
-    return this.baseDmgMul * fury;
+    return this.baseDmgMul * fury * (this.blessing === 'might' ? 1.12 : 1);
   }
 
   private get comboDuration(): number {
-    return Math.round((this.comboStep === 3 ? 24 : 17) * STYLE_ATTACK_SPEED[this.deity.style]);
+    return Math.round((this.comboStep === 3 ? profileFor(this.deity.id).heavyDuration * 0.8 : 17) * STYLE_ATTACK_SPEED[this.deity.style]);
   }
 
   // Raijin no se inmuta mientras ataca
@@ -421,7 +426,7 @@ export class Hero extends Actor {
 
   public receiveHit(hit: HitInfo): boolean {
     if (this.state === 'magic' || this.state === 'spin') return false;
-    const landed = super.receiveHit({ ...hit, damage: hit.damage * this.defMul });
+    const landed = super.receiveHit({ ...hit, damage: hit.damage * this.defMul * (this.blessing === 'vitality' ? 0.88 : 1) });
     if (landed && this.state === 'knockdown') this.vx *= STYLE_KNOCKBACK_TAKEN[this.deity.style];
     if (landed && this.state === 'hurt') this.invuln = 22;
     return landed;
@@ -437,7 +442,8 @@ export class Hero extends Actor {
 
   private startSpin() {
     // El giro castiga con un poco de vida, como en los clásicos del género
-    this.hp = Math.max(1, this.hp - 4);
+    if (this.deity.id === 'anubis' && this.evadeCooldown <= 0) { this.evadeCooldown = 180; }
+    else this.hp = Math.max(1, this.hp - 4);
     this.y = 0;
     this.vy = 0;
     this.invuln = 22;
@@ -447,6 +453,7 @@ export class Hero extends Actor {
 
   public update(input: ArcadeInput, world: ArcadeGame, tick: number) {
     this.tickTimers();
+    if (this.evadeCooldown > 0) this.evadeCooldown--;
     this.animClock++;
     const fast = this.state === 'dashAttack' || this.state === 'spin' || this.state === 'jumpAttack' || (this.state === 'attack' && this.comboStep === 3);
     const pose = godFrame(this, this.cfg, this.animClock, this.comboDuration);
@@ -483,14 +490,7 @@ export class Hero extends Actor {
         world.floatingText(this.x, screenY(this.z) - 200, '¡RENACE!', '#4ade80');
         sounds.playSuperReady();
       } else if (this.stateTimer >= 40) {
-        this.lives--;
-        this.deaths++;
-        if (this.lives > 0) {
-          world.respawnHero(this);
-        } else {
-          this.gameOver = true;
-          this.setState('dead');
-        }
+        world.loseLife(this);
       }
       return;
     }
@@ -557,9 +557,9 @@ export class Hero extends Actor {
         const [from, to] = finisher ? [7, 12] : [5, 9];
         if (this.stateTimer >= from && this.stateTimer <= to) {
           world.heroStrike(this, {
-            front: finisher ? 120 : 105,
+            front: finisher ? profileFor(this.deity.id).heavyReach : profileFor(this.deity.id).lightReach + 20,
             back: 10,
-            damage: (finisher ? 13 : 7) * this.dmgMul,
+            damage: (finisher ? profileFor(this.deity.id).heavyDamage * 0.65 : 7) * this.dmgMul,
             knockdown: finisher,
             heavy: finisher
           });
@@ -967,14 +967,16 @@ export class Monster extends Actor {
     const hero = this.target ?? world.pickTarget(this, null);
     // Montado ataca con la bestia: más alcance y su embestida o salto
     const beastStrike = this.mount ? this.mount.strike : null;
-    const reach = beastStrike ? beastStrike.front : this.stats.reach;
+    const ranged = this.kind === 'runner' && !this.mount && (world.levelIndex === 1 || world.levelIndex === 3);
+    const reach = ranged ? 350 : beastStrike ? beastStrike.front : this.stats.reach;
     switch (this.state) {
       case 'windup':
         this.vx = 0;
         this.vz = 0;
-        if (this.stateTimer >= this.stats.windup) {
+        if (this.stateTimer >= (ranged ? 32 : this.stats.windup)) {
           this.setState('strike');
-          if (this.kind === 'runner') this.vx = this.facing * 7;
+          if (ranged) world.spawnMonsterOrb(this);
+          else if (this.kind === 'runner') this.vx = this.facing * 7;
           if (beastStrike && beastStrike.lunge > 0) this.vx = this.facing * beastStrike.lunge;
           if (this.kind === 'brute' || this.kind === 'mini') sounds.playHeavySwing();
           else sounds.playSwing();
@@ -983,10 +985,12 @@ export class Monster extends Actor {
       case 'strike':
         this.vx *= 0.85;
         this.integrate();
-        if (this.stateTimer >= 3 && this.stateTimer <= 9) {
+        if (!ranged && this.stateTimer >= 3 && this.stateTimer <= 9) {
           if (this.mount && beastStrike) {
+            // El reflejo del héroe puede derribar al jinete dentro de enemyStrike.
+            const attackingBeast = this.mount;
             world.enemyStrike(this, { ...beastStrike, damage: this.damage * 1.6 });
-            world.beastFx(this.mount);
+            world.beastFx(attackingBeast);
           } else {
             world.enemyStrike(this, {
               front: this.stats.reach,
@@ -1121,6 +1125,10 @@ export class Monster extends Actor {
       });
     }
     if (this.mount) ctx.restore();
+    if (this.state === 'windup') {
+      // Señal discreta en el suelo: preparación visible incluso sin hoja extra.
+      drawTelegraph(ctx, this.x + this.facing * this.stats.reach * 0.5, screenY(this.z), this.stats.reach * 0.7, Math.min(1, this.stateTimer / Math.max(1, this.stats.windup)), this.skin.accent);
+    }
   }
 }
 
@@ -1317,6 +1325,7 @@ export class Boss extends Actor {
 
   // Astucia: 0 = bruto, 1 = lee todo lo que haces (sube con el nivel y la dificultad)
   public iq: number = 0.5;
+  private escapeCooldown = 0;
   private recentHits: number[] = [];   // Golpes recibidos hace poco (para zafarse de los combos)
   private escapePending: boolean = false;
   private guardedHits: number = 0;
@@ -1356,7 +1365,7 @@ export class Boss extends Actor {
   }
 
   protected flinchesFrom(hit: HitInfo): boolean {
-    return this.state !== 'special' && this.state !== 'guard' && hit.heavy && Math.random() < 0.4;
+    return this.state !== 'special' && this.state !== 'guard' && hit.heavy;
   }
 
   // Al canalizar un poder Origen descubre su máscara: recibe el doble de daño
@@ -1382,7 +1391,7 @@ export class Boss extends Actor {
     if (landed && this.state !== 'special' && !this.isDown) {
       this.recentHits = this.recentHits.filter(t => this.animClock - t < 90);
       this.recentHits.push(this.animClock);
-      if (this.recentHits.length >= (this.iq >= 0.7 ? 3 : 4) && Math.random() < 0.4 + this.iq * 0.6) this.escapePending = true;
+      if (this.escapeCooldown <= 0 && this.recentHits.length >= (this.iq >= 0.7 ? 5 : 6)) this.escapePending = true;
     }
     return landed;
   }
@@ -1491,6 +1500,7 @@ export class Boss extends Actor {
   // Se zafa del combo: salta hacia atrás (Origen se teletransporta) y aparta a los héroes
   private escape(world: ArcadeGame, hero: Hero) {
     this.escapePending = false;
+    this.escapeCooldown = 300;
     this.recentHits = [];
     if (this.colossal) {
       this.currentSpecial = 'teleport';
@@ -1520,6 +1530,7 @@ export class Boss extends Actor {
     this.recordTrail(this.charging || (this.state === 'special' && this.currentSpecial === 'slam' && this.y > 0), pose.row, pose.frame);
     if (this.cooldown > 0) this.cooldown--;
     if (this.specialCooldown > 0) this.specialCooldown--;
+    if (this.escapeCooldown > 0) this.escapeCooldown--;
     if (this.displayHp > this.hp) this.displayHp = Math.max(this.hp, this.displayHp - 1.2);
     if (this.updateDownStates()) return;
 
@@ -1899,6 +1910,14 @@ export class ArcadeGame {
   public level: LevelDef = LEVELS[0];
   public camX: number = 0;
   public tick: number = 0;
+  public relicChoice: number | null = null;
+  public relicCursor = 0;
+  private lifeLossQueue: { hero: Hero; previous: number; remaining: number; elapsed: number }[] = [];
+  public get lifeLoss() { return this.lifeLossQueue[0] ?? null; }
+  private relicChosenAt = 0;
+  public get relicOfferReady() { return this.phase === 'levelClear' && this.levelIndex < LEVELS.length && this.phaseTimer >= 330; }
+  public scenery: { x: number; z: number; broken: boolean; drop: 'pot' | 'food' }[] = [];
+  public hazards: { x: number; z: number; clock: number }[] = [];
   public phase: Phase = 'play';
   public paused: boolean = false;
   public exitRequested: boolean = false;
@@ -1982,13 +2001,18 @@ export class ArcadeGame {
     this.orbs = [];
     this.thunders = [];
     this.items = [];
+    this.scenery = final ? [] : [800, 1550, 2200, 2850].map((x, i) => ({ x, z: DEPTH * (i % 2 ? 0.7 : 0.3), broken: false, drop: i % 2 ? 'pot' : 'food' }));
+    this.hazards = final ? [] : [1050, 2100, 2700].map((x, i) => ({ x, z: DEPTH * (i % 2 ? 0.7 : 0.35), clock: i * 90 }));
     this.particles = [];
     this.camX = final ? BOSS_CAM_X : 0;
     this.phase = 'play';
     this.phaseTimer = 0;
+    this.lifeLossQueue = [];
     this.goTimer = final ? 0 : 240;
     this.levelStartTick = this.tick;
     this.results = null;
+    this.relicChoice = null;
+    this.relicCursor = 0;
     for (const hero of this.heroes) {
       hero.kills = hero.deaths = hero.maxCombo = hero.combo = hero.comboTimer = 0;
     }
@@ -2019,6 +2043,10 @@ export class ArcadeGame {
     this.props = Array.from({ length: propCount }, (_, i) =>
       loadSpriteSheet(`${import.meta.env.BASE_URL}props/${PROP_SLUG[this.level.pantheon]}-${i}.webp`)
     );
+    // Objetos y trampas del nivel, para que no aparezcan dibujados por código mientras cargan
+    for (const name of ['magia', 'comida', `vasija-${index}`, `vasija-rota-${index}`, `trampa-${index}`]) {
+      loadSpriteSheet(`${import.meta.env.BASE_URL}items/${name}.webp`);
+    }
     for (const skin of [...Object.values(this.level.skins), THIEF_SKIN]) {
       if (skin.spriteId && MONSTER_SPRITES[skin.spriteId]) loadSpriteSheet(monsterSpriteSrc(skin.spriteId));
     }
@@ -2176,22 +2204,16 @@ export class ArcadeGame {
   // source: el héroe que golpea (se lleva los puntos); null si el golpe es de un enemigo
   private applyHit(target: Actor, hit: HitInfo, source: Hero | null): boolean {
     const fromHero = source !== null;
-    // Anubis esquiva algunos golpes por completo
-    if (target instanceof Hero && !hit.magic && target.deity.id === 'anubis' && target.canBeHit() && Math.random() < PASSIVE.evadeChance) {
-      target.invuln = Math.max(target.invuln, 20);
-      this.floatingText(target.x, screenY(target.z) - 190, '¡ESQUIVA!', '#c4b5fd');
-      return false;
-    }
     if (source) hit = this.heroPassiveHit(source, target, hit);
     const bossGuarding = target instanceof Boss && target.state === 'guard';
     if (!target.receiveHit(hit)) return false;
+    if (target instanceof Hero) target.combo = 0;
+    if (bossGuarding && target.state === 'guard') return true; // Un bloqueo no alarga el combo.
     if (source) {
       source.combo++;
       source.comboTimer = COMBO_WINDOW;
       source.maxCombo = Math.max(source.maxCombo, source.combo);
     }
-    if (target instanceof Hero) target.combo = 0;
-    if (bossGuarding && target.state === 'guard') return true; // Bloqueado: sin sangre ni chispas
 
     if (source) {
       if (source.deity.id === 'hades') source.hp = Math.min(source.maxHp, source.hp + hit.damage * PASSIVE.lifesteal);
@@ -2262,6 +2284,15 @@ export class ArcadeGame {
     const x1 = hero.facing === 1 ? hero.x + front : hero.x + spec.back;
     const targets: Actor[] = [...this.monsters];
     if (this.boss) targets.push(this.boss);
+    for (const prop of this.scenery) {
+      if (!prop.broken && prop.x >= x0 && prop.x <= x1 && Math.abs(prop.z - hero.z) <= Z_REACH + 12 && hero.y < 70) {
+        prop.broken = true;
+        this.spawnItem(prop.drop, prop.x, prop.z);
+        hero.score += 100;
+        this.dust(prop.x, prop.z, 12);
+        sounds.playHitHeavy();
+      }
+    }
     for (const t of targets) {
       if (hero.hitTargets.has(t) || !t.canBeHit()) continue;
       if (Math.abs(t.z - hero.z) > Z_REACH + (t instanceof Boss ? 12 : 0)) continue;
@@ -2374,6 +2405,52 @@ export class ArcadeGame {
     this.items.push({ kind, x: x + (Math.random() - 0.5) * 40, z, y: 40, vy: 5, t: 0 });
   }
 
+  public spawnMonsterOrb(monster: Monster) {
+    this.orbs.push({ x: monster.x + monster.facing * 45, z: monster.z, y: 65, vx: monster.facing * 5, damage: monster.damage * 0.8, color: monster.skin.accent, t: 0 });
+    sounds.playSolarBeam();
+  }
+
+  private updateEnvironment() {
+    if (this.phase !== 'play') return;
+    for (const hazard of this.hazards) {
+      if (hazard.x < this.camX - 100 || hazard.x > this.camX + VIEW_W + 100) continue;
+      hazard.clock = (hazard.clock + 1) % 300;
+      // La arena y el viento desplazan; el fuego permanece; el rayo es puntual.
+      if (hazard.clock >= 240 && hazard.clock < 290 && (this.levelIndex === 1 || this.levelIndex === 3)) {
+        for (const actor of [...this.activeHeroes, ...this.monsters]) {
+          if (Math.abs(actor.x - hazard.x) < 95 && Math.abs(actor.z - hazard.z) < 42 && actor.y < 60 && !actor.isDown) {
+            if (this.levelIndex === 1) { actor.vx *= 0.5; actor.vz *= 0.5; actor.x += Math.sign(hazard.x - actor.x) * 0.7; }
+            else actor.x += actor.x >= hazard.x ? 3.5 : -3.5;
+          }
+        }
+      }
+      const eruption = hazard.clock === 240 || (this.levelIndex === 2 && (hazard.clock === 255 || hazard.clock === 270));
+      if (!eruption) continue;
+      this.dust(hazard.x, hazard.z, 16);
+      for (const actor of [...this.activeHeroes, ...this.monsters]) {
+        if (Math.abs(actor.x - hazard.x) < 95 && Math.abs(actor.z - hazard.z) < 42 && actor.y < 60 && actor.canBeHit()) {
+          if (actor instanceof Hero) this.applyHit(actor, { damage: 9, knockdown: true, heavy: true, dir: actor.x >= hazard.x ? 1 : -1 }, null);
+          else {
+            actor.receiveHit({ damage: 18, knockdown: true, heavy: true, dir: actor.x >= hazard.x ? 1 : -1 });
+            if (actor.hp <= 0) this.defeatMonster(actor, this.pickTarget(actor, null));
+          }
+        }
+      }
+    }
+  }
+
+  public chooseRelic(choice: number) {
+    if (this.relicChoice !== null || !this.relicOfferReady || !Number.isInteger(choice) || choice < 0 || choice > 2) return;
+    this.relicChoice = choice;
+    this.relicChosenAt = this.tick;
+    for (const hero of this.activeHeroes) {
+      hero.blessing = (['might', 'vitality', 'arcana'] as const)[choice];
+      if (choice === 1) hero.hp = Math.min(hero.maxHp, hero.hp + 35);
+      if (choice === 2) hero.magic = Math.min(MAX_MAGIC, hero.magic + 2);
+    }
+    sounds.playSelect();
+  }
+
   public spawnOrb(boss: Boss, dz: number) {
     this.orbs.push({
       x: boss.x + boss.facing * 60,
@@ -2471,7 +2548,34 @@ export class ArcadeGame {
     }
   }
 
+  public loseLife(hero: Hero) {
+    if (hero.hp > 0 || hero.lives <= 0 || hero.gameOver || this.lifeLossQueue.some(loss => loss.hero === hero)) return;
+    const previous = hero.lives;
+    hero.lives = Math.max(0, hero.lives - 1);
+    hero.deaths++; hero.combo = 0; hero.comboTimer = 0;
+    hero.setState('dead');
+    this.lifeLossQueue.push({ hero, previous, remaining: hero.lives, elapsed: 0 });
+    this.carriedPresses.forEach(input => { input.attack = input.jump = input.magic = input.tapLeft = input.tapRight = false; });
+    sounds.playKO();
+    this.shake(16, 28);
+  }
+
+  private advanceLifeLoss() {
+    const loss = this.lifeLoss;
+    if (!loss) return;
+    loss.elapsed++;
+    if (loss.elapsed < LIFE_LOSS_TICKS) return;
+    this.lifeLossQueue.shift();
+    if (loss.remaining > 0) this.respawnHero(loss.hero);
+    else { loss.hero.gameOver = true; loss.hero.setState('dead'); }
+    if (this.lifeLossQueue.length === 0 && this.heroes.every(hero => hero.gameOver)) {
+      this.phase = 'gameOver'; this.continueTimer = CONTINUE_TICKS;
+    }
+  }
+
   public respawnHero(hero: Hero) {
+    hero.removed = false;
+    hero.flash = 0;
     hero.hp = hero.maxHp;
     hero.displayHp = hero.maxHp;
     hero.y = 0;
@@ -2509,7 +2613,7 @@ export class ArcadeGame {
     caster.advanceMagicPose();
     if (cast.t === 40) {
       // La magia golpea a todos los enemigos en pantalla; más vasijas = más daño
-      const damage = (12 + 10 * cast.power) * caster.dmgMul;
+      const damage = (12 + 10 * cast.power) * caster.dmgMul * (caster.blessing === 'arcana' ? 1.15 : 1);
       sounds.playThunder();
       this.shake(16, 18);
       const targets: Actor[] = this.monsters.filter(m => m.x > this.camX - 20 && m.x < this.camX + VIEW_W + 20);
@@ -2553,6 +2657,7 @@ export class ArcadeGame {
 
   public step(inputs: ArcadeInput | ArcadeInput[]) {
     if (this.paused || this.loading) return;
+    if (this.lifeLoss) { this.advanceLifeLoss(); return; }
     const list = Array.isArray(inputs) ? inputs : [inputs];
     const inputFor = (hero: Hero) => list[hero.index] ?? EMPTY_INPUT;
     this.tick++;
@@ -2606,6 +2711,11 @@ export class ArcadeGame {
       carried.attack = carried.jump = carried.magic = carried.tapLeft = carried.tapRight = false;
       return result;
     });
+    if (this.relicOfferReady && this.relicChoice === null) {
+      if (merged.some(input => input.tapLeft)) this.relicCursor = (this.relicCursor + 2) % 3;
+      if (merged.some(input => input.tapRight)) this.relicCursor = (this.relicCursor + 1) % 3;
+      if (merged.some(input => input.attack)) this.chooseRelic(this.relicCursor);
+    }
     if (this.magicCast) {
       this.updateMagic();
       return;
@@ -2650,6 +2760,7 @@ export class ArcadeGame {
     this.separateMonsters();
     this.boss?.update(this);
 
+    this.updateEnvironment();
     this.updateOrbs();
     this.updateThunders();
     this.updateItems();
@@ -2678,7 +2789,7 @@ export class ArcadeGame {
       for (const m of this.monsters) m.receiveHit({ damage: 999, knockdown: true, heavy: true, dir: m.x >= this.boss.x ? 1 : -1, magic: true });
       this.orbs = [];
       this.thunders = [];
-    } else if (this.phase === 'levelClear' && (this.phaseTimer >= RESULTS_TICKS || (this.phaseTimer > 200 && list.some(i => i.attack)))) {
+    } else if (this.phase === 'levelClear' && ((this.relicChoice !== null && this.tick - this.relicChosenAt >= 75) || (this.levelIndex >= LEVELS.length && this.phaseTimer >= RESULTS_TICKS))) {
       if (this.levelIndex < LEVELS.length) {
         // Recompensa entre niveles: media vida y una vasija de magia
         for (const hero of this.activeHeroes) {
@@ -2701,6 +2812,7 @@ export class ArcadeGame {
       const noDeathBonus = hero.deaths === 0 ? 5000 : 0;
       const comboBonus = hero.maxCombo * 150;
       hero.score += timeBonus + noDeathBonus + comboBonus;
+      awardMastery(hero.deity.id, { clears: 1, bestCombo: hero.maxCombo, bestRank: levelRank(hero.deaths, secs, hero.maxCombo) });
       return { hero, kills: hero.kills, secs, deaths: hero.deaths, maxCombo: hero.maxCombo, timeBonus, noDeathBonus, comboBonus, rank: levelRank(hero.deaths, secs, hero.maxCombo) };
     });
   }
@@ -2866,6 +2978,42 @@ export class ArcadeGame {
     ctx.save();
     ctx.translate(-Math.round(this.camX), 0);
 
+    for (const hazard of this.hazards) {
+      if (hazard.clock < 165 || this.phase !== 'play') continue;
+      const active = hazard.clock >= 240 && hazard.clock < (this.levelIndex === 0 ? 260 : 290);
+      const color = ['#93c5fd', '#fbbf24', '#fb7185', '#86efac'][this.levelIndex] ?? '#fff';
+      drawTelegraph(ctx, hazard.x, screenY(hazard.z), 95, Math.min(1, (hazard.clock - 165) / 75), color);
+      if (active && !drawHazard(ctx, this.levelIndex, hazard.x, screenY(hazard.z), this.tick)) {
+        ctx.save(); ctx.globalAlpha = 0.65; ctx.fillStyle = color;
+        if (this.levelIndex === 1) {
+          ctx.beginPath(); ctx.ellipse(hazard.x, screenY(hazard.z), 90, 28, 0, 0, Math.PI * 2); ctx.fill();
+        } else if (this.levelIndex === 3) {
+          ctx.strokeStyle = color; ctx.lineWidth = 3;
+          for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.ellipse(hazard.x, screenY(hazard.z) - i * 25, 85 - i * 12, 16, this.tick * 0.02, 0, Math.PI * 1.5); ctx.stroke(); }
+        } else ctx.fillRect(hazard.x - 35, screenY(hazard.z) - 150, 70, 150);
+        ctx.restore();
+      }
+    }
+    for (const prop of this.scenery) {
+      if (drawBreakable(ctx, this.levelIndex, prop.broken, prop.x, screenY(prop.z))) {
+        // Brillo encima de la vasija: verde suelta comida, azul suelta magia
+        if (!prop.broken) {
+          const y = screenY(prop.z) - 62 + Math.sin(this.tick * 0.08) * 3;
+          ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = prop.drop === 'food' ? '#86efac' : '#93c5fd';
+          ctx.beginPath(); ctx.moveTo(prop.x, y - 6); ctx.lineTo(prop.x + 5, y); ctx.lineTo(prop.x, y + 6); ctx.lineTo(prop.x - 5, y); ctx.fill();
+          ctx.restore();
+        }
+        continue;
+      }
+      if (prop.broken) continue;
+      const y = screenY(prop.z);
+      ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(prop.x, y, 26, 9, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = ['#a77b57', '#c6a66a', '#627f67', '#857578'][this.levelIndex] ?? '#958579';
+      ctx.beginPath(); ctx.moveTo(prop.x - 15, y - 48); ctx.lineTo(prop.x + 15, y - 48); ctx.bezierCurveTo(prop.x + 9, y - 32, prop.x + 36, y - 16, prop.x + 17, y); ctx.lineTo(prop.x - 17, y); ctx.bezierCurveTo(prop.x - 36, y - 16, prop.x - 9, y - 32, prop.x - 15, y - 48); ctx.fill();
+      ctx.strokeStyle = '#e7c788'; ctx.lineWidth = 3; ctx.strokeRect(prop.x - 15, y - 49, 30, 5);
+      ctx.fillStyle = prop.drop === 'food' ? '#86efac' : '#93c5fd'; ctx.fillRect(prop.x - 4, y - 25, 8, 8);
+    }
+
     // Sombras en el suelo (se encogen con la altura del salto)
     // En cooperativo el que agotó sus vidas desaparece hasta que continúe
     const actors: Actor[] = [...(this.coop ? this.activeHeroes : this.heroes), ...this.monsters, ...this.beasts.filter(b => !b.rider)];
@@ -2960,9 +3108,11 @@ export class ArcadeGame {
     ctx.fillStyle = this.coop ? color : '#fde68a';
     ctx.textAlign = 'left';
     ctx.fillText(this.coop ? `${hero.index + 1}P ${hero.deity.name.toUpperCase()}` : hero.deity.name.toUpperCase(), px + 92, 40);
-    ctx.font = 'bold 14px sans-serif';
-    ctx.fillStyle = '#e2e8f0';
-    ctx.fillText(`×${hero.lives}`, px + 334, 40);
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillStyle = hero.lives <= 1 ? '#fda4af' : '#e2e8f0';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${hero.lives} ${hero.lives === 1 ? 'VIDA' : 'VIDAS'}`, px + 362, 40);
+    ctx.textAlign = 'left';
 
     // Barra de vida con daño reciente en rojo
     ctx.fillStyle = '#1e293b';
@@ -2975,6 +3125,10 @@ export class ArcadeGame {
     ctx.fillStyle = hpGrad;
     ctx.fillRect(px + 92, 50, 270 * (hero.hp / hero.maxHp), 14);
 
+    if (hero.hp > 0 && hero.hp < hero.maxHp * 0.25) {
+      ctx.strokeStyle = this.tick % 40 < 20 ? '#fb7185' : '#7f1d1d'; ctx.lineWidth = 3;
+      ctx.strokeRect(px + 90, 48, 274, 18);
+    }
     // Vasijas de magia
     for (let i = 0; i < MAX_MAGIC; i++) {
       const x = px + 102 + i * 26;
@@ -3129,6 +3283,22 @@ export class ArcadeGame {
       ctx.fillStyle = '#e2e8f0';
       lines.forEach((line, i) => ctx.fillText(line, VIEW_W / 2, 360 + i * 34));
     };
+
+    const loss = this.lifeLoss;
+    if (loss) {
+      const alpha = Math.min(0.78, 0.3 + loss.elapsed / 80);
+      ctx.fillStyle = `rgba(35, 3, 12, ${alpha})`; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.fillStyle = '#fb7185'; ctx.fillRect(0, 210, VIEW_W, 3);
+      ctx.textAlign = 'center'; ctx.font = '900 84px "Cinzel", serif'; ctx.fillStyle = '#fff1f2';
+      ctx.fillText('HAS CAÍDO', VIEW_W / 2, 310);
+      ctx.font = 'bold 32px sans-serif'; ctx.fillStyle = '#fda4af';
+      ctx.fillText(`${this.coop ? `JUGADOR ${loss.hero.index + 1} · ` : ''}${loss.hero.deity.name.toUpperCase()}`, VIEW_W / 2, 365);
+      ctx.font = '900 60px sans-serif'; ctx.fillStyle = '#ffffff';
+      ctx.fillText(`${loss.previous}  →  ${loss.remaining} ${loss.remaining === 1 ? 'VIDA' : 'VIDAS'}`, VIEW_W / 2, 430);
+      ctx.font = '28px sans-serif'; ctx.fillStyle = '#cbd5e1';
+      ctx.fillText(loss.remaining > 0 ? 'Prepárate para regresar a la batalla' : 'Sin vidas · Necesitas un continue', VIEW_W / 2, 475);
+      ctx.fillStyle = '#fb7185'; ctx.fillRect(VIEW_W / 2 - 160, 510, 320 * Math.min(1, loss.elapsed / LIFE_LOSS_TICKS), 4);
+    }
 
     const scores = this.heroes.map(h => (this.coop ? `${h.index + 1}P ${h.score}` : `${h.score}`)).join('  ·  ');
     const recordLine = this.record ? (this.record.isNew ? '¡NUEVO RÉCORD!' : `Récord: ${this.record.best}`) : '';

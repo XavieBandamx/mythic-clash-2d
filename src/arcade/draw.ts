@@ -1,4 +1,5 @@
 import type { Pantheon } from '../game/deities';
+import { loadSpriteSheet } from '../game/sprites';
 import { BOSS_CAM_X } from './levels';
 import type { LevelTheme, MonsterKind, MonsterSkin } from './levels';
 
@@ -772,7 +773,24 @@ export function drawMonsterOutlined(ctx: CanvasRenderingContext2D, v: MonsterVie
 
 // --- OBJETOS, PROYECTILES Y AVISOS ---
 
+// Imágenes de public/items (originales en art-src/items). Las de vasija y trampa van por nivel: 0 Grecia … 3 Japón.
+function itemImage(name: string): HTMLImageElement | null {
+  const entry = loadSpriteSheet(`${import.meta.env.BASE_URL}items/${name}.webp`);
+  return entry.status === 'ready' ? entry.image : null;
+}
+
+// Dibuja una imagen con la base en (x, y) y la altura indicada
+function drawGrounded(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, height: number) {
+  const w = img.width * (height / img.height);
+  ctx.drawImage(img, x - w / 2, y - height, w, height);
+}
+
 export function drawItem(ctx: CanvasRenderingContext2D, kind: 'pot' | 'food', x: number, y: number, t: number) {
+  const img = itemImage(kind === 'pot' ? 'magia' : 'comida');
+  if (img) {
+    drawGrounded(ctx, img, x, y + Math.sin(t * 0.1) * 2, kind === 'pot' ? 40 : 30);
+    return;
+  }
   ctx.save();
   ctx.translate(x, y + Math.sin(t * 0.1) * 2);
   if (kind === 'pot') {
@@ -803,6 +821,33 @@ export function drawItem(ctx: CanvasRenderingContext2D, kind: 'pot' | 'food', x:
     ctx.fill();
   }
   ctx.restore();
+}
+
+// Vasija rompible del reino, entera o rota. Devuelve false si la imagen aún no carga.
+export function drawBreakable(ctx: CanvasRenderingContext2D, level: number, broken: boolean, x: number, y: number): boolean {
+  const img = itemImage(`${broken ? 'vasija-rota' : 'vasija'}-${level}`);
+  if (!img) return false;
+  drawGrounded(ctx, img, x, y + 4, broken ? 24 : 54);
+  return true;
+}
+
+// Trampa activa del reino: rayo, arena movediza, columna de fuego o remolino. Devuelve false si no hay imagen.
+export function drawHazard(ctx: CanvasRenderingContext2D, level: number, x: number, y: number, tick: number): boolean {
+  const img = itemImage(`trampa-${level}`);
+  if (!img) return false;
+  ctx.save();
+  if (level === 0) {
+    ctx.globalAlpha = tick % 6 < 3 ? 1 : 0.75; // El rayo parpadea
+    drawGrounded(ctx, img, x, y + 10, 300);
+  } else if (level === 1) {
+    drawGrounded(ctx, img, x, y + 30, 80); // Ancha como el aviso (≈190 px)
+  } else if (level === 2) {
+    drawGrounded(ctx, img, x, y + 8, 220 + Math.sin(tick * 0.4) * 8);
+  } else {
+    drawGrounded(ctx, img, x + Math.sin(tick * 0.15) * 6, y + 8, 230);
+  }
+  ctx.restore();
+  return true;
 }
 
 export function drawOrb(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, t: number) {

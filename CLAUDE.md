@@ -51,12 +51,13 @@ src/
     ArcadeRouteCard.tsx Tarjeta de la ruta del arcade en la selección
 public/
   sprites/<dios>.webp          Hoja 4x4 de cada dios (filas: quieto, correr, ataque, golpe)
-  sprites/<dios>-extra.webp    Segunda hoja (ninguna por ahora, se rehacen tras el rediseño)
+  sprites/<dios>-extra.webp    Segunda hoja de los 12 dioses (originales en art-src/gods/<dios>-extra-v2.webp)
   sprites/monsters/*.webp      13 monstruos + 4 mini-jefes
   sprites/beasts/*.webp        4 bestias montables
   portraits/*.webp             Medallones (12 dioses + Origen), 256x256 con fondo transparente
   arenas/*.webp                Arenas del versus
   backgrounds/*.webp           Fondos y suelos del arcade + Telar del Cosmos
+  items/*.webp                 Magia, comida, vasija-N / vasija-rota-N y trampa-N del arcade (N = nivel 0 Grecia … 3 Japón)
   props/<reino>-N.webp         Objetos de primer plano del arcade (6 por reino: grecia, egipto, mexico, japon)
 art-src/                       Imágenes originales tal como salieron de Gemini/Grok (no se publican)
 tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales con los pies alineados
@@ -79,7 +80,7 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
 - Las hojas principales están en **alta resolución** (~250–300 px de alto) y se escalan hacia abajo en `SPRITE_SHEET_OVERRIDES` (`sprites.ts`).
 - **Rediseño:** las hojas principales de 11 dioses se rehicieron en ChatGPT con **Susanoo como modelo** de altura, complexión y estilo (mismo tamaño en los 16 cuadros, de pie sin auras ni nubes). Los originales están en `art-src/gods/<dios>-v2.webp` (Susanoo conserva su hoja). Todas comparten una sola escala (`REDESIGN_SCALE` en `sprites.ts`), porque medir por la altura en idle encoge a los de corona o penacho alto.
 - Con el mismo modelo se rehicieron también las **4 bestias**, los **17 monstruos y mini-jefes** y los **13 medallones** (originales en `art-src/beasts`, `art-src/monsters` y `art-src/portraits`, con sufijo `-v2`).
-- **Segunda hoja** (filas: salto, defensa, súper, golpe fuerte + victoria): **por ahora ningún dios la tiene**. Las de Zeus, Poseidón y Hades se quitaron porque ya no combinan con el rediseño; se harán las de los 12 a partir de las hojas nuevas. El código sigue listo (`EXTRA_SHEET_OVERRIDES`): en versus se usa para salto, bloqueo, súper, golpe fuerte y victoria; en arcade, para salto, magia, remate del combo y embestida. Sin ella, el dios usa la hoja principal.
+- **Segunda hoja** (filas: salto, defensa, súper, golpe fuerte + victoria): **los 12 dioses la tienen**, hecha en ChatGPT a partir de su hoja rediseñada (`EXTRA_SHEET_OVERRIDES`): en versus se usa para salto, bloqueo, súper, golpe fuerte y victoria; en arcade, para salto, magia, remate del combo y embestida. Sin ella, el dios usa la hoja principal.
 
 ### Arcade
 - Oleadas, jinetes sobre **bestias montables** (Cerbero, Cocodrilo de Sobek, Jaguar de Guerra, Kirin), duende ladrón que suelta magia y comida, y **mini-jefe a mitad de nivel** (Cíclope, Escorpión Gigante, Guerrero Águila, Oni Gigante).
@@ -110,7 +111,7 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
    ```
 4. Registra la hoja:
    - **Dios:** `SPRITE_SHEET_OVERRIDES`, con `scale` ≈ (alto deseado en pantalla) / `idleHeight`.
-   - **Segunda hoja:** `EXTRA_SHEET_OVERRIDES`, con `scale` = escala del dios × (alto de pie en la 1.ª hoja / alto de la guardia de pie en la 2.ª, fila 2 cuadro 1).
+   - **Segunda hoja:** `EXTRA_SHEET_OVERRIDES`, con `scale` = escala del dios × alto de pie en la 1.ª hoja / promedio de la guardia (fila 2, cuadro 1) y la victoria (fila 4, cuadro 3) en la 2.ª. Procesar con id `<dios>-extra` para evitar la regla vieja de `hades` y `quetzalcoatl`.
    - **Monstruo:** `MONSTER_SPRITES` en `levels.ts`.
 5. **Objetos de primer plano:** van sobre fondo verde (#00FF00), 6 en fila. Se recortan con `python tools/cut_props.py art-src/props/<reino>-v2.webp public/props/<reino> 0.56` (por figura conectada, une chispas y pétalos sueltos al objeto más cercano, quita el halo verde y escala para que el más alto mida ~515 px). Después se agrega el reino a `PROP_COUNT` en `engine.ts`.
 6. Para que el usuario pase imágenes en alta, debe **descargarlas con el botón de Gemini/Grok**. Si las copia y pega se achican a 1024 px.
@@ -126,7 +127,7 @@ tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales 
 - **Medallones (ChatGPT):** adjuntar un medallón nuevo del mismo reino como modelo y pedir el **símbolo o animal sagrado** del dios tallado en relieve (no su cara), mismo aro dorado y mismo borde por reino (meandro griego, jeroglíficos con disco alado, escalonado azteca, olas y nubes con torii).
 - **Mejorar resolución de una hoja (Gemini Pro, chat nuevo, adjuntar la hoja):** pedir "high resolution upscale… This is an upscale, NOT a new drawing… keep the exact same 4x4 layout… copy every pose exactly… 4K… at least 250 pixels tall".
 - **Personaje nuevo con estilo de referencia (Gemini):** decir explícitamente "Use it ONLY as a reference for the art style… Do NOT draw the character from the reference". Si no, dibuja al de la referencia.
-- **Segunda hoja de un dios:** adjuntar `art-src/gods/<dios>.jpg` y usar esta plantilla, cambiando los rasgos y el súper de cada dios:
+- **Segunda hoja de un dios:** adjuntar su hoja rediseñada (`art-src/gods/<dios>-v2.webp`) y usar esta plantilla, cambiando los rasgos y el súper de cada dios:
 
 ```text
 The attached image is the sprite sheet of a character from my 2D fighting game. I need a SECOND sprite sheet of this exact same character with new animations.
@@ -154,25 +155,14 @@ Plain solid pure black background. No text, no labels, no numbers, no grid lines
 
 ## Lo que falta (en orden de prioridad)
 
-1. **Segunda hoja de los 12 dioses**, hecha a partir de las hojas rediseñadas. Se generan con la plantilla de arriba; luego se miden, se registran en `EXTRA_SHEET_OVERRIDES` y entran solas. Zeus (rayo), Poseidón (marea) y Hades (fuego morado) tenían súper en la versión anterior. Súper de los demás (para la fila 3):
-   - **Ra:** haz solar del báculo.
-   - **Anubis:** embestida de sombras con garras doradas.
-   - **Osiris:** pilares de arena y barrera verde.
-   - **Quetzalcóatl:** tornado verde de plumas.
-   - **Huitzilopochtli:** embestida envuelto en la serpiente de fuego.
-   - **Mictlantecuhtli:** garras de hueso que brotan del suelo.
-   - **Amaterasu:** destello del espejo sagrado.
-   - **Susanoo:** ráfaga de cortes de viento.
-   - **Raijin:** ondas eléctricas de los tambores.
-2. **Música:** hoy solo hay sonidos sintetizados. Faltan una pista por reino, una de menú, una de jefe y una de Origen, de OpenGameArt o Pixabay Music (gratis y libres). Suno gratis no deja descargar.
-3. **Variedad en el arcade:** objetos que se rompen (vasijas y estatuas que sueltan comida, magia o puntos) y trampas por reino (rayos, arenas movedizas, lava, viento).
-4. **Fondos del arcade en capas** para un parallax real. Hoy cada fondo es una sola imagen.
-5. **Lo que hace volver a jugar:** desbloquear dioses, logros, aspectos alternos de colores y reto diario.
-6. **Ajustes pendientes de probar jugando:**
+1. **Música:** hoy solo hay sonidos sintetizados. Faltan una pista por reino, una de menú, una de jefe y una de Origen, de OpenGameArt o Pixabay Music (gratis y libres). Suno gratis no deja descargar.
+2. **Fondos del arcade en capas** para un parallax real. Hoy cada fondo es una sola imagen.
+3. **Lo que hace volver a jugar:** desbloquear dioses, logros, aspectos alternos de colores y reto diario.
+4. **Ajustes pendientes de probar jugando:**
    - Dificultad de Origen (en arcade y torre).
    - Dureza de los mini-jefes.
    - Que el joystick se sienta bien en un celular real.
-7. **Detalles chicos:**
+5. **Detalles chicos:**
    - Las poses de agachado de la segunda hoja no se usan (el juego no distingue entre bloquear de pie y agachado).
    - `tools/process_sprites.py` guarda PNG, que luego hay que pasar a WebP a mano.
    - Los textos de ayuda que mencionan J/K/L no cambian si el jugador reasigna las teclas.

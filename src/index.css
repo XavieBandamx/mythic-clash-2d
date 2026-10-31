@@ -17,3 +17,89 @@
 .font-cinzel {
   font-family: 'Cinzel', serif;
 }
+
+/* Selector por casillas: páginas de 18 sin depender de reinos ni del número de dioses. */
+.fighter-select { position:absolute; inset:0; z-index:20; display:flex; flex-direction:column; gap:12px; padding:72px max(20px,5vw) 16px; overflow:hidden; background:radial-gradient(ellipse at 15% 30%,#173046 0,transparent 50%),radial-gradient(ellipse at 85% 30%,#382126 0,transparent 50%),#080d16; }
+.select-heading,.select-footer,.select-roster-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-shrink:0; }
+.select-heading span { font-size:10px; color:#9caabc; letter-spacing:2px; text-transform:uppercase; }
+.select-heading h2 { font-size:clamp(21px,2.6vw,36px); font-weight:900; font-style:italic; letter-spacing:-1px; }
+.select-heading small { font-size:10px; color:#a8b4c5; letter-spacing:2px; }
+.select-stage { position:relative; display:flex; flex:1; min-height:80px; justify-content:space-between; border-bottom:1px solid #ffffff18; }
+.select-contender { position:relative; min-width:0; width:38%; display:flex; align-items:flex-end; }
+.select-figure { width:100%; height:100%; min-height:0; overflow:hidden; }
+.select-figure canvas { width:100%; height:100%; object-fit:contain; filter:drop-shadow(0 0 20px #0007); }
+.select-identity { position:absolute; left:0; bottom:12px; text-shadow:0 2px 8px #000; }
+.select-identity span { font-size:9px; letter-spacing:2px; color:#bbcbdc; }
+.select-identity h3 { font-size:clamp(20px,3vw,38px); font-weight:900; font-style:italic; text-transform:uppercase; color:var(--contender-color); line-height:1.1; overflow-wrap:anywhere; }
+.select-identity p { font-size:10px; margin-top:5px; color:#aabbd0; }
+.select-right .select-figure { transform:scaleX(-1); }
+.select-right .select-identity { left:auto; right:0; text-align:right; }
+.select-center { position:absolute; width:28%; left:36%; top:20%; text-align:center; }
+.select-center>b { display:block; font-size:clamp(30px,5vw,64px); font-style:italic; font-weight:900; color:#c0d3e53b; }
+.select-center>span { color:#9dacbe; font-size:9px; text-transform:uppercase; }
+.select-center p { font-size:11px; color:#d0dbe7; line-height:1.5; margin-top:10px; }
+.select-roster { max-width:1000px; width:100%; margin:0 auto; }
+.select-roster-bar { margin-bottom:8px; font-size:9px; color:#91a5ba; letter-spacing:1px; min-height:26px; }
+.select-roster-bar nav { display:flex; align-items:center; gap:10px; }
+.select-roster-bar nav button { font-size:22px; width:28px; line-height:25px; background:#ffffff09; }
+.select-roster-bar nav button:disabled { opacity:.25; }
+.select-cells { display:grid; gap:5px; }
+.select-cell { position:relative; height:clamp(54px,9vh,86px); min-width:0; overflow:hidden; border:1px solid #53677b66; background:linear-gradient(130deg,#263d52,#111b2a); transform:skewX(-4deg); cursor:pointer; }
+.select-cell canvas { height:115%; width:100%; object-fit:contain; position:absolute; bottom:0; left:0; transform:skewX(4deg); }
+.select-cell strong { position:absolute; bottom:0; left:0; right:0; padding:3px 2px; font-size:9px; font-weight:700; color:#d8e3ef; background:#060b15ce; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.select-cell[data-p1=true] { border:2px solid #54bafa; box-shadow:inset 0 0 14px #38bdf855; }
+.select-cell[data-p2=true] { border:2px solid #f47e88; box-shadow:inset 0 0 14px #fb718555; }
+.select-cell[data-p1=true][data-p2=true] { border-color:#d5a3ff; }
+.select-cell[aria-pressed=true] { background:linear-gradient(130deg,#49708c,#1b3044); outline:1px solid #e4efff; outline-offset:1px; }
+.select-cell:hover { background:#38536c; }
+.select-cursors { position:absolute; display:flex; top:0; left:0; gap:3px; }
+.select-cursors span { padding:2px 5px; font-size:10px; font-weight:900; background:#164f83; color:#eff8ff; }
+.select-cell[data-p2=true] .select-cursors span:last-child { background:#9e3348; }
+.select-empty { border-color:#34445744; background:linear-gradient(140deg,#15233366,#0d172366); cursor:default; display:grid; place-items:center; }
+.select-empty>span { color:#56708535; font-size:24px; }
+.select-player-tabs { display:flex; gap:6px; }
+.select-player-tabs button { padding:5px 10px; border-bottom:2px solid transparent; font-size:10px; color:#8fa2b5; }
+.select-player-tabs button[aria-pressed=true] { color:#edf6ff; border-color:#75c7ff; }
+.select-footer { border-top:1px solid #ffffff16; padding-top:10px; font-size:11px; color:#9eb0c3; }
+.select-confirm { background:#e2ebf5; color:#121e2a; padding:12px 22px; font-size:11px; font-weight:800; letter-spacing:1px; display:flex; gap:24px; }
+.fighter-select button:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+@media (max-width:760px) and (min-height:501px) {
+ .fighter-select { padding:60px 14px 12px; gap:10px; }
+ .select-heading span { font-size:8px; letter-spacing:1px; }
+ .select-heading h2 { font-size:22px; }
+ .select-heading small { display:none; }
+ .select-stage { min-height:120px; }
+ .select-contender { width:48%; }
+ .select-identity h3 { font-size:18px; }
+ .select-identity span { font-size:7px; letter-spacing:.5px; }
+ .select-identity p { font-size:8px; max-width:140px; }
+ .select-center { top:10%; width:18%; left:41%; }
+ .select-center>b { font-size:32px; }
+ .select-center>span,.select-center p { display:none; }
+ .select-cell { height:clamp(47px,8.3vh,72px); }
+ .select-cell strong { font-size:6px; padding:3px 0; }
+ .select-cursors span { font-size:8px; padding:1px 3px; }
+ .select-footer>span { display:none; }
+ .select-player-tabs button { font-size:8px; padding:4px; }
+ .select-roster-bar { font-size:8px; letter-spacing:0; gap:4px; }
+ .select-roster-bar nav { gap:4px; }
+ .select-roster-bar nav button { width:20px; }
+}
+@media (max-height:500px) {
+ .fighter-select { padding:43px 22px 8px; gap:5px; }
+ .select-heading h2 { font-size:19px; }
+ .select-heading span { font-size:8px; }
+ .select-stage { min-height:45px; }
+ .select-identity { bottom:4px; }
+ .select-identity h3 { font-size:20px; }
+ .select-identity span,.select-identity p,.select-center p,.select-center>span { display:none; }
+ .select-center { top:0; }
+ .select-center>b { font-size:32px; }
+ .select-roster { max-width:620px; }
+ .select-roster-bar { margin-bottom:4px; min-height:20px; }
+ .select-cell { height:39px; }
+ .select-cell strong { font-size:7px; padding:1px; }
+ .select-cursors span { font-size:8px; padding:0 3px; }
+ .select-footer { padding-top:5px; }
+ .select-confirm { padding:7px 18px; }
+}

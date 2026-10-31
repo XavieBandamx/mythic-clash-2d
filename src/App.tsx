@@ -4,11 +4,16 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Volume2, VolumeX, Eye, RefreshCw, Home, Swords, Gamepad2, Music, Zap, Flame, Shield, Sparkles, Crosshair } from 'lucide-react';
+import { Volume2, VolumeX, Eye, RefreshCw, Home, Swords, Gamepad2, Music, Flame } from 'lucide-react';
 import ArcadeMode from './arcade/ArcadeMode';
-import ArcadeRouteCard from './arcade/ArcadeRouteCard';
+import CharacterSelect from './CharacterSelect';
+import { moveRoster } from './game/roster';
+import { MatchFlow, VERSUS_HEALTH, drawMatchFlow } from './game/match';
+import type { RoundWinner } from './game/match';
+import { profileFor, GUARD_WINDOW, GUARD_RECOVERY, INPUT_BUFFER } from './game/combat';
+import { awardMastery } from './game/progression';
 import { DEITIES } from './game/deities';
-import type { DeityData, Pantheon } from './game/deities';
+import type { DeityData } from './game/deities';
 import { sounds } from './game/sound';
 import { SIM_STEP_MS, checkAABB, spawnBloodBurst, renderParticles, updateParticles as updateParticlesList } from './game/core';
 import type { Box, Difficulty, Particle } from './game/core';
@@ -21,10 +26,8 @@ import { ARENAS, ORIGEN_ARENA, drawArena } from './game/arenas';
 import { ORIGEN } from './arcade/levels';
 import { TOWER_ENDINGS, buildTower, towerSkill } from './game/tower';
 import type { TowerRun } from './game/tower';
-import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_INFO, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from './game/styles';
-import type { FightStyle } from './game/styles';
+import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from './game/styles';
 
-const STYLE_ICONS: Record<FightStyle, typeof Swords> = { Poder: Swords, Velocidad: Zap, 'Guardián': Shield, Alcance: Crosshair };
 import type { ArenaDef } from './game/arenas';
 import { EXTRA_ROWS, drawLoading, getExtraSheetConfig, getSpriteSheetConfig, isLoading, loadSpriteSheet } from './game/sprites';
 import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from './game/sprites';
@@ -37,287 +40,6 @@ import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from '.
 
 export type GameState = 'MAIN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'STAGE_SELECT' | 'TOWER_MAP' | 'TOWER_END' | 'CONTROLS_MENU' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
 export type GameMode = 'PVP' | 'PVE' | 'ARCADE' | 'ARCADE_COOP' | 'TOWER';
-
-// ==========================================================================
-// COMPONENTE REACT: TARJETA DE VISTA PREVIA GRANDE DE PERSONAJE
-// ==========================================================================
-interface LargePreviewProps {
-  deity: DeityData;
-  playerTag: string;
-  tagColor: string;
-  isReady: boolean;
-}
-
-function DeityLargePreviewCard({ deity, playerTag, tagColor, isReady }: LargePreviewProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  useEffect(() => {
-    let animId: number;
-    const startTime = performance.now();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const spriteConfig = getSpriteSheetConfig(deity);
-    const sheet = loadSpriteSheet(spriteConfig.src);
-
-    const renderPreview = (now: number) => {
-      // Animación por tiempo real (igual a 60 Hz que a 144 Hz)
-      const elapsed = Math.max(0, now - startTime);
-      const t = elapsed * 0.0024;
-      const tick = Math.floor(elapsed / SIM_STEP_MS);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2 + 10;
-      const breath = Math.sin(t) * 4;
-
-      // Aura pulsante de fondo
-      const auraGrad = ctx.createRadialGradient(cx, cy - 60, 20, cx, cy - 60, 110);
-      auraGrad.addColorStop(0, deity.auraColor);
-      auraGrad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = auraGrad;
-      ctx.beginPath();
-      ctx.arc(cx, cy - 60, 110, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Sombra en el suelo
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      ctx.beginPath();
-      ctx.ellipse(cx, cy + 95, 55, 15, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Con la hoja de sprites cargada se muestra la animación idle real, a la misma escala que en la arena
-      if (sheet.status === 'ready') {
-        const { frameWidth, frameHeight, scale, footOffset } = spriteConfig;
-        const idle = spriteConfig.animations.idle;
-        const frame = Math.floor(tick / idle.frameDuration) % idle.frames;
-        const drawW = frameWidth * scale;
-        const drawH = frameHeight * scale;
-        ctx.imageSmoothingEnabled = !spriteConfig.pixelArt;
-        ctx.drawImage(
-          sheet.image,
-          frame * frameWidth,
-          idle.row * frameHeight,
-          frameWidth,
-          frameHeight,
-          cx - drawW / 2,
-          cy + 95 - drawH + footOffset * scale,
-          drawW,
-          drawH
-        );
-        animId = requestAnimationFrame(renderPreview);
-        return;
-      }
-
-      // Capa / Ropajes dinámicos ondeando
-      ctx.fillStyle = deity.secondaryColor;
-      ctx.beginPath();
-      const wave = Math.sin(t * 1.5) * 8;
-      ctx.moveTo(cx - 20, cy - 40 + breath);
-      ctx.lineTo(cx - 55 - wave, cy + 70);
-      ctx.lineTo(cx + 10, cy + 75);
-      ctx.lineTo(cx + 25, cy - 40 + breath);
-      ctx.closePath();
-      ctx.fill();
-
-      // Piernas y grebas
-      ctx.strokeStyle = deity.primaryColor;
-      ctx.lineWidth = 10;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(cx - 15, cy + 20);
-      ctx.lineTo(cx - 20, cy + 90);
-      ctx.moveTo(cx + 15, cy + 20);
-      ctx.lineTo(cx + 20, cy + 90);
-      ctx.stroke();
-
-      // Torso / Armadura anatómica
-      ctx.fillStyle = deity.primaryColor;
-      ctx.beginPath();
-      ctx.roundRect(cx - 28, cy - 60 + breath, 56, 75, 10);
-      ctx.fill();
-      ctx.strokeStyle = deity.accentColor;
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      // Cinturón sagrado
-      ctx.fillStyle = deity.secondaryColor;
-      ctx.fillRect(cx - 28, cy + 2 + breath, 56, 12);
-
-      // Cuello y Cabeza
-      ctx.fillStyle = '#fed7aa';
-      ctx.beginPath();
-      ctx.arc(cx, cy - 82 + breath, 22, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Casco / Corona / Cabello según deidad
-      ctx.fillStyle = deity.secondaryColor;
-      ctx.beginPath();
-      ctx.arc(cx, cy - 88 + breath, 23, Math.PI, Math.PI * 2);
-      ctx.lineTo(cx + 20, cy - 82 + breath);
-      ctx.lineTo(cx - 20, cy - 82 + breath);
-      ctx.fill();
-
-      // Elementos únicos (Zeus rayo / Ra disco solar)
-      if (deity.id === 'zeus') {
-        // Corona de laurel dorada
-        ctx.strokeStyle = '#facc15';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(cx, cy - 90 + breath, 26, -Math.PI * 0.8, -Math.PI * 0.2);
-        ctx.stroke();
-
-        // Ojos de electricidad
-        ctx.fillStyle = '#38bdf8';
-        ctx.shadowColor = '#38bdf8';
-        ctx.shadowBlur = 10;
-        ctx.fillRect(cx + 5, cy - 86 + breath, 6, 4);
-        ctx.shadowBlur = 0;
-
-        // Rayo celestial sostenido en mano
-        ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(cx + 38, cy - 130 + breath);
-        ctx.lineTo(cx + 46, cy - 80 + breath);
-        ctx.lineTo(cx + 32, cy - 30 + breath);
-        ctx.stroke();
-      } else if (deity.id === 'ra') {
-        // Disco solar encima de la cabeza
-        ctx.fillStyle = '#ef4444';
-        ctx.shadowColor = '#fbbf24';
-        ctx.shadowBlur = 18;
-        ctx.beginPath();
-        ctx.arc(cx, cy - 120 + breath, 18, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-
-        // Ojo de Halcón
-        ctx.fillStyle = '#ef4444';
-        ctx.fillRect(cx + 6, cy - 85 + breath, 6, 4);
-
-        // Báculo solar Was en mano
-        ctx.strokeStyle = '#fbbf24';
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.moveTo(cx + 42, cy - 135 + breath);
-        ctx.lineTo(cx + 42, cy + 90);
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = deity.accentColor;
-        ctx.fillRect(cx + 5, cy - 85 + breath, 5, 4);
-      }
-
-      // Brazos y muñequeras
-      ctx.strokeStyle = deity.accentColor;
-      ctx.lineWidth = 9;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(cx - 26, cy - 45 + breath);
-      ctx.lineTo(cx - 38, cy - 10 + breath);
-      ctx.moveTo(cx + 26, cy - 45 + breath);
-      ctx.lineTo(cx + 42, cy - 25 + breath);
-      ctx.stroke();
-
-      animId = requestAnimationFrame(renderPreview);
-    };
-
-    animId = requestAnimationFrame(renderPreview);
-    return () => cancelAnimationFrame(animId);
-  }, [deity]);
-
-  return (
-    <div className="w-full max-w-sm bg-slate-900/90 border border-slate-700 rounded-2xl p-4 flex flex-col items-center text-center shadow-2xl relative overflow-hidden backdrop-blur-md">
-      {/* Etiqueta del Jugador */}
-      <div className={`absolute top-3 left-3 text-[11px] font-bold px-2.5 py-1 rounded border ${tagColor}`}>
-        {playerTag}
-      </div>
-      {isReady && (
-        <div className="absolute top-3 right-3 text-[11px] font-bold text-emerald-300 bg-emerald-500/20 px-2.5 py-1 rounded border border-emerald-400/40 animate-pulse">
-          ¡LISTO!
-        </div>
-      )}
-
-      {/* Canvas del Personaje Animado */}
-      <div className="w-full flex justify-center my-2">
-        <canvas ref={canvasRef} width={260} height={250} className="w-[220px] h-[210px] object-contain drop-shadow-xl" />
-      </div>
-
-      <div className="w-full border-t border-white/10 pt-3">
-        <h3 className="font-cinzel text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-500">
-          {deity.name}
-        </h3>
-        <span className="text-xs font-semibold uppercase tracking-wider text-amber-300 block mb-1">
-          {deity.pantheon} · {deity.title}
-        </span>
-        {/* Estilo de pelea: se elige por lo que hace, no por el nombre */}
-        {(() => {
-          const StyleIcon = STYLE_ICONS[deity.style];
-          const info = STYLE_INFO[deity.style];
-          return (
-            <div className="w-full rounded-lg p-2 mb-2 border text-left" style={{ borderColor: `${info.color}66`, background: `${info.color}1a` }}>
-              <div className="flex items-center gap-1.5 font-black text-sm uppercase tracking-wider" style={{ color: info.color }}>
-                <StyleIcon className="w-4 h-4" />
-                <span>Estilo {deity.style}</span>
-              </div>
-              <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">{info.summary}</p>
-            </div>
-          );
-        })()}
-
-        {/* Barras de Atributos */}
-        <div className="w-full bg-black/40 rounded-lg p-2.5 border border-white/5 space-y-1.5 text-xs text-left">
-          <div className="flex justify-between items-center">
-            <span className="text-slate-400 font-medium">Fuerza / Ataque:</span>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map(v => (
-                <div key={v} className={`w-3.5 h-2 rounded-sm ${v <= deity.stats.attack ? 'bg-amber-400' : 'bg-slate-800'}`} />
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-slate-400 font-medium">Agilidad / Velocidad:</span>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map(v => (
-                <div key={v} className={`w-3.5 h-2 rounded-sm ${v <= deity.stats.speed ? 'bg-cyan-400' : 'bg-slate-800'}`} />
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-slate-400 font-medium">Resistencia / Blindaje:</span>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map(v => (
-                <div key={v} className={`w-3.5 h-2 rounded-sm ${v <= deity.stats.defense ? 'bg-emerald-400' : 'bg-slate-800'}`} />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Pasiva única */}
-        <div className="mt-2.5 p-2 bg-violet-500/10 rounded-lg border border-violet-500/25 text-left">
-          <div className="flex items-center gap-1.5 text-violet-300 font-bold text-xs">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Pasiva: {deity.passive.name}</span>
-          </div>
-          <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">{deity.passive.desc}</p>
-        </div>
-
-        {/* Ataque Especial */}
-        <div className="mt-2 p-2 bg-amber-500/10 rounded-lg border border-amber-500/25 text-left">
-          <div className="flex items-center gap-1.5 text-amber-300 font-bold text-xs">
-            <Zap className="w-3.5 h-3.5" />
-            <span>Poder Especial: {deity.specialName}</span>
-          </div>
-          <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">
-            {deity.specialDesc}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // Medallón de un dios dibujado en canvas (se redibuja cuando carga su imagen)
 function Medallion({ deityId, size }: { deityId: string; size: number }) {
@@ -335,79 +57,6 @@ function Medallion({ deityId, size }: { deityId: string; size: number }) {
   return <canvas ref={canvasRef} width={size} height={size} style={{ width: size, height: size }} className="shrink-0" />;
 }
 
-// ==========================================================================
-// COMPONENTE REACT: BOTÓN DE CASILLA DE SELECCIÓN CON RETRATO CANVAS
-// ==========================================================================
-interface GridSlotProps {
-  deity: DeityData;
-  isP1: boolean;
-  isP2: boolean;
-  onClick: () => void;
-  onMouseEnter: () => void;
-}
-
-function DeityGridSlot({ deity, isP1, isP2, onClick, onMouseEnter }: GridSlotProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawDeityPortraitIcon(ctx, deity.id, canvas.width / 2, canvas.height / 2, 68);
-    };
-    draw();
-    return onPortraitLoad(deity.id, draw);
-  }, [deity]);
-
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      className={`p-2 short:p-1 rounded-xl border flex flex-col items-center justify-center transition-all relative ${
-        isP1 && isP2
-          ? 'ring-4 ring-purple-500 border-purple-400 bg-purple-950/70 z-10 shadow-lg shadow-purple-900/50'
-          : isP1
-          ? 'ring-4 ring-blue-500 border-blue-400 bg-blue-950/70 z-10 shadow-lg shadow-blue-900/50'
-          : isP2
-          ? 'ring-4 ring-red-500 border-red-400 bg-red-950/70 z-10 shadow-lg shadow-red-900/50'
-          : 'border-slate-800 bg-slate-900/70 hover:border-slate-600 hover:bg-slate-800'
-      }`}
-    >
-      {/* Indicadores flotantes de P1 / P2 */}
-      <div className="absolute top-1.5 left-1.5 flex gap-1 z-10">
-        {isP1 && <span className="text-[10px] bg-blue-500 text-white font-black px-1.5 py-0.5 rounded shadow">P1</span>}
-        {isP2 && <span className="text-[10px] bg-red-500 text-white font-black px-1.5 py-0.5 rounded shadow">P2</span>}
-      </div>
-
-      {deity.isUnique && (
-        <span className="absolute top-1.5 right-1.5 text-[9px] bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded border border-amber-400/40">
-          ÚNICO
-        </span>
-      )}
-
-      {/* Retrato Canvas Ilustrado */}
-      <canvas ref={canvasRef} width={80} height={80} className="w-[68px] h-[68px] max-sm:w-14 max-sm:h-14 short:w-11 short:h-11 my-1 short:my-0" />
-
-      <span className="font-cinzel text-xs max-sm:text-[10px] font-bold text-slate-100 w-full truncate">{deity.name}</span>
-      {(() => {
-        const StyleIcon = STYLE_ICONS[deity.style];
-        return (
-          <span className="flex short:hidden items-center gap-1 text-[10px] font-bold uppercase" style={{ color: STYLE_INFO[deity.style].color }}>
-            <StyleIcon className="w-3 h-3" />
-            {deity.style}
-          </span>
-        );
-      })()}
-    </button>
-  );
-}
-
-// ==========================================================================
-// CLASE LUCHADOR CON SPRITES PROCEDURALES Y FÍSICAS DE ALTA PRECISIÓN (OOP)
-// ==========================================================================
 export class Fighter {
   public playerNumber: 1 | 2;
   public deity: DeityData;
@@ -442,6 +91,24 @@ export class Fighter {
   public hitFlashTimer: number = 0; // Efecto de flash blanco al recibir golpe
   public pendingScreenShake: number = 0; // Intensidad de sacudida pedida al bucle cuando un especial conecta desde update()
 
+  public guardAge = 999;
+  public guardCooldown = 0;
+  public guardStun = 0;
+  public guardIntegrity = 100;
+  public guardHeld = false;
+  public chargeTicks = 0;
+  private heavyWasHeld = false;
+  public chargedHeavy = false;
+  public attackConnected = false;
+  public chainStep = 0;
+  public riposteTicks = 0;
+  private queuedAttack: 'light' | 'heavy' | null = null;
+  private queueTicks = 0;
+
+  public get attackDuration() {
+    return Math.ceil((this.state === 'ATTACK_HEAVY' ? profileFor(this.deity.id).heavyDuration : 21) * this.attackSpeed);
+  }
+  private get attacking() { return this.state === 'ATTACK_LIGHT' || this.state === 'ATTACK_HEAVY'; }
   public stepTimer: number = 0;
   public comboCount: number = 0;
   public comboTimer: number = 0;
@@ -512,8 +179,18 @@ export class Fighter {
     this.facing = facing;
   }
 
+  public advanceFinish() {
+    this.animTimer++;
+    this.vy += this.gravity;
+    this.x = Math.max(120, Math.min(1160, this.x + this.vx));
+    this.y = Math.min(this.groundY, this.y + this.vy);
+    if (this.y >= this.groundY) this.vy = 0;
+    this.vx *= 0.9;
+    if (this.hitFlashTimer > 0) this.hitFlashTimer--;
+  }
+
   public getHurtboxes(): { head: Box; torso: Box; legs: Box } {
-    const isCrouching = this.state === 'CROUCH' || (this.state === 'BLOCK' && this.isGrounded);
+    const isCrouching = this.state === 'CROUCH';
     const scaleY = isCrouching ? 0.65 : 1.0;
     const curHeight = this.height * scaleY;
     const curY = this.y - curHeight;
@@ -549,15 +226,15 @@ export class Fighter {
     const reach = STYLE_REACH[this.deity.style];
     if (this.state === 'ATTACK_LIGHT') {
       if (this.animTimer >= 4 * sp && this.animTimer <= 12 * sp) {
-        const boxW = 80 * reach;
+        const boxW = profileFor(this.deity.id).lightReach * reach;
         const boxH = 50;
         const boxX = this.facing === 1 ? this.x + 10 : this.x - 10 - boxW;
         const boxY = this.y - this.height * 0.72;
         return { x: boxX, y: boxY, w: boxW, h: boxH };
       }
     } else if (this.state === 'ATTACK_HEAVY') {
-      if (this.animTimer >= 8 * sp && this.animTimer <= 20 * sp) {
-        const boxW = 110 * reach;
+      if (this.animTimer >= profileFor(this.deity.id).heavyStartup * sp && this.animTimer <= (profileFor(this.deity.id).heavyStartup + 5) * sp) {
+        const boxW = profileFor(this.deity.id).heavyReach * reach;
         const boxH = 80;
         const boxX = this.facing === 1 ? this.x + 15 : this.x - 15 - boxW;
         const boxY = this.y - this.height * 0.82;
@@ -570,6 +247,13 @@ export class Fighter {
 
   public update(arenaWidth: number, opponent: Fighter, difficulty: Difficulty, particles: Particle[]) {
     this.animTimer++;
+    this.guardAge++;
+    if (this.guardCooldown > 0) this.guardCooldown--;
+    if (this.guardStun > 0) this.guardStun--;
+    if (this.riposteTicks > 0) this.riposteTicks--;
+    if (!this.isBlocking && !this.attacking) this.guardIntegrity = Math.min(100, this.guardIntegrity + 0.45);
+    if (this.queueTicks > 0 && --this.queueTicks === 0) this.queuedAttack = null;
+    if (this.state === 'HITSTUN') { this.chargeTicks = 0; this.isBlocking = false; this.queuedAttack = null; this.chainStep = 0; }
     if (this.attackCooldown > 0) this.attackCooldown--;
     if (this.hitFlashTimer > 0) this.hitFlashTimer--;
 
@@ -741,22 +425,23 @@ export class Fighter {
     }
 
     // Conclusión de animaciones
-    if (this.state === 'ATTACK_LIGHT' && this.animTimer > 18 * this.attackSpeed) {
+    if (this.state === 'ATTACK_LIGHT' && this.animTimer >= this.attackDuration) {
       this.state = 'IDLE';
       this.hitRegistered = false;
-    } else if (this.state === 'ATTACK_HEAVY' && this.animTimer > 28 * this.attackSpeed) {
+    } else if (this.state === 'ATTACK_HEAVY' && this.animTimer >= this.attackDuration) {
       this.state = 'IDLE';
       this.hitRegistered = false;
     } else if (this.state === 'SPECIAL') {
       // Especial de Zeus
       if (this.deity.id === 'zeus') {
+        if (this.animTimer === 1 || this.animTimer === 17 || this.animTimer === 29) this.superX = opponent.x;
         if (this.animTimer === 14 || this.animTimer === 26 || this.animTimer === 38) {
           sounds.playThunder();
           const targetOffset = this.animTimer === 14 ? -70 : this.animTimer === 26 ? 70 : 0;
-          const strikeX = opponent.x + targetOffset;
+          const strikeX = this.superX + targetOffset;
 
-          if (Math.abs(opponent.x - strikeX) < 90 && opponent.hp > 0) {
-            opponent.hp = Math.max(0, opponent.hp - 12);
+          if (Math.abs(opponent.x - strikeX) < 90 && opponent.hp > 0 && !opponent.shielded) {
+            opponent.hp = Math.max(0, opponent.hp - Math.round(12 * this.damageMul * opponent.defMul * opponent.damageTakenMul()));
             opponent.vx = this.facing * 8;
             opponent.vy = -10;
             opponent.state = 'HITSTUN';
@@ -800,8 +485,8 @@ export class Fighter {
         if (this.animTimer % 7 === 0 && this.animTimer >= 14 && this.animTimer <= 46) {
           sounds.playSolarBeam();
           const inBeamRange = this.facing === 1 ? opponent.x > this.x : opponent.x < this.x;
-          if (inBeamRange && opponent.hp > 0) {
-            opponent.hp = Math.max(0, opponent.hp - 7);
+          if (inBeamRange && opponent.hp > 0 && Math.abs(opponent.y - this.y) < 110 && !opponent.shielded) {
+            opponent.hp = Math.max(0, opponent.hp - Math.round(7 * this.damageMul * opponent.defMul * opponent.damageTakenMul()));
             opponent.vx = this.facing * 10;
             opponent.state = 'HITSTUN';
             opponent.hitstunTimer = 18;
@@ -838,6 +523,15 @@ export class Fighter {
       }
     }
 
+    if (this.queuedAttack && this.queueTicks > 0) {
+      const canChain = this.state === 'ATTACK_LIGHT' && this.attackConnected && this.animTimer >= 6 * this.attackSpeed && this.chainStep < 2;
+      if (canChain || (!this.attacking && this.state !== 'HITSTUN' && this.state !== 'SPECIAL' && this.attackCooldown <= 0)) {
+        const action = this.queuedAttack;
+        this.queuedAttack = null;
+        this.beginAttack(action, canChain);
+      }
+    }
+
     if (this.isAI && this.hp > 0 && opponent.hp > 0) {
       this.updateAI(opponent, difficulty);
     }
@@ -851,6 +545,7 @@ export class Fighter {
     opponent.vx = dir * knockX;
     opponent.vy = knockY;
     opponent.state = 'HITSTUN';
+    opponent.isBlocking = false;
     opponent.hitstunTimer = stun;
     opponent.hitFlashTimer = 4;
     sounds.playHitHeavy();
@@ -1000,6 +695,7 @@ export class Fighter {
 
   protected updateAI(opponent: Fighter, difficulty: Difficulty) {
     this.aiActionTimer++;
+    if (this.isGrounded) this.releaseJump();
 
     let reactionInterval = 20;
     let blockProbability = 0.4;
@@ -1023,17 +719,19 @@ export class Fighter {
     const dist = Math.abs(this.x - opponent.x);
     const opponentAttacking = opponent.state === 'ATTACK_LIGHT' || opponent.state === 'ATTACK_HEAVY' || opponent.state === 'SPECIAL';
 
-    if (opponentAttacking && dist < 170 && Math.random() < blockProbability) {
-      this.isBlocking = true;
-      this.state = 'BLOCK';
+    if (this.attacking || this.state === 'SPECIAL' || this.state === 'HITSTUN' || this.guardStun > 0) return;
+    if (this.aiActionTimer % reactionInterval !== 0) return;
+
+    if (opponentAttacking && dist < 220 && Math.random() < blockProbability) {
+      this.crouchOrBlock(true);
       this.vx = -this.facing * 1.8;
       return;
     } else {
-      this.isBlocking = false;
+      this.crouchOrBlock(false);
       if (this.state === 'BLOCK') this.state = 'IDLE';
     }
 
-    if (this.aiActionTimer % reactionInterval === 0 && this.state !== 'HITSTUN' && this.state !== 'ATTACK_LIGHT' && this.state !== 'ATTACK_HEAVY' && this.state !== 'SPECIAL') {
+    if (this.aiActionTimer % reactionInterval === 0) {
       if (this.superMeter >= 100 && (dist < 380 || this.deity.id === 'ra')) {
         this.executeSpecial(opponent);
         return;
@@ -1062,6 +760,7 @@ export class Fighter {
         if (roll < 0.45) {
           this.executeLightAttack();
         } else if (roll < 0.85) {
+          this.chargeTicks = opponent.isBlocking ? 24 : 0;
           this.executeHeavyAttack();
         } else if (this.isGrounded) {
           this.jump();
@@ -1071,27 +770,70 @@ export class Fighter {
     }
   }
 
-  public executeLightAttack() {
-    if (this.state === 'HITSTUN' || this.state === 'SPECIAL' || this.attackCooldown > 0) return;
-    this.state = 'ATTACK_LIGHT';
-    this.animTimer = 0;
-    this.hitRegistered = false;
-    this.attackCooldown = Math.round(14 * this.attackSpeed);
-    sounds.playSwing();
+  private requestAttack(action: 'light' | 'heavy') {
+    if (this.hp <= 0 || this.state === 'HITSTUN' || this.state === 'SPECIAL' || this.guardStun > 0) return;
+    if (this.attacking || this.attackCooldown > 0) {
+      this.queuedAttack = action;
+      this.queueTicks = INPUT_BUFFER;
+      return;
+    }
+    this.beginAttack(action, false);
   }
 
-  public executeHeavyAttack() {
-    if (this.state === 'HITSTUN' || this.state === 'SPECIAL' || this.attackCooldown > 0) return;
-    this.state = 'ATTACK_HEAVY';
+  private beginAttack(action: 'light' | 'heavy', chained: boolean) {
+    this.chainStep = chained ? this.chainStep + 1 : 0;
+    this.state = action === 'light' ? 'ATTACK_LIGHT' : 'ATTACK_HEAVY';
     this.animTimer = 0;
+    this.isBlocking = false;
     this.hitRegistered = false;
-    this.attackCooldown = Math.round(26 * this.attackSpeed);
-    sounds.playHeavySwing();
+    this.attackConnected = false;
+    this.chargedHeavy = action === 'heavy' && this.chargeTicks >= 24;
+    this.chargeTicks = 0;
+    this.attackCooldown = this.attackDuration;
+    if (action === 'heavy') sounds.playHeavySwing(); else sounds.playSwing();
+  }
+
+  public releaseHeavyInput() {
+    if (!this.heavyWasHeld) this.executeHeavyAttack();
+    else this.holdHeavy(false);
+  }
+
+  public tryPerfectGuard(attacker: Fighter, damage: number) {
+    if (!this.isBlocking || this.guardAge > GUARD_WINDOW || this.shielded) return false;
+    this.guardAge = 999;
+    this.guardIntegrity = Math.min(100, this.guardIntegrity + 18);
+    this.superMeter = Math.min(100, this.superMeter + 12 * this.meterMul);
+    this.riposteTicks = 45;
+    if (this.deity.id === 'anubis') this.vx = -attacker.facing * 9;
+    if (this.deity.id === 'mictlantecuhtli') attacker.hp = Math.max(0, attacker.hp - Math.round(damage * PASSIVE.reflect));
+    attacker.state = 'HITSTUN';
+    attacker.isBlocking = false;
+    attacker.hitstunTimer = 18;
+    attacker.comboCount = 0;
+    return true;
+  }
+
+  public executeLightAttack() { this.requestAttack('light'); }
+  public executeHeavyAttack() { this.requestAttack('heavy'); }
+  public holdHeavy(held: boolean) {
+    if (held && !this.heavyWasHeld && this.attacking) this.requestAttack('heavy');
+    this.heavyWasHeld = held;
+    if (held && !this.attacking && this.state !== 'HITSTUN' && this.state !== 'SPECIAL' && this.guardStun <= 0) {
+      this.chargeTicks = Math.min(40, this.chargeTicks + 1);
+      this.isBlocking = false;
+      this.vx *= 0.7;
+    } else if (!held && this.chargeTicks > 0) {
+      this.executeHeavyAttack();
+      this.chargeTicks = 0;
+    }
   }
 
   public executeSpecial(opponent: Fighter) {
-    if (this.superMeter < 100 || this.state === 'HITSTUN') return;
+    if (this.superMeter < 100 || this.hp <= 0 || this.state === 'HITSTUN' || this.state === 'SPECIAL' || this.attacking || this.guardStun > 0) return false;
     this.superMeter = 0;
+    this.isBlocking = false;
+    this.chargeTicks = 0;
+    this.queuedAttack = null;
     this.state = 'SPECIAL';
     this.animTimer = 0;
     this.hitRegistered = false;
@@ -1105,10 +847,12 @@ export class Fighter {
     } else {
       sounds.playHitHeavy();
     }
+    return true;
   }
 
   public moveLeft() {
     if (this.state === 'HITSTUN' || this.state === 'ATTACK_LIGHT' || this.state === 'ATTACK_HEAVY' || this.state === 'SPECIAL') return;
+    if (this.guardStun > 0 || this.chargeTicks > 0) return;
     const speed = this.deity.stats.speed * 1.1 + 3.2;
     this.vx = -speed;
     if (this.isGrounded) this.state = 'WALK';
@@ -1116,6 +860,7 @@ export class Fighter {
 
   public moveRight() {
     if (this.state === 'HITSTUN' || this.state === 'ATTACK_LIGHT' || this.state === 'ATTACK_HEAVY' || this.state === 'SPECIAL') return;
+    if (this.guardStun > 0 || this.chargeTicks > 0) return;
     const speed = this.deity.stats.speed * 1.1 + 3.2;
     this.vx = speed;
     if (this.isGrounded) this.state = 'WALK';
@@ -1124,7 +869,8 @@ export class Fighter {
   public jump() {
     const fresh = !this.jumpHeld;
     this.jumpHeld = true;
-    if (this.isGrounded && this.state !== 'HITSTUN' && this.state !== 'SPECIAL') {
+    if (fresh && this.isGrounded && !this.attacking && this.guardStun <= 0 && this.state !== 'HITSTUN' && this.state !== 'SPECIAL') {
+      this.isBlocking = false;
       this.vy = -16.5;
       this.isGrounded = false;
       this.state = 'JUMP';
@@ -1142,14 +888,17 @@ export class Fighter {
   }
 
   public crouchOrBlock(isHolding: boolean) {
-    if (this.state === 'HITSTUN' || this.state === 'SPECIAL') return;
+    const fresh = isHolding && !this.guardHeld;
+    this.guardHeld = isHolding;
+    if (this.state === 'HITSTUN' || this.state === 'SPECIAL' || this.attacking || this.chargeTicks > 0) { this.isBlocking = false; return; }
     if (isHolding && this.isGrounded) {
+      if (fresh && this.guardCooldown <= 0) { this.guardAge = 0; this.guardCooldown = GUARD_RECOVERY; }
       this.isBlocking = true;
       this.state = 'BLOCK';
       this.vx *= 0.5;
-    } else if (this.state === 'BLOCK' || this.state === 'CROUCH') {
+    } else {
       this.isBlocking = false;
-      this.state = 'IDLE';
+      if (this.state === 'BLOCK' || this.state === 'CROUCH') this.state = 'IDLE';
     }
   }
 
@@ -1161,7 +910,7 @@ export class Fighter {
     ctx.translate(this.x, this.y);
     ctx.scale(this.facing, 1);
 
-    const isCrouch = this.state === 'CROUCH' || (this.state === 'BLOCK' && this.isGrounded);
+    const isCrouch = this.state === 'CROUCH';
     const scaleFactor = isCrouch ? 0.72 : 1.0;
     const breath = Math.sin(this.animTimer * 0.1) * 3.5;
     const isFlashing = this.hitFlashTimer > 0;
@@ -1508,13 +1257,6 @@ export class Fighter {
   }
 }
 
-// Duración (ticks) de cada acción ofensiva; debe coincidir con la conclusión de animaciones en Fighter.update()
-const ATTACK_DURATIONS: Partial<Record<Fighter['state'], number>> = {
-  ATTACK_LIGHT: 18,
-  ATTACK_HEAVY: 28,
-  SPECIAL: 54
-};
-
 export class CanvasFighter extends Fighter {
   public spriteConfig: SpriteSheetConfig;
   public currentAnimation: SpriteAnimationName = 'idle';
@@ -1603,7 +1345,7 @@ export class CanvasFighter extends Fighter {
     }
 
     const anim = this.spriteConfig.animations[this.currentAnimation];
-    const attackDuration = ATTACK_DURATIONS[this.state];
+    const attackDuration = this.state === 'SPECIAL' ? 54 : this.state === 'ATTACK_LIGHT' || this.state === 'ATTACK_HEAVY' ? this.attackDuration : undefined;
 
     if (this.currentAnimation === 'attack' && attackDuration) {
       // Los cuadros activos del sprite coinciden con la ventana de la hitbox
@@ -1618,6 +1360,11 @@ export class CanvasFighter extends Fighter {
       this.frameTick = 0;
       this.frameIndex = anim.loop ? (this.frameIndex + 1) % anim.frames : Math.min(this.frameIndex + 1, lastFrame);
     }
+  }
+
+  public advanceFinish() {
+    super.advanceFinish();
+    this.advanceAnimation();
   }
 
   // Copia el cuadro actual teñido de blanco para el flash de impacto
@@ -1746,6 +1493,7 @@ export class OrigenFighter extends CanvasFighter {
   // Su súper es elegir uno de sus poderes
   public executeSpecial(_opponent: Fighter) {
     this.superMeter = 0;
+    return false;
   }
 
   protected updateAI(opponent: Fighter, difficulty: Difficulty) {
@@ -1952,6 +1700,8 @@ export default function App() {
   const p2Ref = useRef<Fighter | null>(null);
   const particlesRef = useRef<Particle[]>([]);
   const matchTimerRef = useRef<number>(99);
+  const matchFlowRef = useRef<MatchFlow | null>(null);
+  const roundClockRef = useRef(0);
   const frameCountRef = useRef<number>(0);
   const hitstopFramesRef = useRef<number>(0);
   const cameraShakeRef = useRef<number>(0);
@@ -2092,10 +1842,10 @@ export default function App() {
             setP1DeityIndex(i => (i < DEITIES.length - 1 ? i + 1 : 0));
             sounds.playNav();
           } else if (e.key === 'w' || e.key === 'W') {
-            setP1DeityIndex(i => (i >= 3 ? i - 3 : i + 9));
+            setP1DeityIndex(i => moveRoster(i, 'up', DEITIES.length));
             sounds.playNav();
           } else if (e.key === 's' || e.key === 'S') {
-            setP1DeityIndex(i => (i <= 8 ? i + 3 : i - 9));
+            setP1DeityIndex(i => moveRoster(i, 'down', DEITIES.length));
             sounds.playNav();
           } else if (e.key === 'j' || e.key === 'J') {
             sounds.playSelect();
@@ -2115,10 +1865,10 @@ export default function App() {
             setP2DeityIndex(i => (i < DEITIES.length - 1 ? i + 1 : 0));
             sounds.playNav();
           } else if (e.key === 'ArrowUp') {
-            setP2DeityIndex(i => (i >= 3 ? i - 3 : i + 9));
+            setP2DeityIndex(i => moveRoster(i, 'up', DEITIES.length));
             sounds.playNav();
           } else if (e.key === 'ArrowDown') {
-            setP2DeityIndex(i => (i <= 8 ? i + 3 : i - 9));
+            setP2DeityIndex(i => moveRoster(i, 'down', DEITIES.length));
             sounds.playNav();
           } else if (e.key === 'u' || e.key === 'U' || (gameMode === 'ARCADE_COOP' && (e.code === 'Numpad1' || e.code === 'Comma'))) {
             sounds.playSelect();
@@ -2168,6 +1918,10 @@ export default function App() {
       }
 
       // Game Over
+      else if (gameState === 'GAME_OVER' && !winner) {
+        if (['j', 'J', 'Enter', ' '].includes(e.key)) gameMode === 'TOWER' ? startTowerFight() : startFight();
+        else if (e.key === 'Escape') setGameState('MAIN_MENU');
+      }
       else if (gameState === 'GAME_OVER' && gameMode === 'TOWER') {
         if (['j', 'J', 'Enter', ' '].includes(e.key)) {
           advanceTower();
@@ -2185,13 +1939,20 @@ export default function App() {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      if (gameState === 'FIGHT' && matchFlowRef.current?.phase === 'fight') {
+        const fighter = e.code === 'KeyK' ? p1Ref.current : e.code === 'KeyI' && gameMode === 'PVP' ? p2Ref.current : null;
+        if (fighter) fighter.releaseHeavyInput();
+      }
       keysPressedRef.current[e.key.toLowerCase()] = false;
       keysPressedRef.current[e.code] = false;
     };
 
+    const clearKeys = () => { keysPressedRef.current = {}; };
+    window.addEventListener('blur', clearKeys);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => {
+      window.removeEventListener('blur', clearKeys);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
@@ -2270,8 +2031,14 @@ export default function App() {
   };
 
   const beginFight = (p1: Fighter, p2: Fighter) => {
+    if (gameMode !== 'TOWER') {
+      for (const f of [p1, p2]) f.hp = f.maxHp = f.displayHp = VERSUS_HEALTH;
+    }
     p1Ref.current = p1;
     p2Ref.current = p2;
+    matchFlowRef.current = new MatchFlow(gameMode === 'TOWER' ? 1 : 2);
+    roundClockRef.current = 0;
+    keysPressedRef.current = {};
 
     particlesRef.current = [];
     matchTimerRef.current = 99;
@@ -2299,6 +2066,21 @@ export default function App() {
     // Evita repetir el K.O. si en el mismo cuadro de pantalla se ejecutan varios pasos de simulación
     let matchOver = false;
 
+    const finishRound = (result: RoundWinner, reason: 'ko' | 'time' = 'ko') => {
+      const flow = matchFlowRef.current;
+      const p1 = p1Ref.current, p2 = p2Ref.current;
+      if (!flow || !p1 || !p2 || !flow.finish(result, reason)) return;
+      for (const f of [p1, p2]) {
+        f.state = f.playerNumber === result ? 'VICTORY' : 'DEFEAT';
+        f.isBlocking = false; f.animTimer = 0;
+      }
+      superCinematicRef.current = null;
+      hitstopFramesRef.current = 0;
+      cameraShakeRef.current = reason === 'ko' ? 24 : 0;
+      keysPressedRef.current = {};
+      sounds.playKO();
+    };
+
     // Un paso de simulación = 1/60 s, independiente de la frecuencia del monitor
     const stepSimulation = () => {
       frameCountRef.current++;
@@ -2306,6 +2088,34 @@ export default function App() {
       if (cameraShakeRef.current > 0) {
         cameraShakeRef.current *= 0.88;
         if (cameraShakeRef.current < 0.5) cameraShakeRef.current = 0;
+      }
+
+      const flow = matchFlowRef.current;
+      if (gameState === 'FIGHT' && flow && flow.phase !== 'fight' && p1Ref.current && p2Ref.current) {
+        if (fightLoading()) return;
+        const p1 = p1Ref.current, p2 = p2Ref.current;
+        if (flow.phase === 'ko' && (flow.elapsed > 45 || flow.elapsed % 3 === 0)) {
+          p1.advanceFinish(); p2.advanceFinish(); updateParticles();
+        }
+        const event = flow.step();
+        if (event === 'fight') {
+          for (const key of ['j', 'k', 'l', 'u', 'i', 'o', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'KeyO']) keysPressedRef.current[key] = false;
+          sounds.playHeavySwing();
+        } else if (event === 'nextRound') {
+          const next1 = new CanvasFighter(1, p1.deity, false, 280, 1);
+          const next2 = new CanvasFighter(2, p2.deity, p2.isAI, 1000, -1);
+          next2.aiSkill = p2.aiSkill;
+          for (const f of [next1, next2]) f.hp = f.maxHp = f.displayHp = VERSUS_HEALTH;
+          p1Ref.current = next1; p2Ref.current = next2;
+          particlesRef.current = []; roundClockRef.current = 0;
+          matchTimerRef.current = 99; keysPressedRef.current = {};
+        } else if (event === 'complete') {
+          const victor = flow.roundWinner === 1 ? p1 : p2;
+          setWinner(victor.deity);
+          if (!victor.isAI) awardMastery(victor.deity.id, { wins: 1 });
+          sounds.playVictory(); setGameState('GAME_OVER'); matchOver = true;
+        }
+        return;
       }
 
       if (superCinematicRef.current && superCinematicRef.current.timer > 0) {
@@ -2323,20 +2133,14 @@ export default function App() {
         const p2 = p2Ref.current;
         const keys = keysPressedRef.current;
 
-        // Cronómetro
-        if (frameCountRef.current % 60 === 0 && matchTimerRef.current > 0 && p1.hp > 0 && p2.hp > 0) {
+        // El reloj avanza solo mientras se puede pelear.
+        roundClockRef.current++;
+        if (roundClockRef.current % 60 === 0 && matchTimerRef.current > 0) {
           matchTimerRef.current--;
           if (matchTimerRef.current === 0) {
-            if (p1.hp / p1.maxHp >= p2.hp / p2.maxHp) {
-              setWinner(p1.deity);
-              sounds.playVictory();
-            } else {
-              setWinner(p2.deity);
-              sounds.playVictory();
-            }
-            sounds.playKO();
-            setGameState('GAME_OVER');
-            matchOver = true;
+            const ratio1 = p1.hp / p1.maxHp, ratio2 = p2.hp / p2.maxHp;
+            finishRound(Math.abs(ratio1 - ratio2) < 0.00001 ? null : ratio1 > ratio2 ? 1 : 2, 'time');
+            return;
           }
         }
 
@@ -2363,17 +2167,14 @@ export default function App() {
             p1.releaseJump();
           }
 
+          p1.holdHeavy(!!(keys['k'] || keys['KeyK']));
           if (keys['j'] || keys['KeyJ']) {
             p1.executeLightAttack();
             keys['j'] = false;
             keys['KeyJ'] = false;
-          } else if (keys['k'] || keys['KeyK']) {
-            p1.executeHeavyAttack();
-            keys['k'] = false;
-            keys['KeyK'] = false;
+
           } else if (keys['l'] || keys['KeyL']) {
-            if (p1.superMeter >= 100) {
-              p1.executeSpecial(p2);
+            if (p1.executeSpecial(p2)) {
               triggerSpecialCinematic(p1);
             }
             keys['l'] = false;
@@ -2404,17 +2205,14 @@ export default function App() {
             p2.releaseJump();
           }
 
+          p2.holdHeavy(!!(keys['i'] || keys['KeyI']));
           if (keys['u'] || keys['KeyU']) {
             p2.executeLightAttack();
             keys['u'] = false;
             keys['KeyU'] = false;
-          } else if (keys['i'] || keys['KeyI']) {
-            p2.executeHeavyAttack();
-            keys['i'] = false;
-            keys['KeyI'] = false;
+
           } else if (keys['o'] || keys['KeyO']) {
-            if (p2.superMeter >= 100) {
-              p2.executeSpecial(p1);
+            if (p2.executeSpecial(p1)) {
               triggerSpecialCinematic(p2);
             }
             keys['o'] = false;
@@ -2445,22 +2243,8 @@ export default function App() {
           }
         }
 
-        if (p1.hp <= 0 && p2.hp > 0) {
-          p1.state = 'DEFEAT';
-          p2.state = 'VICTORY';
-          setWinner(p2.deity);
-          sounds.playKO();
-          sounds.playVictory();
-          setGameState('GAME_OVER');
-          matchOver = true;
-        } else if (p2.hp <= 0 && p1.hp > 0) {
-          p2.state = 'DEFEAT';
-          p1.state = 'VICTORY';
-          setWinner(p1.deity);
-          sounds.playKO();
-          sounds.playVictory();
-          setGameState('GAME_OVER');
-          matchOver = true;
+        if (p1.hp <= 0 || p2.hp <= 0) {
+          finishRound(p1.hp <= 0 && p2.hp <= 0 ? null : p1.hp > 0 ? 1 : 2);
         }
       }
     };
@@ -2532,13 +2316,14 @@ export default function App() {
           : difficulty === 'FACIL' ? 0.7 : difficulty === 'DIFICIL' ? 1.3 : 1.0;
       }
 
-      let baseDamage = 9;
+      const continuingCombo = defender.state === 'HITSTUN' && attacker.comboCount > 0;
+      let baseDamage = 8;
       let knockX = 6;
       let knockY = -3;
-      let hitstunTime = 14;
+      let hitstunTime = 17;
 
       if (attacker.state === 'ATTACK_HEAVY') {
-        baseDamage = 20;
+        baseDamage = profileFor(attacker.deity.id).heavyDamage * (attacker.chargedHeavy ? 1.25 : 1);
         knockX = 14;
         knockY = -6;
         hitstunTime = 26;
@@ -2562,15 +2347,18 @@ export default function App() {
       }
       // Susanoo atraviesa el bloqueo; el resto de los estilos de Poder lo rompe
       const unblockable = heavy && attacker.deity.id === 'susanoo';
-      const guardBreak = heavy && attacker.deity.style === 'Poder' && !unblockable;
+      const guardBreak = heavy && (attacker.chargedHeavy || attacker.deity.style === 'Poder') && !unblockable;
 
-      // Anubis esquiva algunos golpes por completo
-      if (!defender.isBlocking && attacker.state !== 'SPECIAL' && defender.deity.id === 'anubis' && Math.random() < PASSIVE.evadeChance) {
-        popupText(defender.x, defender.y - 160, '¡ESQUIVA!', '#c4b5fd');
-        defender.vx = attacker.facing * 6;
+      // La defensa precisa es voluntaria, con una ventana corta y cooldown.
+      if (defender.shielded) { sounds.playBlock(); return; }
+      if (defender.tryPerfectGuard(attacker, damage)) {
+        sounds.playBlock();
+        hitstopFramesRef.current = 5;
+        particlesRef.current.push({ x: defender.x, y: defender.y - 95, vx: 0, vy: 0, radius: 52, color: '#b7f6ff', alpha: 1, decay: 0.06, type: 'ring' });
         return;
       }
-
+      damage *= Math.max(0.55, 1 - (continuingCombo ? attacker.comboCount : 0) * 0.12);
+      if (attacker.riposteTicks > 0) { damage *= 1.2; attacker.riposteTicks = 0; }
       if ((defender.isBlocking && !unblockable) || defender.shielded) {
         const blockedDamage = defender.shielded
           ? 0
@@ -2585,7 +2373,10 @@ export default function App() {
         defender.superMeter = Math.min(100, defender.superMeter + (defender.deity.style === 'Guardián' ? 12 : 7) * defender.meterMul);
         attacker.superMeter = Math.min(100, attacker.superMeter + 4 * attacker.meterMul);
 
-        if (guardBreak) {
+        defender.guardIntegrity = Math.max(0, defender.guardIntegrity - (heavy ? 36 : 18));
+        defender.guardStun = heavy ? 14 : 8;
+        if (guardBreak || defender.guardIntegrity <= 0) {
+          defender.guardIntegrity = 55;
           defender.isBlocking = false;
           defender.state = 'HITSTUN';
           defender.hitstunTimer = 20;
@@ -2593,7 +2384,7 @@ export default function App() {
         }
         // Mictlantecuhtli regresa parte del golpe bloqueado
         if (defender.deity.id === 'mictlantecuhtli' && attacker.hp > 0) {
-          attacker.hp = Math.max(0, attacker.hp - Math.max(1, Math.round(damage * PASSIVE.reflect)));
+          attacker.hp = Math.max(0, attacker.hp - Math.max(1, Math.round(damage * 0.12)));
           attacker.hitFlashTimer = 3;
           popupText(attacker.x, attacker.y - 160, '¡REFLEJO!', '#a78bfa');
         }
@@ -2644,6 +2435,7 @@ export default function App() {
         // Golpe limpio
         const finalDamage = Math.round(damage);
         defender.hp = Math.max(0, defender.hp - finalDamage);
+        defender.isBlocking = false;
         defender.hitFlashTimer = 3; // Destello blanco en el sprite
 
         // Raijin no se inmuta mientras da su golpe fuerte
@@ -2692,8 +2484,9 @@ export default function App() {
           sounds.playHitLight();
         }
 
-        attacker.comboCount++;
-        attacker.comboTimer = 75;
+        attacker.attackConnected = true;
+        attacker.comboCount = continuingCombo ? attacker.comboCount + 1 : 1;
+        attacker.comboTimer = hitstunTime + 1;
 
         // Onda expansiva de impacto
         particlesRef.current.push({
@@ -2933,6 +2726,16 @@ export default function App() {
     ctx.fillText(`${p1.deity.name.toUpperCase()} (${p1.deity.pantheon})`, 50, barY - 10);
 
     // Super Meter P1
+    [p1, p2].forEach((f, i) => {
+      const gx = i === 0 ? 50 : w - 390;
+      ctx.fillStyle = '#263341'; ctx.fillRect(gx, 115, 340, 4);
+      ctx.fillStyle = f.guardAge <= GUARD_WINDOW ? '#b7f6ff' : f.guardIntegrity < 30 ? '#fb923c' : '#73899a';
+      ctx.fillRect(gx, 115, 340 * f.guardIntegrity / 100, 4);
+      if (f.chargeTicks > 0) {
+        ctx.fillStyle = f.chargeTicks >= 24 ? '#fbbf24' : '#a0b2c2';
+        ctx.fillRect(gx, 122, 340 * Math.min(1, f.chargeTicks / 24), 3);
+      }
+    });
     const superBarW = 340;
     const superBarH = 14;
     const superY = barY + barHeight + 8;
@@ -3058,14 +2861,8 @@ export default function App() {
       ctx.restore();
     }
 
-    if (frameCountRef.current < 90) {
-      ctx.font = '900 64px "Cinzel", serif';
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 6;
-      ctx.strokeText('¡A LA BATALLA!', w / 2, 280);
-      ctx.fillText('¡A LA BATALLA!', w / 2, 280);
-    }
+    const flow = matchFlowRef.current;
+    if (flow) drawMatchFlow(ctx, flow, [p1.deity.name, p2.deity.name], w);
   };
 
   return (
@@ -3081,7 +2878,7 @@ export default function App() {
             Mythic Clash 2D
           </span>
           <span className="text-xs text-slate-400 hidden md:inline short:hidden">
-            Torneo de Dioses · Físicas y Colisiones Reales
+            Torneo de Dioses
           </span>
         </div>
 
@@ -3195,12 +2992,12 @@ export default function App() {
               <div>
                 <span className="text-amber-300 font-semibold block mb-1">🎮 Jugador 1:</span>
                 <div>Mover: <b className="text-slate-200">A / D</b> · Saltar: <b className="text-slate-200">W</b> · Bloquear: <b className="text-slate-200">S</b></div>
-                <div>Golpe Rápido: <b className="text-slate-200">J</b> · Fuerte: <b className="text-slate-200">K</b> · <span className="text-amber-300 font-bold">Super: L</span></div>
+                <div>Golpe: <b className="text-slate-200">J</b> · Fuerte (mantén y suelta): <b className="text-slate-200">K</b> · <span className="text-amber-300 font-bold">Super: L</span></div>
               </div>
               <div>
                 <span className="text-amber-300 font-semibold block mb-1">⚔️ Jugador 2 / IA:</span>
                 <div>Mover: <b className="text-slate-200">← →</b> · Saltar: <b className="text-slate-200">↑</b> · Bloquear: <b className="text-slate-200">↓</b></div>
-                <div>Golpe Rápido: <b className="text-slate-200">U</b> · Fuerte: <b className="text-slate-200">I</b> · <span className="text-amber-300 font-bold">Super: O</span></div>
+                <div>Golpe: <b className="text-slate-200">U</b> · Fuerte (mantén y suelta): <b className="text-slate-200">I</b> · <span className="text-amber-300 font-bold">Super: O</span></div>
               </div>
             </div>
           </div>
@@ -3284,161 +3081,16 @@ export default function App() {
           </div>
         )}
 
-        {/* --- ESCENA 3: PANTALLA DE SELECCIÓN CON RETRATOS CANVAS Y VISTA PREVIA DETALLADA --- */}
-        {gameState === 'CHAR_SELECT' && (
-          <div className="absolute inset-0 z-20 flex flex-col lg:justify-between bg-black/85 backdrop-blur-md px-3 sm:px-5 pt-16 short:pt-11 overflow-y-auto">
-            <div className="text-center mb-1">
-              <span className="text-amber-400 text-xs font-semibold tracking-widest uppercase short:hidden">
-                {gameMode === 'PVP'
-                  ? 'Modo Versus Local (2 Jugadores)'
-                  : gameMode === 'ARCADE'
-                  ? `Modo Arcade · Camino de los Dioses (${difficulty})`
-                  : gameMode === 'ARCADE_COOP'
-                  ? `Arcade Cooperativo · 2 Jugadores (${difficulty})`
-                  : gameMode === 'TOWER'
-                  ? 'Torre de los Dioses'
-                  : `Modo Solitario vs IA (${difficulty})`}
-              </span>
-              <h2 className="font-cinzel text-xl md:text-3xl short:text-lg font-extrabold text-slate-100">
-                Selección de Divinidades
-              </h2>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch max-w-7xl mx-auto w-full lg:my-auto">
-              {/* Tarjeta de Vista Previa Grande P1 (Izquierda) */}
-              <div className="hidden lg:flex lg:col-span-3 justify-center">
-                <DeityLargePreviewCard
-                  deity={DEITIES[p1DeityIndex]}
-                  playerTag="JUGADOR 1"
-                  tagColor="bg-blue-500/20 text-blue-400 border-blue-400/40"
-                  isReady={p1Ready}
-                />
-              </div>
-
-              {/* Cuadrícula Central de los 12 Dioses con Iconos de Rostro Ilustrados */}
-              <div className="order-first lg:order-none lg:col-span-6 bg-slate-950/80 border border-slate-800 rounded-2xl p-2 sm:p-4 flex flex-col short:grid short:grid-cols-2 short:gap-x-3 justify-between shadow-2xl">
-                {(['Grecia', 'Egipto', 'México', 'Japón'] as Pantheon[]).map(pantheon => {
-                  const pantheonDeities = DEITIES.filter(d => d.pantheon === pantheon);
-                  return (
-                    <div key={pantheon} className="mb-2 last:mb-0">
-                      <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 short:mb-0.5 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-amber-400" />
-                        <span>Mitología de {pantheon}</span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-2 short:gap-1">
-                        {pantheonDeities.map(d => {
-                          const globalIdx = DEITIES.findIndex(x => x.id === d.id);
-                          const isP1 = p1DeityIndex === globalIdx;
-                          const isP2 = gameMode !== 'ARCADE' && gameMode !== 'TOWER' && p2DeityIndex === globalIdx;
-
-                          return (
-                            <DeityGridSlot
-                              key={d.id}
-                              deity={d}
-                              isP1={isP1}
-                              isP2={isP2}
-                              onMouseEnter={() => {
-                                if (!p1Ready) {
-                                  setP1DeityIndex(globalIdx);
-                                  sounds.playNav();
-                                }
-                              }}
-                              onClick={() => {
-                                if (!p1Ready) {
-                                  setP1DeityIndex(globalIdx);
-                                  sounds.playSelect();
-                                } else if ((gameMode === 'PVP' || gameMode === 'ARCADE_COOP') && !p2Ready) {
-                                  setP2DeityIndex(globalIdx);
-                                  sounds.playSelect();
-                                }
-                              }}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Tarjeta de Vista Previa Grande P2 / IA (Derecha), o la ruta de jefes en modo arcade */}
-              <div className="hidden lg:flex lg:col-span-3 justify-center">
-                {gameMode === 'ARCADE' ? (
-                  <ArcadeRouteCard hero={DEITIES[p1DeityIndex]} />
-                ) : gameMode === 'TOWER' ? (
-                  <div className="bg-slate-900/90 border border-violet-500/40 rounded-2xl p-4 flex flex-col items-center text-center shadow-2xl w-full">
-                    <div className="text-[11px] font-bold px-2.5 py-1 rounded border bg-violet-500/20 text-violet-300 border-violet-400/40 self-start">
-                      TORRE DE LOS DIOSES
-                    </div>
-                    <Medallion deityId={ORIGEN.id} size={120} />
-                    <p className="font-cinzel text-lg font-bold text-slate-100">8 rivales y el creador</p>
-                    <p className="text-[12px] text-slate-400 mt-1 leading-snug">
-                      Dos dioses al azar de cada reino, cada piso más listo que el anterior. En la cima te espera {ORIGEN.name}, {ORIGEN.title}.
-                    </p>
-                    <p className="text-[12px] text-amber-300 mt-2">3 continues · vida completa en cada piso</p>
-                  </div>
-                ) : (
-                  <DeityLargePreviewCard
-                    deity={DEITIES[p2DeityIndex]}
-                    playerTag={gameMode === 'PVE' ? 'IA CHALLENGER' : 'JUGADOR 2'}
-                    tagColor="bg-red-500/20 text-red-400 border-red-400/40"
-                    isReady={p2Ready}
-                  />
-                )}
-              </div>
-            </div>
-
-            {/* Barra Inferior de Confirmación e Instrucciones */}
-            <div className="sticky bottom-0 flex flex-row items-center justify-between gap-3 max-w-6xl mx-auto w-full py-2 sm:py-3 short:py-1 mt-2 sm:mt-3 short:mt-1 border-t border-white/10 bg-black/90 text-xs text-slate-400">
-              {/* Resumen en pantallas chicas */}
-              <div className="lg:hidden text-left text-sm leading-tight">
-                <div>
-                  <b className="text-blue-400">P1</b> <b className="text-slate-100">{DEITIES[p1DeityIndex].name}</b>{' '}
-                  <span style={{ color: STYLE_INFO[DEITIES[p1DeityIndex].style].color }}>· {DEITIES[p1DeityIndex].style}</span>
-                  <span className="text-slate-400"> · {DEITIES[p1DeityIndex].passive.name}</span>
-                </div>
-                {(gameMode === 'PVP' || gameMode === 'PVE' || gameMode === 'ARCADE_COOP') && (
-                  <div>
-                    <b className="text-red-400">{gameMode === 'PVE' ? 'IA' : 'P2'}</b> <b className="text-slate-100">{DEITIES[p2DeityIndex].name}</b>{' '}
-                    <span style={{ color: STYLE_INFO[DEITIES[p2DeityIndex].style].color }}>· {DEITIES[p2DeityIndex].style}</span>
-                  </div>
-                )}
-              </div>
-              <div className="hidden lg:flex gap-4">
-                <div>P1: <b className="text-slate-200">WASD</b> · <b className="text-blue-400">J</b> confirmar</div>
-                {gameMode === 'PVP' && (
-                  <div>P2: <b className="text-slate-200">Flechas</b> · <b className="text-red-400">U</b> confirmar</div>
-                )}
-                {gameMode === 'ARCADE_COOP' && (
-                  <div>P2: <b className="text-slate-200">Flechas</b> · <b className="text-red-400">1</b> o <b className="text-red-400">U</b> confirmar</div>
-                )}
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    sounds.playNav();
-                    setGameState('MAIN_MENU');
-                  }}
-                  className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600"
-                >
-                  Volver (ESC)
-                </button>
-                <button
-                  onClick={() => {
-                    sounds.playSelect();
-                    setP1Ready(true);
-                    setP2Ready(true);
-                  }}
-                  className="px-6 py-2 rounded font-semibold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black shadow-lg shadow-amber-900/40"
-                >
-                  {gameMode === 'ARCADE' || gameMode === 'ARCADE_COOP' || gameMode === 'TOWER' ? '¡Comenzar Aventura!' : '¡Comenzar Combate!'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {gameState === 'CHAR_SELECT' && <CharacterSelect
+          mode={gameMode} difficulty={difficulty} p1={p1DeityIndex} p2={p2DeityIndex}
+          ready1={p1Ready} ready2={p2Ready}
+          select={(index, player) => {
+            if (player === 1) { setP1DeityIndex(index); setP1Ready(false); }
+            else { setP2DeityIndex(index); setP2Ready(false); }
+          }}
+          back={() => { sounds.playNav(); setGameState('MAIN_MENU'); }}
+          confirm={() => { sounds.playSelect(); setP1Ready(true); setP2Ready(true); }}
+        />}
 
         {/* --- ESCENA 4B: MODO ARCADE --- */}
         {gameState === 'STAGE_SELECT' && (
@@ -3578,6 +3230,14 @@ export default function App() {
           </div>
         )}
 
+        {gameState === 'GAME_OVER' && !winner && <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 gap-4 text-center p-5">
+          <span className="text-xs tracking-widest text-slate-400">DOBLE K.O.</span>
+          <h2 className="text-4xl font-bold">Empate</h2>
+          <p className="text-sm text-slate-400">Ambos dioses cayeron. Vuelve a disputar este combate.</p>
+          <button className="bg-slate-100 text-slate-950 px-6 py-3 font-bold" onClick={() => gameMode === 'TOWER' ? startTowerFight() : startFight()}>Revancha</button>
+          <button onClick={() => setGameState('MAIN_MENU')}>Volver al menú</button>
+        </div>}
+
         {gameState === 'GAME_OVER' && winner && gameMode === 'TOWER' && towerRef.current && (() => {
           const run = towerRef.current;
           const won = winner.id === run.hero.id;
@@ -3627,6 +3287,7 @@ export default function App() {
             <p className="text-slate-300 text-sm mb-6 font-cinzel">
               {winner.title} · {winner.pantheon}
             </p>
+            <p className="text-amber-200 text-lg font-bold mb-5">Marcador final: {matchFlowRef.current?.wins.join(' — ')}</p>
 
             <div className="flex flex-col sm:flex-row gap-4 w-full max-w-md">
               <button

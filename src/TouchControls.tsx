@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { CANONICAL, getControls, sendKey } from './game/controls';
 import type { ControlAction } from './game/controls';
@@ -30,11 +30,36 @@ export default function TouchControls({ mode }: { mode: 'versus' | 'arcade' }) {
   const radius = (STICK * scale) / 2;
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const held = useRef(new Set<Dir>());
+  const activeButtons = useRef(new Set<ControlAction | 'spin'>());
+  const sentActions = useRef(new Set<ControlAction>());
+  const syncActions = () => {
+    const next = new Set<ControlAction>(held.current);
+    for (const action of activeButtons.current) {
+      if (action === 'spin') { next.add('light'); next.add('heavy'); }
+      else next.add(action);
+    }
+    for (const action of sentActions.current) if (!next.has(action)) press(action, false);
+    for (const action of next) if (!sentActions.current.has(action)) press(action, true);
+    sentActions.current = next;
+  };
+  useEffect(() => {
+    const release = () => {
+      for (const action of sentActions.current) press(action, false);
+      held.current.clear(); activeButtons.current.clear();
+      sentActions.current.clear();
+      setKnob({ x: 0, y: 0 });
+    };
+    window.addEventListener('blur', release);
+    return () => { release(); window.removeEventListener('blur', release); };
+  }, [mode]);
+  const buttonPress = (action: ControlAction | 'spin', down: boolean) => {
+    if (down) activeButtons.current.add(action); else activeButtons.current.delete(action);
+    syncActions();
+  };
 
   const setDirs = (next: Set<Dir>) => {
-    for (const d of held.current) if (!next.has(d)) press(d, false);
-    for (const d of next) if (!held.current.has(d)) press(d, true);
     held.current = next;
+    syncActions();
   };
 
   const moveStick = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -64,7 +89,7 @@ export default function TouchControls({ mode }: { mode: 'versus' | 'arcade' }) {
   const blue = 'bg-blue-600/70 border-blue-300';
   const orange = 'bg-orange-600/70 border-orange-300';
   const gold = 'bg-amber-500/80 border-amber-200 text-slate-950';
-  const buttons: ({ action: ControlAction; label: string; color: string } | null)[] =
+  const buttons: ({ action: ControlAction | 'spin'; label: string; color: string } | null)[] =
     mode === 'versus'
       ? [
           { action: 'down', label: 'BLOQUEO', color: 'bg-slate-500/70 border-slate-200' },
@@ -75,7 +100,7 @@ export default function TouchControls({ mode }: { mode: 'versus' | 'arcade' }) {
       : [
           { action: 'special', label: 'MAGIA', color: gold },
           { action: 'heavy', label: 'SALTO', color: orange },
-          null,
+          { action: 'spin', label: 'GIRO', color: 'bg-slate-500/70 border-slate-200' },
           { action: 'light', label: 'ATAQUE', color: blue }
         ];
   const btn = 64 * scale;
@@ -134,10 +159,10 @@ export default function TouchControls({ mode }: { mode: 'versus' | 'arcade' }) {
               onPointerDown={e => {
                 sounds.init();
                 capture(e);
-                press(b.action, true);
+                buttonPress(b.action, true);
               }}
-              onPointerUp={() => press(b.action, false)}
-              onPointerCancel={() => press(b.action, false)}
+              onPointerUp={() => buttonPress(b.action, false)}
+              onPointerCancel={() => buttonPress(b.action, false)}
               onContextMenu={e => e.preventDefault()}
             >
               {b.label}

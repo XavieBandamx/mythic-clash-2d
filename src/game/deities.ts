@@ -113,7 +113,7 @@ export const DEITIES: DeityData[] = [
     auraColor: 'rgba(250, 204, 21, 0.4)',
     stats: { attack: 3, speed: 5, defense: 2 },
     style: 'Velocidad',
-    passive: { name: 'Paso de las Sombras', desc: 'Esquiva por completo uno de cada cinco golpes.' },
+    passive: { name: 'Paso de las Sombras', desc: 'En versus, un bloqueo preciso esquiva y prepara un contraataque. En arcade, su giro no cuesta vida cada 3 segundos.' },
     isUnique: false
   },
   {
@@ -183,7 +183,7 @@ export const DEITIES: DeityData[] = [
     auraColor: 'rgba(185, 28, 28, 0.45)',
     stats: { attack: 3, speed: 2, defense: 5 },
     style: 'Guardián',
-    passive: { name: 'Espejo del Mictlán', desc: 'Regresa al atacante parte del daño que bloquea o recibe.' },
+    passive: { name: 'Espejo del Mictlán', desc: 'En versus refleja poco al bloquear y 50% con bloqueo preciso; en arcade devuelve parte del daño recibido.' },
     isUnique: false
   },
 
