@@ -8,6 +8,7 @@ import { Volume2, VolumeX, Eye, RefreshCw, Home, Swords, Gamepad2, Music } from 
 import ArcadeMode from './arcade/ArcadeMode';
 import CharacterSelect from './CharacterSelect';
 import MainMenu from './MainMenu';
+import DifficultyMenu from './DifficultyMenu';
 import { moveRoster } from './game/roster';
 import { MatchFlow, VERSUS_HEALTH, drawMatchFlow } from './game/match';
 import type { RoundWinner } from './game/match';
@@ -1811,8 +1812,8 @@ export default function App() {
       sounds.init();
 
       // Enter y espacio activan normalmente los controles de la barra superior.
-      if (gameState === 'MAIN_MENU' && (e.key === 'Enter' || e.code === 'Space') &&
-        e.target instanceof HTMLElement && e.target.closest('header button')) return;
+      if ((gameState === 'MAIN_MENU' || gameState === 'DIFFICULTY_MENU') && (e.key === 'Enter' || e.code === 'Space') &&
+        e.target instanceof HTMLElement && e.target.closest('header button, .options-back')) return;
 
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault();
@@ -1860,6 +1861,7 @@ export default function App() {
           });
         } else if (e.key === 'j' || e.key === 'J' || e.key === 'Enter' || e.key === ' ') {
           sounds.playSelect();
+          e.preventDefault();
           const diffs: Difficulty[] = ['FACIL', 'NORMAL', 'DIFICIL'];
           setDifficulty(diffs[diffMenuSelected]);
           setGameState('MAIN_MENU');
@@ -2988,80 +2990,12 @@ export default function App() {
         {gameState === 'CONTROLS_MENU' && <ControlsMenu onBack={() => setGameState('MAIN_MENU')} />}
 
         {/* --- ESCENA 2: MENÚ DE DIFICULTAD --- */}
-        {gameState === 'DIFFICULTY_MENU' && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/80 backdrop-blur-sm p-6 text-center">
-            <h2 className="font-cinzel text-3xl md:text-4xl font-bold text-amber-400 mb-2">
-              Dificultad de la IA
-            </h2>
-            <p className="text-slate-400 text-sm mb-6 max-w-md">
-              Ajusta la velocidad de reacción, agresividad en combos y porcentaje de defensa del enemigo.
-            </p>
-
-            <div className="w-full max-w-md space-y-4">
-              {[
-                {
-                  id: 'FACIL' as Difficulty,
-                  title: 'Fácil',
-                  desc: 'IA lenta y contemplativa. Daño reducido (-30%). Ideal para novatos.',
-                  color: 'border-emerald-500/50'
-                },
-                {
-                  id: 'NORMAL' as Difficulty,
-                  title: 'Normal',
-                  desc: 'IA equilibrada con zonificación, ataques aéreos y bloqueo del 45%.',
-                  color: 'border-amber-500/50'
-                },
-                {
-                  id: 'DIFICIL' as Difficulty,
-                  title: 'Difícil',
-                  desc: 'IA implacable, castiga saltos, bloqueo del 85%, combos letales y daño +30%.',
-                  color: 'border-red-500/50'
-                }
-              ].map((item, idx) => {
-                const isSelected = diffMenuSelected === idx;
-                return (
-                  <button
-                    key={item.id}
-                    onMouseEnter={() => {
-                      setDiffMenuSelected(idx);
-                      sounds.playNav();
-                    }}
-                    onClick={() => {
-                      setDifficulty(item.id);
-                      sounds.playSelect();
-                      setGameState('MAIN_MENU');
-                    }}
-                    className={`w-full p-4 rounded-lg text-left transition-all border ${
-                      isSelected
-                        ? `bg-slate-800/90 ${item.color} shadow-lg ring-1 ring-amber-400`
-                        : 'bg-slate-900/60 border-slate-700/60 text-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-cinzel font-bold text-lg text-slate-100">{item.title}</span>
-                      {difficulty === item.id && (
-                        <span className="text-xs bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded border border-amber-400/30">
-                          ACTUAL
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">{item.desc}</p>
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => {
-                sounds.playNav();
-                setGameState('MAIN_MENU');
-              }}
-              className="mt-8 px-6 py-2 rounded border border-slate-600 text-xs text-slate-300 hover:bg-slate-800"
-            >
-              Volver al Menú Principal (ESC)
-            </button>
-          </div>
-        )}
+        {gameState === 'DIFFICULTY_MENU' && <DifficultyMenu
+          current={difficulty} selected={diffMenuSelected}
+          highlight={index => { if (index !== diffMenuSelected) { setDiffMenuSelected(index); sounds.playNav(); } }}
+          choose={value => { setDifficulty(value); sounds.playSelect(); setGameState('MAIN_MENU'); }}
+          back={() => { sounds.playNav(); setGameState('MAIN_MENU'); }}
+        />}
 
         {gameState === 'CHAR_SELECT' && <CharacterSelect
           mode={gameMode} difficulty={difficulty} p1={p1DeityIndex} p2={p2DeityIndex}

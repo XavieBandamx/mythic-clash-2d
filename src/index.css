@@ -18,6 +18,132 @@
   font-family: 'Cinzel', serif;
 }
 
+/* Opciones: paneles del mismo torneo que la portada y el selector. */
+.options-screen { position:absolute; inset:0; z-index:20; padding:82px 5vw 22px; background:#080e18; overflow:hidden; }
+.options-backdrop { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.07; filter:grayscale(1); pointer-events:none; }
+.options-screen:before { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at 85% 25%,#284d703d,transparent 65%); pointer-events:none; }
+.options-shell { position:relative; max-width:1120px; height:100%; margin:auto; display:flex; flex-direction:column; gap:24px; min-height:0; }
+.options-heading h2 { font-size:clamp(28px,4vw,52px); font-weight:900; font-style:italic; letter-spacing:-.04em; color:#e5f1fb; line-height:1.1; margin:14px 0 10px; }
+.options-subtitle { font-size:12px; color:#8ca5bb; max-width:700px; min-height:32px; line-height:1.5; }
+.options-body { flex:1; min-height:0; display:flex; flex-direction:column; gap:18px; }
+.options-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:14px; border-top:1px solid #7ba7c42b; flex-shrink:0; }
+.options-footer button { cursor:pointer; }
+.options-back { display:flex; align-items:center; gap:10px; color:#d2e9fa; font-size:12px; }
+.options-back kbd { font:9px inherit; border:1px solid #7895ad44; padding:4px 7px; color:#7f9ab0; }
+.options-footer>span { display:flex; align-items:center; gap:12px; font-size:10px; color:#6f8aa3; }
+.options-reset { color:#8aa3ba; font-size:11px; padding:8px 12px; border:1px solid #65819a44; }
+.options-screen button:focus-visible { outline:2px solid #d9f1ff; outline-offset:3px; }
+.difficulty-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; height:100%; }
+.difficulty-card { display:flex; flex-direction:column; text-align:left; min-height:0; position:relative; padding:24px; background:linear-gradient(145deg,#182b3f88,#101a2888); border:1px solid #617f993b; color:#bfd0df; cursor:pointer; transition:background .15s,border-color .15s; }
+.difficulty-card[data-active=true] { border-color:#89ccf5aa; background:linear-gradient(145deg,#28577588,#14263a99); box-shadow:inset 3px 0 #89d0ff; }
+.difficulty-card-top { display:flex; align-items:center; justify-content:space-between; height:18px; gap:8px; font-size:8px; letter-spacing:2px; color:#7896b1; }
+.difficulty-card-top b { display:flex; align-items:center; gap:4px; font-size:8px; letter-spacing:1px; color:#a1d9ff; }
+.difficulty-emblem { width:66px; height:66px; color:#89c5ed; margin:22px 0; }
+.difficulty-tag { font-size:8px; letter-spacing:2px; color:#7cb5db; }
+.difficulty-card h3 { font-size:34px; font-style:italic; font-weight:850; line-height:1.2; margin:6px 0 10px; color:#edf6fd; }
+.difficulty-card p { font-size:12px; line-height:1.6; color:#91aabd; }
+.difficulty-card ul { margin:20px 0; display:grid; gap:9px; font-size:11px; color:#b4cbdc; }
+.difficulty-card li:before { content:'—'; color:#508bb3; margin-right:8px; }
+.difficulty-select { display:flex; align-items:center; justify-content:space-between; border-top:1px solid #7fa5c233; padding-top:14px; margin-top:auto; font-size:9px; letter-spacing:2px; color:#9bbed8; }
+.controls-screen .options-shell { max-width:940px; }
+.control-tabs { display:flex; gap:6px; border-bottom:1px solid #7194b03b; }
+.control-tab { display:flex; align-items:center; gap:10px; padding:12px 24px; border-bottom:2px solid transparent; font-size:12px; color:#829db5; cursor:pointer; }
+.control-tab[aria-selected=true] { background:#264c6944; border-color:#8ed3ff; color:#d5edff; }
+.control-panel { flex:1; min-height:0; background:#111e2c99; border:1px solid #64829b33; padding:20px 24px; }
+.control-panel table { width:100%; table-layout:fixed; font-size:12px; }
+.control-panel th:first-child { width:44%; }
+.control-panel th { color:#8fb5d0; font-size:9px; letter-spacing:1px; }
+.control-panel td:not(:first-child) { text-align:center; }
+.control-panel td { color:#a5bdd0; padding-top:3px; padding-bottom:3px; }
+.control-key { min-width:75px; max-width:100%; padding:5px 12px; font-size:12px; font-weight:650; color:#d5e9f8; border:1px solid #759cb95c; background:#223a5066; cursor:pointer; overflow-wrap:anywhere; }
+.control-key:hover,.control-choice:hover { border-color:#a1d9ff; background:#31557277; }
+.control-key[data-listening=true] { background:#8ed3ff; color:#091421; border-color:#d8f1ff; }
+.control-choice { padding:10px 16px; border:1px solid #7295b04d; color:#92aec3; font-size:12px; text-transform:capitalize; cursor:pointer; }
+.control-choice[aria-pressed=true] { color:#d4efff; border-color:#88c9f0; background:#28547277; }
+.control-listening { position:absolute; inset:0; z-index:3; background:#080e18f5; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; text-align:center; padding:20px; border:1px solid #85caf080; }
+.control-listening strong { color:#d6efff; font-size:clamp(18px,3vw,30px); font-style:italic; }
+.control-listening span { color:#8ba8bd; font-size:12px; }
+.control-listening button { color:#c6e8ff; padding:10px 18px; border:1px solid #7199b7; font-size:12px; cursor:pointer; }
+.control-listening kbd { margin-left:10px; color:#7799b2; }
+@media (max-width:760px) and (min-height:501px) {
+ .options-screen { padding:62px 18px 14px; }
+ .options-shell { gap:16px; }
+ .options-heading h2 { margin:10px 0 8px; font-size:32px; }
+ .options-heading .title-eyebrow { font-size:7px; letter-spacing:2px; }
+ .options-subtitle { font-size:11px; }
+ .difficulty-grid { grid-template-columns:1fr; gap:10px; }
+ .difficulty-card { padding:14px 16px 12px 78px; }
+ .difficulty-emblem { position:absolute; left:17px; top:50%; transform:translateY(-50%); width:42px; height:42px; margin:0; }
+ .difficulty-card h3 { font-size:26px; margin:3px 0 5px; }
+ .difficulty-card p { font-size:10px; line-height:1.4; }
+ .difficulty-tag { display:none; }
+ .difficulty-card ul { display:flex; flex-wrap:wrap; gap:4px 10px; margin:8px 0 0; font-size:9px; }
+ .difficulty-select { display:none; }
+ .options-footer>span { display:none; }
+ .control-panel { padding:10px 8px; }
+ .control-panel th:first-child { width:44%; }
+ .control-panel table { font-size:10px; }
+ .control-panel th { font-size:8px; letter-spacing:0; }
+ .control-key { min-width:48px; padding:8px 5px; font-size:11px; }
+ .control-tab { flex:1; justify-content:center; padding:11px 7px; gap:6px; }
+ .control-choice { padding:10px; font-size:11px; }
+}
+@media (max-height:650px) {
+ .options-shell { gap:12px; }
+ .options-heading h2 { font-size:30px; margin:8px 0 6px; }
+ .options-subtitle { font-size:10px; min-height:0; }
+ .difficulty-emblem { width:40px; height:40px; margin:10px 0; }
+ .difficulty-card { padding:16px; }
+ .difficulty-card h3 { font-size:26px; }
+ .difficulty-card ul { margin:10px 0; gap:5px; font-size:10px; }
+ .control-panel { padding:8px 12px; }
+ .control-panel td { padding-top:2px; padding-bottom:2px; }
+ .control-key { padding:4px 8px; }
+ .control-tab { padding:8px 18px; }
+ .options-footer { padding-top:8px; }
+}
+@media (max-width:760px) and (min-height:501px) and (max-height:650px) {
+ .difficulty-card { padding:8px 12px 8px 62px; }
+ .difficulty-emblem { left:14px; width:32px; margin:0; }
+ .difficulty-card-top { font-size:7px; letter-spacing:1px; height:12px; }
+ .difficulty-card h3 { font-size:22px; margin:2px 0; }
+ .difficulty-card ul { margin:4px 0 0; font-size:8px; }
+ .difficulty-card p { font-size:9px; line-height:1.35; }
+ .difficulty-card li:not(:nth-child(2)) { display:none; }
+ .options-shell { gap:10px; }
+ .control-panel table { font-size:9px; }
+ .control-key { padding:5px; }
+ .options-reset { padding:6px; font-size:10px; }
+}
+@media (max-height:500px) {
+ .options-screen { padding:49px 24px 10px; }
+ .options-heading .title-eyebrow,.options-subtitle { display:none; }
+ .options-heading h2 { font-size:25px; margin:0; }
+ .options-shell { gap:9px; }
+ .difficulty-grid { gap:10px; }
+ .difficulty-card { padding:12px; }
+ .difficulty-emblem { position:absolute; width:27px; height:27px; right:12px; top:35px; margin:0; }
+ .difficulty-tag { display:none; }
+ .difficulty-card h3 { font-size:24px; margin:6px 0; }
+ .difficulty-card p { font-size:9px; line-height:1.4; max-width:85%; }
+ .difficulty-card ul { font-size:9px; margin:8px 0 0; gap:3px; }
+ .difficulty-select { display:none; }
+ .controls-screen .options-shell { display:grid; grid-template-columns:180px 1fr; grid-template-rows:1fr auto; gap:8px 18px; }
+ .controls-screen .options-heading { grid-column:1; grid-row:1; }
+ .controls-screen .options-heading h2 { font-size:30px; margin-top:10px; }
+ .controls-screen .options-body { grid-column:2; grid-row:1; gap:5px; }
+ .controls-screen .options-footer { grid-column:1 / 3; grid-row:2; }
+ .control-tab { font-size:10px; padding:5px 10px; gap:5px; }
+ .control-panel { padding:5px 8px; }
+ .control-panel table { font-size:9px; }
+ .control-panel th { font-size:8px; letter-spacing:0; padding-bottom:2px; }
+ .control-panel td { padding-top:1px; padding-bottom:1px; }
+ .control-key { min-width:44px; padding:2px 5px; font-size:10px; }
+ .control-choice { padding:5px 8px; font-size:10px; }
+ .control-panel .space-y-4>div+div { margin-top:8px; }
+ .control-panel p { font-size:9px; line-height:1.4; }
+}
+
 /* Pantalla de título: los mismos personajes y la misma identidad de la selección. */
 .title-screen { position:absolute; inset:0; z-index:20; overflow:hidden; display:flex; flex-direction:column; padding:80px 5vw 18px; gap:18px; background:#080e18; }
 .title-backdrop { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.12; filter:grayscale(.7); mask-image:linear-gradient(90deg,transparent,#000 80%); pointer-events:none; }

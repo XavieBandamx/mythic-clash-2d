@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Gamepad2, Keyboard, Smartphone } from 'lucide-react';
+import { ArrowLeft, Gamepad2, Keyboard, Smartphone } from 'lucide-react';
+import OptionsFrame from './OptionsFrame';
 import { sounds } from './game/sound';
 import {
   ACTIONS, DEFAULT_CONTROLS, assignButton, assignKey, buttonLabel, getControls, keyLabel, onControlsChange,
@@ -100,9 +101,8 @@ export default function ControlsMenu({ onBack }: { onBack: () => void }) {
         sounds.playNav();
         onClick();
       }}
-      className={`min-w-[96px] px-3 py-1.5 rounded-md border text-sm font-bold transition-colors ${
-        active ? 'bg-amber-500 text-slate-950 border-amber-300 animate-pulse' : 'bg-slate-800 border-slate-600 text-slate-100 hover:border-amber-400'
-      }`}
+      className="control-key" data-listening={active}
+      aria-label={label} aria-busy={active}
     >
       {active ? '...' : label}
     </button>
@@ -115,19 +115,24 @@ export default function ControlsMenu({ onBack }: { onBack: () => void }) {
   ];
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-sm p-6 text-center">
-      <h2 className="font-cinzel text-3xl md:text-4xl font-bold text-amber-400 mb-1">Configurar Controles</h2>
-      <p className="text-slate-400 text-sm mb-5">
-        {listening?.kind === 'key'
+    <OptionsFrame kind="controls-screen" title="Encuentra tu estilo" subtitle={
+        listening?.kind === 'key'
           ? 'Presiona la tecla nueva… (ESC para cancelar)'
           : listening?.kind === 'pad'
             ? padMissing
               ? `Conecta el control del ${PLAYERS[listening.player]} y presiona un botón… (ESC para cancelar)`
               : 'Presiona el botón nuevo en el control… (ESC para cancelar)'
-            : 'Haz clic en una casilla y presiona la tecla o el botón que quieras. Se guarda solo.'}
-      </p>
-
-      <div className="flex gap-2 mb-5">
+            : 'Elige una casilla y presiona tu nueva tecla o botón. Los cambios se guardan solos.'
+      } footer={<>
+        <button className="options-back" onClick={() => { sounds.playNav(); onBack(); }}><ArrowLeft size={16} /> Volver <kbd>ESC</kbd></button>
+        <button className="options-reset" onClick={() => { sounds.playNav(); setListening(null); setControls(structuredClone(DEFAULT_CONTROLS)); }}>Restaurar de fábrica</button>
+      </>}>
+      {listening && <div className="control-listening" role="status">
+        <strong>{listening.kind === 'key' ? 'Presiona tu nueva tecla' : padMissing ? 'Conecta tu control y presiona un botón' : 'Presiona un botón del control'}</strong>
+        <span>{PLAYERS[listening.player]} · {ACTIONS.find(action => action.id === listening.action)?.label}</span>
+        <button onClick={() => setListening(null)}>Cancelar <kbd>ESC</kbd></button>
+      </div>}
+      <div className="control-tabs" role="tablist" aria-label="Tipo de controles">
         {tabs.map(({ id, label, Icon }) => (
           <button
             key={id}
@@ -136,20 +141,19 @@ export default function ControlsMenu({ onBack }: { onBack: () => void }) {
               setListening(null);
               setTab(id);
             }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-semibold ${
-              tab === id ? 'bg-amber-500/20 border-amber-400 text-amber-200' : 'bg-slate-900/60 border-slate-700 text-slate-300'
-            }`}
+            className="control-tab" role="tab" aria-selected={tab === id}
+            aria-controls="control-panel" id={`control-tab-${id}`}
           >
             <Icon className="w-4 h-4" /> {label}
           </button>
         ))}
       </div>
 
-      <div className="w-full max-w-2xl bg-slate-900/70 border border-slate-700 rounded-xl p-4">
+      <div className="control-panel" id="control-panel" role="tabpanel" aria-labelledby={`control-tab-${tab}`}>
         {tab === 'teclado' && (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-amber-300 text-xs uppercase tracking-wider">
+              <tr className="text-sky-200 text-xs uppercase tracking-wider">
                 <th className="text-left pb-2">Acción</th>
                 {PLAYERS.map(p => <th key={p} className="pb-2">{p}</th>)}
               </tr>
@@ -157,7 +161,7 @@ export default function ControlsMenu({ onBack }: { onBack: () => void }) {
             <tbody>
               {ACTIONS.map(({ id, label }) => (
                 <tr key={id} className="border-t border-white/5">
-                  <td className="text-left text-slate-300 py-1.5">{label}</td>
+                  <td className="text-left text-slate-300 py-1.5">{label.replace('Botón 1 · ', '').replace('Botón 2 · ', '').replace('Botón 3 · ', '')}</td>
                   {PLAYERS.map((_, player) => (
                     <td key={player} className="py-1.5">
                       {cell(isListening('key', player, id), keyLabel(controls.keyboard[player][id]), () =>
@@ -175,7 +179,7 @@ export default function ControlsMenu({ onBack }: { onBack: () => void }) {
           <>
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-amber-300 text-xs uppercase tracking-wider">
+                <tr className="text-sky-200 text-xs uppercase tracking-wider">
                   <th className="text-left pb-2">Acción</th>
                   {PLAYERS.map((p, i) => <th key={p} className="pb-2">{p} · control {i + 1}</th>)}
                 </tr>
@@ -183,7 +187,7 @@ export default function ControlsMenu({ onBack }: { onBack: () => void }) {
               <tbody>
                 {ACTIONS.filter(a => a.id === 'light' || a.id === 'heavy' || a.id === 'special').map(({ id, label }) => (
                   <tr key={id} className="border-t border-white/5">
-                    <td className="text-left text-slate-300 py-1.5">{label}</td>
+                    <td className="text-left text-slate-300 py-1.5">{label.replace('Botón 1 · ', '').replace('Botón 2 · ', '').replace('Botón 3 · ', '')}</td>
                     {PLAYERS.map((_, player) => (
                       <td key={player} className="py-1.5">
                         {cell(isListening('pad', player, id), buttonLabel(controls.pad[player][id as ButtonAction]), () =>
@@ -213,9 +217,7 @@ export default function ControlsMenu({ onBack }: { onBack: () => void }) {
                       sounds.playNav();
                       setControls({ ...controls, touchSize: size });
                     }}
-                    className={`px-4 py-2 rounded-lg border capitalize ${
-                      controls.touchSize === size ? 'bg-amber-500/20 border-amber-400 text-amber-200' : 'bg-slate-800 border-slate-600 text-slate-300'
-                    }`}
+                    className="control-choice" aria-pressed={controls.touchSize === size}
                   >
                     {size}
                   </button>
@@ -232,9 +234,7 @@ export default function ControlsMenu({ onBack }: { onBack: () => void }) {
                       sounds.playNav();
                       setControls({ ...controls, touchSwap: swap });
                     }}
-                    className={`px-4 py-2 rounded-lg border ${
-                      controls.touchSwap === swap ? 'bg-amber-500/20 border-amber-400 text-amber-200' : 'bg-slate-800 border-slate-600 text-slate-300'
-                    }`}
+                    className="control-choice" aria-pressed={controls.touchSwap === swap}
                   >
                     {swap ? 'Ataques a la izquierda' : 'Ataques a la derecha'}
                   </button>
@@ -246,27 +246,6 @@ export default function ControlsMenu({ onBack }: { onBack: () => void }) {
         )}
       </div>
 
-      <div className="flex gap-3 mt-6">
-        <button
-          onClick={() => {
-            sounds.playNav();
-            setListening(null);
-            setControls(structuredClone(DEFAULT_CONTROLS));
-          }}
-          className="px-5 py-2 rounded border border-slate-600 text-xs text-slate-300 hover:bg-slate-800"
-        >
-          Restaurar de fábrica
-        </button>
-        <button
-          onClick={() => {
-            sounds.playNav();
-            onBack();
-          }}
-          className="px-5 py-2 rounded border border-amber-500/60 text-xs text-amber-200 hover:bg-amber-500/10"
-        >
-          Volver al Menú Principal (ESC)
-        </button>
-      </div>
-    </div>
+    </OptionsFrame>
   );
 }
