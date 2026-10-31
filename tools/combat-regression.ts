@@ -22,7 +22,7 @@ const { LEVELS, BEASTS, MONSTER_SPRITES, buildWaves, ORIGEN } = await import('..
 const { readMastery, awardMastery } = await import('../src/game/progression');
 const { MatchFlow, ROUND_INTRO_TICKS, ROUND_KO_TICKS, VERSUS_HEALTH } = await import('../src/game/match');
 const { moveRoster, ROSTER_PAGE_SIZE } = await import('../src/game/roster');
-const { LIFE_LOSS_TICKS, RESCUE_WINDOW_TICKS, RESCUE_HOLD_TICKS } = await import('../src/arcade/engine');
+const { LIFE_LOSS_TICKS, RESCUE_WINDOW_TICKS, RESCUE_HOLD_TICKS, COOP_LINK_WINDOW, COOP_GUARD_TICKS } = await import('../src/arcade/engine');
 const { getSpriteSheetConfig, getExtraSheetConfig, loadSpriteSheet, spriteAssetSrc, EXTRA_ROWS } = await import('../src/game/sprites');
 const { victoryFrame, jumpFrame, castFrame } = await import('../src/game/spriteMotion');
 const god = (id: string) => DEITIES.find(d => d.id === id)!;
@@ -398,6 +398,101 @@ test('Los controles de bendición son independientes y un jugador eliminado no b
   solo.chooseRelic(1, 0); for (let i = 0; i < 75; i++) solo.step(idle);
   assert.equal(solo.levelIndex, 1);
 });
+
+const teamHit = { damage: 10, knockdown: false, heavy: false, dir: 1 as const };
+function linkedEnemies() {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL');
+  const a = new Monster('brute', LEVELS[0].skins.brute, 500, 100, 1, 1);
+  const b = new Monster('grunt', LEVELS[0].skins.grunt, 750, 100, 1, 1);
+  g.monsters = [a, b]; (g as any).waveActive = true;
+  (g as any).updateCoopTactics();
+  return { g, a, b };
+}
+function guardedBoss() {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); g.phase = 'boss';
+  g.boss = new Boss(god('hades'), 640, 100, 1000, 1, 640); g.boss.setState('idle');
+  g.heroes[0].x = 500; g.heroes[1].x = 780;
+  (g as any).coopGuardCooldown = 0; (g as any).updateCoopTactics();
+  return { g, boss: g.boss };
+}
+test('Enemigos enlazados reparten objetivos y solo dos jugadores sobre rivales distintos los abren', () => {
+  const { g, a, b } = linkedEnemies(); assert.ok(g.coopLink);
+  assert.deepEqual([a.coopAssignment, b.coopAssignment], [0, 1]);
+  const hp = a.hp; (g as any).applyHit(a, teamHit, g.heroes[0]); assert.equal(a.hp, hp - 6);
+  (g as any).applyHit(b, teamHit, g.heroes[0]); assert.ok(g.coopLink);
+  a.invuln = 0; (g as any).applyHit(a, teamHit, g.heroes[1]);
+  assert.equal(g.coopLink, null); assert.equal(a.state, 'recover'); assert.ok(a.stateTimer < 0);
+  assert.deepEqual([a.coopAssignment, b.coopAssignment], [null, null]);
+  a.invuln = 0; const openedHp = a.hp; (g as any).applyHit(a, teamHit, g.heroes[0]); assert.equal(a.hp, openedHp - 10);
+});
+test('Un enlace no se rompe golpeando el mismo enemigo ni con golpes demasiado separados', () => {
+  const { g, a, b } = linkedEnemies();
+  (g as any).applyHit(a, teamHit, g.heroes[0]); a.invuln = 0;
+  (g as any).applyHit(a, teamHit, g.heroes[1]); assert.ok(g.coopLink);
+  g.tick += COOP_LINK_WINDOW + 1; b.invuln = 0;
+  (g as any).applyHit(b, teamHit, g.heroes[0]); assert.ok(g.coopLink);
+});
+test('Los enlaces no reaparecen en la misma oleada y liberan protección si cae el compañero o muere un miembro', () => {
+  const { g, a, b } = linkedEnemies();
+  (g as any).applyHit(a, teamHit, g.heroes[0]); (g as any).applyHit(b, teamHit, g.heroes[1]);
+  (g as any).updateCoopTactics(); assert.equal(g.coopLink, null);
+  const downed = linkedEnemies(); downed.g.heroes[0].hp = 0; downed.g.loseLife(downed.g.heroes[0]);
+  assert.equal(downed.g.coopLink, null); assert.equal(downed.a.coopAssignment, null);
+  const killed = linkedEnemies(); killed.a.hp = 0; (killed.g as any).updateCoopTactics();
+  assert.equal(killed.g.coopLink, null); assert.equal(killed.b.coopAssignment, null);
+});
+test('Solo no activa tácticas y las parejas excluyen monstruos fuera de pantalla, jinetes, ladrones y mini-jefes', () => {
+  const solo = new ArcadeGame(god('zeus'), 'NORMAL'); (solo as any).waveActive = true;
+  solo.monsters = [new Monster('grunt', LEVELS[0].skins.grunt, 400, 100, 1, 1), new Monster('brute', LEVELS[0].skins.brute, 600, 100, 1, 1)];
+  (solo as any).coopGuardCooldown = 0; (solo as any).updateCoopTactics(); assert.equal(solo.coopLink, null); assert.equal(solo.coopGuard, null);
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); (g as any).waveActive = true;
+  g.monsters = [new Monster('grunt', LEVELS[0].skins.grunt, -50, 100, 1, 1), new Monster('mini', LEVELS[0].skins.mini, 400, 100, 1, 1), new Monster('thief', LEVELS[0].skins.grunt, 600, 100, 1, 1)];
+  (g as any).updateCoopTactics(); assert.equal(g.coopLink, null);
+  const rider = new Monster('grunt', LEVELS[0].skins.grunt, 450, 100, 1, 1);
+  rider.mount = new Beast(BEASTS.Grecia, 450, 100);
+  g.monsters = [rider, new Monster('grunt', LEVELS[0].skins.grunt, 650, 100, 1, 1)];
+  (g as any).updateCoopTactics(); assert.equal(g.coopLink, null);
+});
+test('Guardia de jefe mantiene orientación y solo se abre con jugadores distintos desde lados opuestos', () => {
+  const { g, boss } = guardedBoss(); assert.ok(boss.coopGuarding);
+  boss.update(g); assert.equal(boss.state, 'guard'); assert.equal(boss.vx, 0);
+  const hp = boss.hp; (g as any).applyHit(boss, teamHit, g.heroes[0]); assert.equal(boss.hp, hp - 5.5);
+  g.heroes[1].x = 500; boss.invuln = 0; (g as any).applyHit(boss, teamHit, g.heroes[1]); assert.ok(g.coopGuard);
+  g.heroes[1].x = 780; boss.invuln = 0; (g as any).applyHit(boss, teamHit, g.heroes[1]);
+  assert.equal(g.coopGuard, null); assert.equal(boss.coopGuarding, false); assert.equal(boss.state, 'recover'); assert.equal(boss.stateTimer, -60);
+  for (let i = 0; i < 6; i++) { boss.invuln = 0; boss.receiveHit(teamHit); }
+  assert.equal((boss as any).escapePending, false);
+});
+test('Guardia no acepta un solo jugador flanqueando ni marcas caducadas; termina y respeta cooldown', () => {
+  const { g, boss } = guardedBoss();
+  (g as any).applyHit(boss, teamHit, g.heroes[0]);
+  g.heroes[0].x = 780; boss.invuln = 0; (g as any).applyHit(boss, teamHit, g.heroes[0]); assert.ok(g.coopGuard);
+  g.tick += COOP_LINK_WINDOW + 1; g.heroes[1].x = 500; boss.invuln = 0;
+  (g as any).applyHit(boss, teamHit, g.heroes[1]); assert.ok(g.coopGuard);
+  for (let i = 0; i < COOP_GUARD_TICKS; i++) (g as any).updateCoopTactics();
+  assert.equal(g.coopGuard, null); assert.equal(boss.coopGuarding, false);
+  boss.setState('idle'); (g as any).updateCoopTactics(); assert.equal(g.coopGuard, null);
+});
+test('Guardia desaparece al quedar uno en pie y nunca interrumpe un poder, una introducción o una caída', () => {
+  const { g, boss } = guardedBoss(); g.heroes[1].gameOver = true;
+  (g as any).updateCoopTactics(); assert.equal(g.coopGuard, null); assert.equal(boss.coopGuarding, false);
+  g.heroes[1].gameOver = false;
+  for (const state of ['special', 'intro', 'down', 'windup'] as const) {
+    boss.setState(state); (g as any).coopGuardCooldown = 0; (g as any).updateCoopTactics(); assert.equal(g.coopGuard, null);
+  }
+  boss.setState('idle'); boss.x = 40; (g as any).updateCoopTactics(); assert.equal(g.coopGuard, null);
+});
+test('Rayos cooperativos alternan objetivos y sus círculos no persiguen al jugador después del aviso', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); g.phase = 'boss';
+  const boss = g.boss = new Boss(god('raijin'), 640, 100, 1000, 1, 640);
+  g.heroes[0].x = 300; g.heroes[1].x = 950;
+  boss.setState('special'); (boss as any).currentSpecial = 'thunder'; boss.stateTimer = 9; boss.update(g);
+  assert.equal(g.thunders[0].x, 300);
+  g.heroes[0].x = 400; boss.stateTimer = 39; boss.update(g);
+  assert.equal(g.thunders[0].x, 300); assert.equal(g.thunders[1].x, 950);
+  g.heroes[0].gameOver = true; g.heroes[1].x = 800; boss.stateTimer = 69; boss.update(g);
+  assert.equal(g.thunders[2].x, 800);
+});
 test('Jefes escapan al umbral y respetan cooldown', () => {
   const b = new Boss(god('hades'), 600, 80, 400, 1, 600); b.setState('idle'); b.iq = 1;
   for (let i = 0; i < 5; i++) { b.invuln = 0; b.receiveHit({ damage: 1, heavy: false, knockdown: false, dir: 1 }); }
@@ -471,4 +566,42 @@ if (process.env.MYTHIC_SOAK === '1') {
     if (g.levelIndex === 0) console.log({ hero: { x: g.hero.x, z: g.hero.z, state: g.hero.state, hp: g.hero.hp }, cam: g.camX, monsters: g.monsters.map(m => ({ kind: m.kind, x: m.x, z: m.z, hp: m.hp, state: m.state })), boss: g.boss && { state: g.boss.state, hp: g.boss.hp }, wave: (g as any).waveIndex });
     assert.ok(g.levelIndex > 0, `${deity.name} no avanzó del primer reino`);
   }
+}
+
+if (process.env.MYTHIC_COOP_SOAK === '1') {
+  let seed = 20261101;
+  Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+  let totalGuards = 0;
+  for (const pair of [['susanoo', 'anubis'], ['zeus', 'poseidon']]) {
+    const g = new ArcadeGame(pair.map(god), 'NORMAL');
+    let links = 0, guards = 0, lastHint = '';
+    for (let tick = 0; tick < 54000 && g.phase !== 'victory' && g.phase !== 'finalOver'; tick++) {
+      if (g.phase === 'gameOver') g.continueGame();
+      if (g.relicOfferReady) g.heroes.forEach(hero => g.chooseRelic(hero.index ? 2 : 1, hero.index));
+      const inputs = g.heroes.map(hero => {
+        if (hero.gameOver) return { ...idle, attack: tick % 20 === 0 };
+        const fallen = [...g.rescues.keys()].find(other => other !== hero);
+        const targets = [...g.monsters.filter(monster => monster.kind !== 'thief' && !monster.isDown && monster.hp > 0), ...(g.boss && !g.boss.isDown && g.boss.hp > 0 ? [g.boss] : [])];
+        const target = g.coopGuard?.boss ?? g.coopLink?.members[hero.index] ?? targets.sort((a, b) => Math.abs(a.x - hero.x) + Math.abs(a.z - hero.z) - Math.abs(b.x - hero.x) - Math.abs(b.z - hero.z))[0];
+        const dx = (fallen ? fallen.x : target ? target.x + (g.coopGuard ? hero.index ? 95 : -95 : hero.x < target.x ? -75 : 75) : hero.x + 500) - hero.x;
+        const dz = (fallen?.z ?? target?.z ?? hero.z) - hero.z;
+        const facing = !target || hero.facing === (target.x >= hero.x ? 1 : -1);
+        return { ...idle, left: dx < -8 || (!fallen && !facing && target.x < hero.x), right: dx > 8 || (!fallen && !facing && target.x >= hero.x), up: dz < -6,
+          down: fallen && Math.abs(dx) <= 100 && Math.abs(dz) <= 36 ? true : dz > 6,
+          attack: !fallen && !!target && Math.abs(target.x - hero.x) < 150 && facing && tick % 7 === 0,
+          magic: !fallen && !g.coopGuard && !g.coopLink && !!g.boss && hero.magic > 0 && tick % 120 === 0 };
+      });
+      g.step(inputs);
+      const hint = g.coopTacticHint;
+      if (hint !== lastHint && hint.startsWith('ENLACE ROTO')) links++;
+      if (hint !== lastHint && hint.startsWith('GUARDIA ROTA')) guards++;
+      lastHint = hint;
+      for (const hero of g.heroes) assert.ok(Number.isFinite(hero.x) && Number.isFinite(hero.hp) && hero.hp >= 0 && hero.hp <= hero.maxHp);
+    }
+    console.log(`Recorrido cooperativo ${pair.join(' + ')}: reino ${g.levelIndex + 1}, ${g.phase}, ${links} enlaces y ${guards} guardias rotas`);
+    assert.ok(g.levelIndex > 0, 'El equipo no pudo avanzar del primer reino');
+    assert.ok(links > 0, 'El controlador no logró romper ningún enlace');
+    totalGuards += guards;
+  }
+  assert.ok(totalGuards > 0, 'Los controladores no lograron flanquear a ningún jefe');
 }

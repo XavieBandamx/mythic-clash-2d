@@ -30,8 +30,11 @@ export const RESCUE_WINDOW_TICKS = 480;
 export const RESCUE_HOLD_TICKS = 90;
 const RESPAWN_MAGIC = 2;   // Vasijas que regala cada vida perdida
 const REINFORCEMENT_HEAL = 20; // Vida por cada refuerzo del jefe derrotado (además de 1 vasija)
-const COOP_HP_MUL = 1.3;       // Monstruos más resistentes cuando juegan dos
-const COOP_BOSS_HP_MUL = 1.5;
+const COOP_HP_MUL = 1.15;      // La dificultad cooperativa viene de las tácticas, no de esponjas de daño.
+const COOP_BOSS_HP_MUL = 1.25;
+export const COOP_LINK_WINDOW = 120;
+export const COOP_GUARD_TICKS = 240;
+export const COOP_GUARD_INTERVAL = 600;
 const PLAYER_COLORS = ['#fbbf24', '#38bdf8']; // Distintivo de cada jugador (1P dorado, 2P celeste)
 const LAND_SQUASH_TICKS = 8;
 const TRAIL_LENGTH = 6; // Poses guardadas para las imágenes fantasma (se dibuja una de cada dos)
@@ -899,6 +902,7 @@ export class Monster extends Actor {
   public drops: number = 0;
   public reinforcement: boolean = false; // Invocado por un jefe: da vida y magia al derrotarlo
   public target: Hero | null = null; // Héroe al que persigue (en cooperativo, el más cercano)
+  public coopAssignment: number | null = null;
   private entered: boolean = false;
   private cooldown: number = 40;
   private animT: number = Math.floor(Math.random() * 100);
@@ -1351,6 +1355,7 @@ export class Boss extends Actor {
   // Origen: el doble de grande, con más alcance, fases por vida y daño doble mientras usa un poder
   public colossal: boolean;
   public safeZone: { x: number; z: number } | null = null;
+  public coopGuarding = false;
 
   // Astucia: 0 = bruto, 1 = lee todo lo que haces (sube con el nivel y la dificultad)
   public iq: number = 0.5;
@@ -1382,6 +1387,13 @@ export class Boss extends Actor {
   }
 
   public get loading() { return isLoading([this.sheet, this.extraSheet]); }
+
+  public openCoopGuard() {
+    this.escapePending = false;
+    this.recentHits = [];
+    this.escapeCooldown = Math.max(this.escapeCooldown, 90);
+    this.setState('recover'); this.stateTimer = -60;
+  }
 
   private extraPose(): { row: number; frame: number } | null {
     if (this.extraSheet?.status !== 'ready' || !this.extraCfg) return null;
@@ -1422,6 +1434,7 @@ export class Boss extends Actor {
 
   // Al canalizar un poder Origen descubre su máscara: recibe el doble de daño
   public receiveHit(hit: HitInfo): boolean {
+    if (this.coopGuarding) return super.receiveHit({ ...hit, damage: hit.damage * .55, knockdown: false, heavy: false });
     if (this.state === 'guard' && !hit.magic && !hit.pierce) {
       if (hit.guardBreak) {
         // Un golpe de Poder le rompe la guardia y lo deja abierto
@@ -1587,6 +1600,10 @@ export class Boss extends Actor {
     if (this.displayHp > this.hp) this.displayHp = Math.max(this.hp, this.displayHp - 1.2);
     if (this.updateDownStates()) return;
 
+    if (this.coopGuarding) {
+      this.vx = this.vz = 0;
+      return; // La orientación queda fija para que un jugador pueda atraerlo y el otro flanquear.
+    }
     this.target = this.chooseTarget(world);
     const hero = this.target;
     if (this.colossal && this.state !== 'intro') this.learn(world, hero);
@@ -1752,7 +1769,11 @@ export class Boss extends Actor {
       case 'thunder': {
         // Rayos con círculo de aviso sobre la posición del héroe
         const strikes = this.enraged ? [10, 35, 60, 85] : [10, 40, 70];
-        if (strikes.includes(t)) world.spawnThunder(hero.x, hero.z, this.deity.accentColor);
+        if (strikes.includes(t)) {
+          const team = world.activeHeroes.filter(member => member.hp > 0);
+          const marked = world.coop && team.length > 1 ? team[strikes.indexOf(t) % team.length] : hero;
+          world.spawnThunder(marked.x, marked.z, this.deity.accentColor);
+        }
         if (t >= strikes[strikes.length - 1] + 30) this.setState('recover');
         break;
       }
@@ -1978,6 +1999,11 @@ export class ArcadeGame {
   public relicChoices: (number | null)[] = [];
   public relicCursors: number[] = [];
   public rescues = new Map<Hero, { remaining: number; progress: number }>();
+  public coopLink: { members: [Monster, Monster]; hits: { player: number; member: Monster; tick: number }[] } | null = null;
+  public coopGuard: { boss: Boss; remaining: number; hits: { player: number; side: number; tick: number }[] } | null = null;
+  private coopLinkedWave = -1;
+  private coopGuardCooldown = COOP_GUARD_INTERVAL;
+  private coopFeedback: { text: string; until: number } | null = null;
   public get relicsComplete() { return this.activeHeroes.length > 0 && this.activeHeroes.every(hero => this.relicChoices[hero.index] !== null); }
   private lifeLossQueue: { hero: Hero; previous: number; remaining: number; elapsed: number }[] = [];
   public get lifeLoss() { return this.lifeLossQueue[0] ?? null; }
@@ -2037,6 +2063,92 @@ export class ArcadeGame {
     return this.heroes.filter(h => !h.gameOver && !this.rescues.has(h));
   }
 
+  public get teamStanding() { return this.coop && this.activeHeroes.filter(hero => hero.hp > 0 && !hero.isDown).length === 2; }
+  public get coopTacticHint(): string {
+    if (!this.teamStanding) return '';
+    if (this.coopGuard) return 'GUARDIA ENVOLVENTE · GOLPEEN DESDE LADOS OPUESTOS, UNO CADA JUGADOR (2 s)';
+    if (this.coopLink) return 'ENEMIGOS ENLAZADOS · CADA JUGADOR GOLPEA A UN RIVAL DISTINTO (2 s)';
+    return this.coopFeedback && this.tick < this.coopFeedback.until ? this.coopFeedback.text : '';
+  }
+
+  private endCoopLink(opening = false) {
+    const link = this.coopLink;
+    if (!link) return;
+    for (const member of link.members) {
+      member.coopAssignment = null;
+      if (opening && member.hp > 0 && !member.isDown) { member.setState('recover'); member.stateTimer = -30; }
+    }
+    this.coopLink = null;
+    if (opening) {
+      this.coopFeedback = { text: 'ENLACE ROTO · APROVECHEN LA APERTURA', until: this.tick + 120 };
+      sounds.playSuperReady();
+    }
+  }
+
+  private endCoopGuard(opening = false) {
+    const guard = this.coopGuard;
+    if (!guard) return;
+    guard.boss.coopGuarding = false;
+    if (guard.boss.hp > 0 && !guard.boss.isDown) {
+      if (opening) guard.boss.openCoopGuard();
+      else { guard.boss.setState('recover'); guard.boss.stateTimer = 0; }
+    }
+    this.coopGuard = null;
+    this.coopGuardCooldown = COOP_GUARD_INTERVAL;
+    if (opening) {
+      this.coopFeedback = { text: 'GUARDIA ROTA · ATAQUEN JUNTOS', until: this.tick + 120 };
+      sounds.playSuperReady();
+    }
+  }
+
+  private updateCoopTactics() {
+    if (!this.teamStanding || !['play', 'boss', 'bossIntro'].includes(this.phase)) {
+      this.endCoopLink(); this.endCoopGuard(); this.coopFeedback = null;
+      return;
+    }
+    if (this.coopLink && this.coopLink.members.some(member => member.hp <= 0 || member.removed || !this.monsters.includes(member))) this.endCoopLink();
+    if (this.coopLink) this.coopLink.hits = this.coopLink.hits.filter(hit => this.tick - hit.tick <= COOP_LINK_WINDOW);
+    if (!this.coopLink && this.waveActive && this.coopLinkedWave !== this.waveIndex) {
+      const eligible = this.monsters.filter(member => member.hp > 0 && !member.isDown && !member.mount && member.kind !== 'thief' && member.kind !== 'mini' &&
+        member.x > this.camX + 60 && member.x < this.camX + VIEW_W - 60);
+      eligible.sort((a, b) => Number(b.kind === 'brute') - Number(a.kind === 'brute'));
+      if (eligible.length >= 2) {
+        const members: [Monster, Monster] = [eligible[0], eligible[1]];
+        members.forEach((member, player) => { member.coopAssignment = player; });
+        this.coopLink = { members, hits: [] }; this.coopLinkedWave = this.waveIndex;
+      }
+    }
+    if (this.coopGuard) {
+      const guard = this.coopGuard;
+      guard.hits = guard.hits.filter(hit => this.tick - hit.tick <= COOP_LINK_WINDOW);
+      if (guard.boss !== this.boss || guard.boss.hp <= 0 || guard.boss.isDown || --guard.remaining <= 0) this.endCoopGuard();
+      return;
+    }
+    if (this.coopGuardCooldown > 0) this.coopGuardCooldown--;
+    const boss = this.boss;
+    if (this.phase === 'boss' && boss && boss.hp > 0 && !boss.isDown && ['idle', 'walk'].includes(boss.state) && this.coopGuardCooldown <= 0 &&
+      boss.x > this.camX + boss.width / 2 + 140 && boss.x < this.camX + VIEW_W - boss.width / 2 - 140) {
+      boss.setState('guard'); boss.vx = boss.vz = 0; boss.coopGuarding = true;
+      this.coopGuard = { boss, remaining: COOP_GUARD_TICKS, hits: [] };
+    }
+  }
+
+  private registerCoopHit(target: Actor, source: Hero) {
+    const link = this.coopLink;
+    if (link && target instanceof Monster && link.members.includes(target) && this.teamStanding) {
+      link.hits = link.hits.filter(hit => this.tick - hit.tick <= COOP_LINK_WINDOW && hit.player !== source.index);
+      if (link.hits.some(hit => hit.player !== source.index && hit.member !== target)) this.endCoopLink(true);
+      else link.hits.push({ player: source.index, member: target, tick: this.tick });
+    }
+    const guard = this.coopGuard;
+    if (guard && target === guard.boss && this.teamStanding) {
+      const side = source.x < target.x ? -1 : 1;
+      guard.hits = guard.hits.filter(hit => this.tick - hit.tick <= COOP_LINK_WINDOW && hit.player !== source.index);
+      if (guard.hits.some(hit => hit.player !== source.index && hit.side !== side)) this.endCoopGuard(true);
+      else guard.hits.push({ player: source.index, side, tick: this.tick });
+    }
+  }
+
   // Elige a quién persigue un enemigo: el héroe disponible más cercano, sin cambiar de presa
   // por poca diferencia para que no titubee entre los dos jugadores
   public pickTarget(actor: Actor, current: Hero | null): Hero {
@@ -2075,6 +2187,8 @@ export class ArcadeGame {
     this.phase = 'play';
     this.phaseTimer = 0;
     this.lifeLossQueue = [];
+    this.endCoopLink(); this.endCoopGuard();
+    this.coopLinkedWave = -1; this.coopGuardCooldown = COOP_GUARD_INTERVAL; this.coopFeedback = null;
     this.rescues.clear();
     this.goTimer = final ? 0 : 240;
     this.levelStartTick = this.tick;
@@ -2277,8 +2391,11 @@ export class ArcadeGame {
   private applyHit(target: Actor, hit: HitInfo, source: Hero | null): boolean {
     const fromHero = source !== null;
     if (source) hit = this.heroPassiveHit(source, target, hit);
+    if (!this.teamStanding) { this.endCoopLink(); this.endCoopGuard(); }
+    if (source && target instanceof Monster && this.coopLink?.members.includes(target)) hit = { ...hit, damage: hit.damage * .6 };
     const bossGuarding = target instanceof Boss && target.state === 'guard';
     if (!target.receiveHit(hit)) return false;
+    if (source) this.registerCoopHit(target, source);
     if (target instanceof Hero) target.combo = 0;
     if (bossGuarding && target.state === 'guard') return true; // Un bloqueo no alarga el combo.
     if (source) {
@@ -2622,6 +2739,7 @@ export class ArcadeGame {
 
   public loseLife(hero: Hero) {
     if (hero.hp > 0 || hero.lives <= 0 || hero.gameOver || this.rescues.has(hero) || this.lifeLossQueue.some(loss => loss.hero === hero)) return;
+    this.endCoopLink(); this.endCoopGuard(); this.coopFeedback = null;
     if (this.coop && this.activeHeroes.some(partner => partner !== hero && partner.hp > 0)) {
       if (this.phase === 'levelClear') { this.revivePartner(hero); return; }
       hero.setState('dead');
@@ -2864,11 +2982,13 @@ export class ArcadeGame {
 
     this.updateCamera();
     this.updateWaves();
+    this.updateCoopTactics();
 
     // Cada enemigo elige al héroe más cercano; solo los más próximos a cada héroe atacan a la vez
     const maxEngaged = 2 + (this.levelIndex >= 2 ? 1 : 0);
     const fighters = this.monsters.filter(m => m.kind !== 'thief' && !m.isDown);
-    for (const m of fighters) m.target = this.pickTarget(m, m.target);
+    for (const m of fighters) m.target = m.coopAssignment !== null && this.teamStanding
+      ? this.heroes[m.coopAssignment] : this.pickTarget(m, m.target);
     for (const hero of this.heroes) {
       fighters
         .filter(m => m.target === hero)
@@ -3103,6 +3223,32 @@ export class ArcadeGame {
     ctx.save();
     ctx.translate(-Math.round(this.camX), 0);
 
+    if (this.coopLink) {
+      const { members, hits } = this.coopLink;
+      ctx.save(); ctx.setLineDash([12, 9]); ctx.strokeStyle = '#91d6ff99'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(members[0].x, screenY(members[0].z)); ctx.lineTo(members[1].x, screenY(members[1].z)); ctx.stroke();
+      ctx.setLineDash([]);
+      members.forEach((member, index) => {
+        const marked = hits.some(hit => hit.member === member);
+        ctx.strokeStyle = marked ? '#d7f3ff' : PLAYER_COLORS[index]; ctx.lineWidth = marked ? 4 : 2;
+        ctx.fillStyle = '#182d4855'; ctx.beginPath(); ctx.ellipse(member.x, screenY(member.z), member.width + 18, 18, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      });
+      ctx.restore();
+    }
+    if (this.coopGuard) {
+      const { boss, hits } = this.coopGuard;
+      ctx.save();
+      for (const side of [-1, 1]) {
+        const hit = hits.find(hit => hit.side === side);
+        const x = boss.x + side * (boss.width / 2 + 100), y = screenY(boss.z);
+        ctx.strokeStyle = hit ? PLAYER_COLORS[hit.player] : '#b5b9ff'; ctx.fillStyle = '#6861af33'; ctx.lineWidth = hit ? 4 : 2;
+        ctx.beginPath(); ctx.ellipse(x, y, 62, 22, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = hit ? PLAYER_COLORS[hit.player] : '#d7d8ff';
+        ctx.fillText(hit ? `${hit.player + 1}P` : side < 0 ? '←' : '→', x, y + 5);
+      }
+      ctx.restore();
+    }
+
     for (const hazard of this.hazards) {
       if (hazard.clock < 165 || this.phase !== 'play') continue;
       const active = hazard.clock >= 240 && hazard.clock < (this.levelIndex === 0 ? 260 : 290);
@@ -3200,6 +3346,15 @@ export class ArcadeGame {
     ctx.restore();
 
     this.renderHud(ctx);
+    const teamHint = this.coopTacticHint;
+    if (teamHint) {
+      ctx.save(); ctx.textAlign = 'center'; ctx.font = 'bold 14px sans-serif';
+      const width = Math.min(VIEW_W - 40, ctx.measureText(teamHint).width + 44);
+      ctx.fillStyle = '#0a1829ed'; ctx.fillRect((VIEW_W - width) / 2, 120, width, 34);
+      ctx.strokeStyle = '#96c8e566'; ctx.strokeRect((VIEW_W - width) / 2, 120, width, 34);
+      ctx.fillStyle = '#c8eaff'; ctx.fillText(teamHint, VIEW_W / 2, 142);
+      ctx.restore();
+    }
     for (const [hero, rescue] of this.rescues) {
       const x = clamp(hero.x - this.camX, 135, VIEW_W - 135), y = screenY(hero.z) - 105;
       ctx.save();

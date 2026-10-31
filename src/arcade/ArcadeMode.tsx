@@ -165,7 +165,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
       }
       const loss = game.lifeLoss;
       const message = loss ? `${loss.hero.deity.name} ha caído. ${loss.remaining} vidas restantes.` :
-        [...game.rescues.keys()].map(hero => `${hero.deity.name} necesita ayuda. Acércate y mantén abajo para rescatarlo.`).join(' ');
+        [...game.rescues.keys()].map(hero => `${hero.deity.name} necesita ayuda. Acércate y mantén abajo para rescatarlo.`).join(' ') || game.coopTacticHint;
       if (message !== shownLifeMessage) { shownLifeMessage = message; setLifeMessage(message); }
       const offerRelics = game.relicOfferReady;
       if (offerRelics !== shownRelics) { shownRelics = offerRelics; setShowRelics(offerRelics); }
