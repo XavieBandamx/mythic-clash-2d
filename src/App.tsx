@@ -9,6 +9,7 @@ import ArcadeMode from './arcade/ArcadeMode';
 import CharacterSelect from './CharacterSelect';
 import MainMenu from './MainMenu';
 import DifficultyMenu from './DifficultyMenu';
+import ArenaSelect from './ArenaSelect';
 import { moveRoster } from './game/roster';
 import { MatchFlow, VERSUS_HEALTH, drawMatchFlow } from './game/match';
 import type { RoundWinner } from './game/match';
@@ -1812,7 +1813,7 @@ export default function App() {
       sounds.init();
 
       // Enter y espacio activan normalmente los controles de la barra superior.
-      if ((gameState === 'MAIN_MENU' || gameState === 'DIFFICULTY_MENU') && (e.key === 'Enter' || e.code === 'Space') &&
+      if ((gameState === 'MAIN_MENU' || gameState === 'DIFFICULTY_MENU' || gameState === 'STAGE_SELECT') && (e.key === 'Enter' || e.code === 'Space') &&
         e.target instanceof HTMLElement && e.target.closest('header button, .options-back')) return;
 
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
@@ -1932,6 +1933,7 @@ export default function App() {
           setStageSelected(i => (i + 1) % count);
           sounds.playNav();
         } else if (['j', 'J', 'u', 'U', 'Enter', ' '].includes(e.key)) {
+          e.preventDefault();
           chooseStage(stageSelected);
         } else if (e.key === 'Escape') {
           sounds.playNav();
@@ -3009,50 +3011,15 @@ export default function App() {
         />}
 
         {/* --- ESCENA 4B: MODO ARCADE --- */}
-        {gameState === 'STAGE_SELECT' && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe overflow-y-auto pt-16 bg-black/85 backdrop-blur-md p-6 text-center">
-            <h2 className="font-cinzel text-2xl md:text-4xl font-bold text-amber-400 mb-1">Elige la Arena</h2>
-            <p className="text-slate-400 text-sm mb-6">
-              {DEITIES[p1DeityIndex].name} vs {DEITIES[p2DeityIndex].name}
-            </p>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 short:grid-cols-6 gap-3 short:gap-2 w-full max-w-4xl short:max-w-none">
-              {[null, ...ARENAS].map((arena, idx) => {
-                const isSelected = stageSelected === idx;
-                return (
-                  <button
-                    key={arena?.name ?? 'random'}
-                    onMouseEnter={() => {
-                      if (!isSelected) sounds.playNav();
-                      setStageSelected(idx);
-                    }}
-                    onClick={() => chooseStage(idx)}
-                    className={`rounded-lg overflow-hidden border transition-all ${
-                      isSelected
-                        ? 'border-amber-400 ring-2 ring-amber-400 shadow-lg shadow-amber-500/30'
-                        : 'border-slate-700/60 opacity-70 hover:opacity-100'
-                    }`}
-                  >
-                    {arena ? (
-                      <img src={arena.src} alt={arena.name} className="w-full aspect-video object-cover" />
-                    ) : (
-                      <div className="w-full aspect-video flex items-center justify-center bg-slate-900 font-cinzel text-5xl text-amber-400">?</div>
-                    )}
-                    <div className="bg-slate-900/90 px-2 py-2">
-                      <div className="font-cinzel font-bold text-sm text-slate-100">{arena?.name ?? 'Aleatoria'}</div>
-                      <div className="text-xs text-slate-400 short:hidden">{arena ? arena.pantheon ?? 'Más allá de los reinos' : 'Cualquier reino'}</div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            <p className="mt-6 text-xs text-slate-400 hidden lg:block">A / D o ← / → para elegir · J o U para pelear · ESC para volver</p>
-          </div>
-        )}
+        {gameState === 'STAGE_SELECT' && <ArenaSelect
+          selected={stageSelected} fighters={[DEITIES[p1DeityIndex].name, DEITIES[p2DeityIndex].name]}
+          highlight={index => { if (index !== stageSelected) { setStageSelected(index); sounds.playNav(); } }}
+          choose={chooseStage} back={() => { sounds.playNav(); openCharSelect(gameMode); }}
+        />}
 
         {gameState === 'ARCADE' && (
           <ArcadeMode
+            touch={showTouchControls}
             deities={gameMode === 'ARCADE_COOP' ? [DEITIES[p1DeityIndex], DEITIES[p2DeityIndex]] : [DEITIES[p1DeityIndex]]}
             difficulty={difficulty}
             onExit={() => {
@@ -3229,7 +3196,6 @@ export default function App() {
 
         {/* CONTROLES TÁCTILES: joystick y botones en versus, torre y arcade */}
         {showTouchControls && gameState === 'FIGHT' && <TouchControls mode="versus" />}
-        {showTouchControls && gameState === 'ARCADE' && <TouchControls mode="arcade" />}
       </div>
     </div>
   );

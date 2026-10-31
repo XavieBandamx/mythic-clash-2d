@@ -24,9 +24,17 @@ const press = (action: ControlAction, down: boolean) => CANONICAL[0][action].for
 // CONTROLES TÁCTILES: joystick y botones que se mantienen presionados.
 // Mandan las teclas del jugador 1, así sirven igual en versus, arcade y torre.
 // ==========================================================================
-export default function TouchControls({ mode }: { mode: 'versus' | 'arcade' }) {
+export default function TouchControls({ mode, docked = false }: { mode: 'versus' | 'arcade'; docked?: boolean }) {
   const { touchSize, touchSwap } = getControls();
-  const scale = SIZES[touchSize];
+  const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
+  useEffect(() => {
+    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+  const scale = docked && viewport.height > viewport.width
+    ? Math.min(SIZES[touchSize], Math.max(.65, (viewport.width - 64) / 256))
+    : docked && viewport.width < 900 ? Math.min(SIZES[touchSize], 1) : SIZES[touchSize];
   const radius = (STICK * scale) / 2;
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const held = useRef(new Set<Dir>());
@@ -107,7 +115,7 @@ export default function TouchControls({ mode }: { mode: 'versus' | 'arcade' }) {
 
   return (
     <div
-      className={`fixed inset-x-0 bottom-0 z-40 flex items-end justify-between px-5 pb-5 pointer-events-none select-none ${touchSwap ? 'flex-row-reverse' : ''}`}
+      className={`${docked ? 'arcade-control-dock' : 'fixed inset-x-0 bottom-0 z-40 px-5 pb-5'} flex items-end justify-between pointer-events-none select-none ${touchSwap ? 'flex-row-reverse' : ''}`}
       style={{ touchAction: 'none' }}
       onContextMenu={e => e.preventDefault()}
     >

@@ -6,11 +6,14 @@ import { sounds } from '../game/sound';
 import { ArcadeGame } from './engine';
 import type { ArcadeInput } from './engine';
 import { VIEW_H, VIEW_W } from './draw';
+import TouchControls from '../TouchControls';
+import BlessingMenu from './BlessingMenu';
 
 interface ArcadeModeProps {
   deities: DeityData[]; // Uno por jugador: con dos se juega en cooperativo
   difficulty: Difficulty;
   onExit: () => void;
+  touch?: boolean;
 }
 
 interface KeyMap {
@@ -52,7 +55,7 @@ const GAME_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', '
 // ==========================================================================
 // COMPONENTE DEL MODO ARCADE: canvas propio, teclado y bucle a paso fijo
 // ==========================================================================
-export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModeProps) {
+export default function ArcadeMode({ deities, difficulty, onExit, touch = false }: ArcadeModeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
@@ -63,6 +66,7 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
   const [showRelics, setShowRelics] = useState(false);
   const [relicCursor, setRelicCursor] = useState(0);
   const [lifeMessage, setLifeMessage] = useState('');
+  const [mobileHud, setMobileHud] = useState({ hp: 100, maxHp: 100, lives: 3, magic: 2, realm: 'Grecia', background: 'grecia-fondo.webp' });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -138,6 +142,7 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
     let animId = 0;
     let lastTime = performance.now();
     let accumulator = 0;
+    let lastHud = 0;
     const loop = (now: number) => {
       accumulator += Math.min(now - lastTime, 250);
       lastTime = now;
@@ -147,6 +152,14 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
         accumulator -= SIM_STEP_MS;
       }
       game.render(ctx);
+      // El HUD legible de la consola vertical se actualiza sin cambiar la simulación.
+      if (now - lastHud >= 200) {
+        lastHud = now;
+        const hero = game.heroes[0];
+        const next = { hp: Math.max(0, Math.ceil(hero.hp)), maxHp: hero.maxHp, lives: hero.lives, magic: hero.magic,
+          realm: game.level.pantheon ?? 'El encuentro final', background: game.level.art?.background ?? 'grecia-fondo.webp' };
+        setMobileHud(previous => Object.keys(next).every(key => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next);
+      }
       const loss = game.lifeLoss;
       const message = loss ? `${loss.hero.deity.name} ha caído. ${loss.remaining} vidas restantes.` : '';
       if (message !== shownLifeMessage) { shownLifeMessage = message; setLifeMessage(message); }
@@ -176,26 +189,26 @@ export default function ArcadeMode({ deities, difficulty, onExit }: ArcadeModePr
   }, [deities.map(d => d.id).join(','), difficulty]);
 
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black pt-12 sm:pt-14">
+    <div className={`arcade-screen ${touch ? 'arcade-touch' : ''}`}>
+      {touch && <img className="arcade-ambient" src={`${import.meta.env.BASE_URL}backgrounds/${mobileHud.background}`} alt="" />}
+      <div className="arcade-console">
+      {touch && <div className="arcade-mobile-hud">
+        <div><span>CAMINO DE LOS DIOSES / {mobileHud.realm}</span><strong>{deities[0].name}</strong></div>
+        <div className="arcade-mobile-health"><span>VIDA <b>{mobileHud.hp} / {mobileHud.maxHp}</b></span><progress value={mobileHud.hp} max={mobileHud.maxHp} aria-label="Vida del jugador 1" /></div>
+        <div className="arcade-mobile-resources"><span><b>{mobileHud.lives}</b> VIDAS</span><span><b>{mobileHud.magic}</b> MAGIA</span></div>
+      </div>}
+      <div className="arcade-viewport">
       <canvas
         ref={canvasRef}
         width={VIEW_W}
         height={VIEW_H}
-        className="w-full h-full max-w-[1400px] max-h-[787px] object-contain portrait:object-top shadow-2xl bg-black"
+        className="arcade-canvas"
       />
+      </div>
+      {touch && !showRelics && (phase === 'play' || phase === 'boss' || phase === 'bossIntro') && <TouchControls mode="arcade" docked />}
+      </div>
       <div className="sr-only" role="status" aria-live="assertive">{lifeMessage}</div>
-      {showRelics && <div className="absolute inset-0 z-50 bg-slate-950/95 flex flex-col justify-center items-center p-4 text-center gap-4 short:gap-2">
-        <span className="text-[10px] tracking-[0.3em] text-slate-400 uppercase">Reino completado</span>
-        <h2 className="text-2xl short:text-lg font-bold">Elige una bendición</h2>
-        <p className="text-xs text-slate-400 max-w-md">El efecto dura hasta elegir otra bendición. En cooperativo se aplica a ambos dioses.</p>
-        <div className="grid grid-cols-3 gap-2 max-w-2xl w-full">{[
-          ['Fuerza', '+12% al daño de tus ataques.'],
-          ['Refugio', 'Recupera 35 de vida y recibe 12% menos daño.'],
-          ['Sabiduría', 'Recibe 2 vasijas; magia un 15% más potente.']
-        ].map(([title, desc], i) => <button key={title} disabled={relic !== null} aria-pressed={relic === i || relic === null && relicCursor === i} onClick={() => gameRef.current?.chooseRelic(i)} className={`border p-4 short:p-2 text-left ${relic === i || relic === null && relicCursor === i ? 'border-amber-300 bg-amber-300/10' : 'border-slate-700 bg-slate-900'} disabled:cursor-default`}><span className="text-[10px] text-slate-500">0{i + 1}</span><strong className="block text-sm my-2 text-slate-100">{title}</strong><span className="text-[10px] text-slate-400">{desc}</span></button>)}</div>
-        <p className="text-[10px] text-slate-500">← / → + Ataque · Atajos: 1 / 2 / 3 · También puedes tocar una tarjeta</p>
-        {relic !== null && <span className="text-xs text-amber-200">Bendición recibida. Preparando el siguiente reino…</span>}
-      </div>}
+      {showRelics && <BlessingMenu choice={relic} cursor={relicCursor} coop={deities.length > 1} choose={index => gameRef.current?.chooseRelic(index)} />}
       {(phase === 'gameOver' || phase === 'finalOver' || phase === 'victory') && (
         <div className="absolute left-1/2 -translate-x-1/2 bottom-[20%] portrait:bottom-auto portrait:top-[42%] z-30 flex gap-3">
           {phase === 'gameOver' && (
