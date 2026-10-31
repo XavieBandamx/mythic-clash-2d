@@ -8,6 +8,7 @@ import type { ArcadeInput } from './engine';
 import { VIEW_H, VIEW_W } from './draw';
 import TouchControls from '../TouchControls';
 import BlessingMenu from './BlessingMenu';
+import type { BlessingPlayer } from './BlessingMenu';
 
 interface ArcadeModeProps {
   deities: DeityData[]; // Uno por jugador: con dos se juega en cooperativo
@@ -65,6 +66,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
   const [relic, setRelic] = useState<number | null>(null);
   const [showRelics, setShowRelics] = useState(false);
   const [relicCursor, setRelicCursor] = useState(0);
+  const [blessingPlayers, setBlessingPlayers] = useState<BlessingPlayer[]>([]);
   const [lifeMessage, setLifeMessage] = useState('');
   const [mobileHud, setMobileHud] = useState({ hp: 100, maxHp: 100, lives: 3, magic: 2, realm: 'Grecia', background: 'grecia-fondo.webp' });
 
@@ -81,6 +83,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
     let shownRelics = false;
     let shownCursor = 0;
     let shownLifeMessage = '';
+    let shownPlayers = '';
     const keyMaps = deities.length > 1 ? COOP_KEYS : [SOLO_KEYS];
     const held = new Set<string>();
     const pressed = new Set<string>(); // Pulsadas desde el último paso de simulación
@@ -96,7 +99,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
       if (GAME_KEYS.includes(e.code)) e.preventDefault();
       if (e.repeat) return;
       if (game.phase === 'levelClear' && /^Digit[123]$/.test(e.code)) {
-        game.chooseRelic(Number(e.code.slice(-1)) - 1);
+        game.chooseRelic(Number(e.code.slice(-1)) - 1, 0);
         return;
       }
       held.add(e.code);
@@ -161,12 +164,18 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
         setMobileHud(previous => Object.keys(next).every(key => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next);
       }
       const loss = game.lifeLoss;
-      const message = loss ? `${loss.hero.deity.name} ha caído. ${loss.remaining} vidas restantes.` : '';
+      const message = loss ? `${loss.hero.deity.name} ha caído. ${loss.remaining} vidas restantes.` :
+        [...game.rescues.keys()].map(hero => `${hero.deity.name} necesita ayuda. Acércate y mantén abajo para rescatarlo.`).join(' ');
       if (message !== shownLifeMessage) { shownLifeMessage = message; setLifeMessage(message); }
       const offerRelics = game.relicOfferReady;
       if (offerRelics !== shownRelics) { shownRelics = offerRelics; setShowRelics(offerRelics); }
       if (shownRelic !== game.relicChoice) { shownRelic = game.relicChoice; setRelic(game.relicChoice); }
       if (shownCursor !== game.relicCursor) { shownCursor = game.relicCursor; setRelicCursor(game.relicCursor); }
+      if (offerRelics && deities.length > 1) {
+        const players = game.heroes.map(hero => ({ name: hero.deity.name, choice: game.relicChoices[hero.index], cursor: game.relicCursors[hero.index], available: !hero.gameOver }));
+        const signature = JSON.stringify(players);
+        if (signature !== shownPlayers) { shownPlayers = signature; setBlessingPlayers(players); }
+      }
       if (game.phase !== shownPhase) {
         shownPhase = game.phase;
         setPhase(game.phase);
@@ -208,7 +217,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
       {touch && !showRelics && (phase === 'play' || phase === 'boss' || phase === 'bossIntro') && <TouchControls mode="arcade" docked />}
       </div>
       <div className="sr-only" role="status" aria-live="assertive">{lifeMessage}</div>
-      {showRelics && <BlessingMenu choice={relic} cursor={relicCursor} coop={deities.length > 1} choose={index => gameRef.current?.chooseRelic(index)} />}
+      {showRelics && <BlessingMenu choice={relic} cursor={relicCursor} coop={deities.length > 1} players={blessingPlayers} choose={(index, player = 0) => gameRef.current?.chooseRelic(index, player)} />}
       {(phase === 'gameOver' || phase === 'finalOver' || phase === 'victory') && (
         <div className="absolute left-1/2 -translate-x-1/2 bottom-[20%] portrait:bottom-auto portrait:top-[42%] z-30 flex gap-3">
           {phase === 'gameOver' && (

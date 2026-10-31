@@ -22,7 +22,7 @@ const { LEVELS, BEASTS, MONSTER_SPRITES, buildWaves, ORIGEN } = await import('..
 const { readMastery, awardMastery } = await import('../src/game/progression');
 const { MatchFlow, ROUND_INTRO_TICKS, ROUND_KO_TICKS, VERSUS_HEALTH } = await import('../src/game/match');
 const { moveRoster, ROSTER_PAGE_SIZE } = await import('../src/game/roster');
-const { LIFE_LOSS_TICKS } = await import('../src/arcade/engine');
+const { LIFE_LOSS_TICKS, RESCUE_WINDOW_TICKS, RESCUE_HOLD_TICKS } = await import('../src/arcade/engine');
 const { getSpriteSheetConfig, getExtraSheetConfig, loadSpriteSheet, spriteAssetSrc, EXTRA_ROWS } = await import('../src/game/sprites');
 const { victoryFrame, jumpFrame, castFrame } = await import('../src/game/spriteMotion');
 const god = (id: string) => DEITIES.find(d => d.id === id)!;
@@ -284,11 +284,119 @@ test('Saltos permiten evitar el peligro del suelo', () => {
   (g as any).updateEnvironment(); assert.equal(g.hero.hp, 100);
 });
 test('Bendiciones se eligen una vez y el nivel avanza', () => {
-  const g = new ArcadeGame([god('zeus'), god('anubis')], 'NORMAL'); g.phase = 'levelClear'; (g as any).phaseTimer = 330;
-  g.chooseRelic(2); assert.equal(g.relicChoice, 2); assert.equal(g.heroes[1].blessing, 'arcana');
+  const g = new ArcadeGame(god('zeus'), 'NORMAL'); g.phase = 'levelClear'; (g as any).phaseTimer = 330;
+  g.chooseRelic(2); assert.equal(g.relicChoice, 2); assert.equal(g.hero.blessing, 'arcana');
   const magic = g.hero.magic; g.chooseRelic(2); assert.equal(g.hero.magic, magic);
   for (let i = 0; i < 85; i++) g.step(idle);
   assert.equal(g.levelIndex, 1); assert.equal(g.relicChoice, null); assert.equal(g.hero.blessing, 'arcana');
+});
+
+test('Rescatar conserva vidas y magia, recupera vida parcial y protege al levantarse', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); g.phase = 'boss';
+  const [fallen, partner] = g.heroes; partner.x = fallen.x; partner.z = fallen.z;
+  fallen.hp = 0; fallen.magic = 0; g.loseLife(fallen);
+  assert.ok(g.rescues.has(fallen)); assert.equal(g.lifeLoss, null);
+  assert.ok(!g.activeHeroes.includes(fallen));
+  for (let i = 0; i < RESCUE_HOLD_TICKS; i++) g.step([idle, { ...idle, down: true }]);
+  assert.equal(g.rescues.size, 0); assert.equal(fallen.hp, 35); assert.equal(fallen.lives, 3);
+  assert.equal(fallen.deaths, 0); assert.equal(fallen.magic, 0); assert.ok(fallen.invuln > 0);
+});
+
+test('Rescate requiere cercanía continua y se interrumpe al recibir un golpe', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); g.phase = 'boss';
+  const [fallen, partner] = g.heroes; fallen.hp = 0; g.loseLife(fallen);
+  partner.x = fallen.x; partner.z = fallen.z;
+  for (let i = 0; i < 20; i++) g.step([idle, { ...idle, down: true }]);
+  assert.equal(g.rescues.get(fallen)?.progress, 20);
+  partner.invuln = 0; partner.receiveHit({ damage: 1, knockdown: false, heavy: false, dir: 1 });
+  g.step([idle, { ...idle, down: true }]); assert.equal(g.rescues.get(fallen)?.progress, 0);
+  partner.setState('idle'); partner.x = fallen.x + 200;
+  for (let i = 0; i < RESCUE_HOLD_TICKS; i++) g.step([idle, { ...idle, down: true }]);
+  assert.equal(fallen.hp, 0); assert.equal(g.rescues.get(fallen)?.progress, 0);
+});
+
+test('Rescate respeta pausa y al expirar pierde exactamente una vida', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); g.phase = 'boss';
+  const [fallen, partner] = g.heroes; fallen.hp = 0; partner.x = fallen.x + 300; g.loseLife(fallen);
+  g.paused = true; for (let i = 0; i < 100; i++) g.step(idle);
+  assert.equal(g.rescues.get(fallen)?.remaining, RESCUE_WINDOW_TICKS);
+  g.paused = false;
+  for (let i = 0; i < RESCUE_WINDOW_TICKS; i++) g.step(idle);
+  assert.equal(g.rescues.size, 0); assert.ok(g.lifeLoss); assert.equal(fallen.lives, 2); assert.equal(fallen.deaths, 1);
+  g.loseLife(fallen); assert.equal(fallen.lives, 2);
+  for (let i = 0; i < LIFE_LOSS_TICKS; i++) g.step(idle);
+  assert.equal(fallen.hp, fallen.maxHp);
+});
+
+test('Continuar individualmente cobra una sola vez al jugador que regresa', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); g.phase = 'boss';
+  const [fallen, partner] = g.heroes;
+  fallen.gameOver = true; fallen.lives = 0; fallen.hp = 0; fallen.score = 1001; partner.score = 2000;
+  g.step([{ ...idle, attack: true }, idle]);
+  assert.equal(fallen.score, 500); assert.equal(partner.score, 2000); assert.equal(fallen.lives, 3);
+  g.step([{ ...idle, attack: true }, idle]); assert.equal(fallen.score, 500);
+});
+
+test('Caer ambos durante un rescate agota la última vida y permite continuar sin duplicar costos', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL');
+  const [first, second] = g.heroes;
+  first.lives = second.lives = 1; first.score = second.score = 1000;
+  first.hp = 0; g.loseLife(first); g.loseLife(first);
+  assert.equal(first.lives, 1); assert.equal(first.deaths, 0);
+  second.hp = 0; g.loseLife(second);
+  assert.equal(g.rescues.size, 0);
+  for (let i = 0; i < LIFE_LOSS_TICKS * 2; i++) g.step(idle);
+  assert.equal(g.phase, 'gameOver'); assert.deepEqual(g.heroes.map(hero => hero.deaths), [1, 1]);
+  g.continueGame(); assert.deepEqual(g.heroes.map(hero => hero.score), [500, 500]);
+});
+
+test('Vencer al jefe rescata al compañero y conserva su elección de bendición', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); g.phase = 'boss';
+  const fallen = g.heroes[0]; fallen.hp = 0; g.loseLife(fallen);
+  g.boss = new Boss(god('hades'), 800, 100, 1, 1, 800); g.boss.hp = 0;
+  g.step([idle, idle]);
+  assert.equal(g.phase, 'levelClear'); assert.equal(g.rescues.size, 0);
+  assert.equal(fallen.hp, 35); assert.equal(fallen.lives, 3); assert.equal(fallen.deaths, 0);
+  (g as any).phaseTimer = 330; g.chooseRelic(0, 1);
+  assert.equal(g.relicsComplete, false); g.chooseRelic(1, 0); assert.equal(g.relicsComplete, true);
+  const simultaneous = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); simultaneous.phase = 'boss';
+  simultaneous.hero.hp = 0; simultaneous.hero.setState('down');
+  simultaneous.boss = new Boss(god('hades'), 800, 100, 1, 1, 800); simultaneous.boss.hp = 0;
+  simultaneous.step([idle, idle]); assert.equal(simultaneous.phase, 'levelClear');
+  assert.equal(simultaneous.hero.hp, 35); assert.equal(simultaneous.hero.lives, 3);
+});
+
+test('Continuar tras caer ambos cobra la mitad a cada jugador una sola vez', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL');
+  for (const hero of g.heroes) { hero.gameOver = true; hero.lives = 0; hero.hp = 0; hero.score = 1000; }
+  g.phase = 'gameOver'; g.continueGame(); g.continueGame();
+  assert.deepEqual(g.heroes.map(hero => hero.score), [500, 500]);
+  assert.deepEqual(g.heroes.map(hero => hero.lives), [3, 3]);
+});
+
+test('Cada jugador recibe su bendición y el nivel espera ambas confirmaciones', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); g.phase = 'levelClear'; (g as any).phaseTimer = 330;
+  g.chooseRelic(0, 0); assert.equal(g.heroes[0].blessing, 'might'); assert.equal(g.heroes[1].blessing, null);
+  for (let i = 0; i < 100; i++) g.step(idle);
+  assert.equal(g.levelIndex, 0); assert.equal(g.relicsComplete, false);
+  g.chooseRelic(2, 1); const magic = g.heroes[1].magic;
+  g.chooseRelic(1, 1); g.chooseRelic(1, 9);
+  assert.deepEqual(g.relicChoices, [0, 2]); assert.equal(g.heroes[1].magic, magic);
+  assert.equal(g.heroes[1].blessing, 'arcana');
+  for (let i = 0; i < 74; i++) g.step(idle); assert.equal(g.levelIndex, 0);
+  g.step(idle); assert.equal(g.levelIndex, 1); assert.deepEqual(g.relicChoices, [null, null]);
+  assert.deepEqual(g.heroes.map(hero => hero.blessing), ['might', 'arcana']);
+});
+
+test('Los controles de bendición son independientes y un jugador eliminado no bloquea al otro', () => {
+  const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); g.phase = 'levelClear'; (g as any).phaseTimer = 330;
+  g.step([{ ...idle, tapRight: true }, { ...idle, tapLeft: true }]);
+  assert.deepEqual(g.relicCursors, [1, 2]);
+  g.step([{ ...idle, attack: true }, { ...idle, attack: true }]); assert.deepEqual(g.relicChoices, [1, 2]);
+  const solo = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL'); solo.phase = 'levelClear'; (solo as any).phaseTimer = 330;
+  solo.heroes[1].gameOver = true; solo.chooseRelic(2, 1); assert.equal(solo.relicChoices[1], null);
+  solo.chooseRelic(1, 0); for (let i = 0; i < 75; i++) solo.step(idle);
+  assert.equal(solo.levelIndex, 1);
 });
 test('Jefes escapan al umbral y respetan cooldown', () => {
   const b = new Boss(god('hades'), 600, 80, 400, 1, 600); b.setState('idle'); b.iq = 1;
@@ -321,6 +429,7 @@ test('Súper no se consume ni se anuncia durante recuperación', () => {
   assert.equal(f.executeSpecial(opponent), false); assert.equal(f.superMeter, 100);
 });
 test('Maestría conserva mejor combo y rango sin perder progreso', () => {
+  localStorage.setItem('mythic-clash-mastery-v1', '{}');
   awardMastery('zeus', { wins: 1, bestCombo: 8, bestRank: 'A' });
   awardMastery('zeus', { clears: 1, bestCombo: 3, bestRank: 'C' });
   assert.deepEqual(readMastery('zeus'), { wins: 1, clears: 1, bestCombo: 8, bestRank: 'A' });

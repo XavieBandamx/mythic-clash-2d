@@ -1,6 +1,7 @@
 import { victoryFrame, heavyFrame, jumpFrame, castFrame } from '../game/spriteMotion';
 import { profileFor } from '../game/combat';
 import { awardMastery } from '../game/progression';
+import { getControls, keyLabel } from '../game/controls';
 import { DEITIES } from '../game/deities';
 import type { DeityData } from '../game/deities';
 import { sounds } from '../game/sound';
@@ -25,6 +26,8 @@ const Z_REACH = 28; // Diferencia de profundidad máxima para que un golpe conec
 const THIEF_MAX_DROPS = 3; // Objetos que suelta el duende ladrón
 const MAX_MAGIC = 6;       // Vasijas de magia que caben en el HUD
 export const LIFE_LOSS_TICKS = 132; // Caída legible antes de reaparecer o pedir continue.
+export const RESCUE_WINDOW_TICKS = 480;
+export const RESCUE_HOLD_TICKS = 90;
 const RESPAWN_MAGIC = 2;   // Vasijas que regala cada vida perdida
 const REINFORCEMENT_HEAL = 20; // Vida por cada refuerzo del jefe derrotado (además de 1 vasija)
 const COOP_HP_MUL = 1.3;       // Monstruos más resistentes cuando juegan dos
@@ -1972,6 +1975,10 @@ export class ArcadeGame {
   public tick: number = 0;
   public relicChoice: number | null = null;
   public relicCursor = 0;
+  public relicChoices: (number | null)[] = [];
+  public relicCursors: number[] = [];
+  public rescues = new Map<Hero, { remaining: number; progress: number }>();
+  public get relicsComplete() { return this.activeHeroes.length > 0 && this.activeHeroes.every(hero => this.relicChoices[hero.index] !== null); }
   private lifeLossQueue: { hero: Hero; previous: number; remaining: number; elapsed: number }[] = [];
   public get lifeLoss() { return this.lifeLossQueue[0] ?? null; }
   private relicChosenAt = 0;
@@ -2027,7 +2034,7 @@ export class ArcadeGame {
 
   // Héroes que siguen en partida (los que agotaron sus vidas esperan a continuar)
   public get activeHeroes(): Hero[] {
-    return this.heroes.filter(h => !h.gameOver);
+    return this.heroes.filter(h => !h.gameOver && !this.rescues.has(h));
   }
 
   // Elige a quién persigue un enemigo: el héroe disponible más cercano, sin cambiar de presa
@@ -2068,11 +2075,14 @@ export class ArcadeGame {
     this.phase = 'play';
     this.phaseTimer = 0;
     this.lifeLossQueue = [];
+    this.rescues.clear();
     this.goTimer = final ? 0 : 240;
     this.levelStartTick = this.tick;
     this.results = null;
     this.relicChoice = null;
     this.relicCursor = 0;
+    this.relicChoices = this.heroes.map(() => null);
+    this.relicCursors = this.heroes.map(() => 0);
     for (const hero of this.heroes) {
       hero.kills = hero.deaths = hero.maxCombo = hero.combo = hero.comboTimer = 0;
     }
@@ -2198,7 +2208,7 @@ export class ArcadeGame {
 
   private updateCamera() {
     if (this.waveActive || this.phase !== 'play') return;
-    const active = this.activeHeroes;
+    const active = this.heroes.filter(hero => !hero.gameOver);
     if (active.length === 0) return;
     if (this.waves.length === 0 && this.phaseTimer < 150) return; // Nivel final: deja leer el cartel antes del jefe
     const nextStop = this.waveIndex < this.waves.length ? this.waves[this.waveIndex].camX : BOSS_CAM_X;
@@ -2501,15 +2511,15 @@ export class ArcadeGame {
     }
   }
 
-  public chooseRelic(choice: number) {
-    if (this.relicChoice !== null || !this.relicOfferReady || !Number.isInteger(choice) || choice < 0 || choice > 2) return;
-    this.relicChoice = choice;
-    this.relicChosenAt = this.tick;
-    for (const hero of this.activeHeroes) {
-      hero.blessing = (['might', 'vitality', 'arcana'] as const)[choice];
-      if (choice === 1) hero.hp = Math.min(hero.maxHp, hero.hp + 35);
-      if (choice === 2) hero.magic = Math.min(MAX_MAGIC, hero.magic + 2);
-    }
+  public chooseRelic(choice: number, player = 0) {
+    const hero = this.heroes[player];
+    if (!hero || hero.gameOver || this.rescues.has(hero) || this.relicChoices[player] !== null || !this.relicOfferReady || !Number.isInteger(choice) || choice < 0 || choice > 2) return;
+    this.relicChoices[player] = choice;
+    if (player === 0) this.relicChoice = choice;
+    hero.blessing = (['might', 'vitality', 'arcana'] as const)[choice];
+    if (choice === 1) hero.hp = Math.min(hero.maxHp, hero.hp + 35);
+    if (choice === 2) hero.magic = Math.min(MAX_MAGIC, hero.magic + 2);
+    if (this.relicsComplete) this.relicChosenAt = this.tick;
     sounds.playSelect();
   }
 
@@ -2611,7 +2621,23 @@ export class ArcadeGame {
   }
 
   public loseLife(hero: Hero) {
-    if (hero.hp > 0 || hero.lives <= 0 || hero.gameOver || this.lifeLossQueue.some(loss => loss.hero === hero)) return;
+    if (hero.hp > 0 || hero.lives <= 0 || hero.gameOver || this.rescues.has(hero) || this.lifeLossQueue.some(loss => loss.hero === hero)) return;
+    if (this.coop && this.activeHeroes.some(partner => partner !== hero && partner.hp > 0)) {
+      if (this.phase === 'levelClear') { this.revivePartner(hero); return; }
+      hero.setState('dead');
+      hero.combo = hero.comboTimer = 0;
+      this.rescues.set(hero, { remaining: RESCUE_WINDOW_TICKS, progress: 0 });
+      sounds.playKO();
+      return;
+    }
+    // Si no queda nadie en pie, ambas caídas siguen la secuencia normal.
+    for (const downed of [...this.rescues.keys()]) this.commitLifeLoss(downed);
+    this.commitLifeLoss(hero);
+  }
+
+  private commitLifeLoss(hero: Hero) {
+    this.rescues.delete(hero);
+    if (this.lifeLossQueue.some(loss => loss.hero === hero)) return;
     const previous = hero.lives;
     hero.lives = Math.max(0, hero.lives - 1);
     hero.deaths++; hero.combo = 0; hero.comboTimer = 0;
@@ -2620,6 +2646,29 @@ export class ArcadeGame {
     this.carriedPresses.forEach(input => { input.attack = input.jump = input.magic = input.tapLeft = input.tapRight = false; });
     sounds.playKO();
     this.shake(16, 28);
+  }
+
+  private updateRescues(inputs: ArcadeInput[]) {
+    const helping = new Set<Hero>();
+    for (const [hero, rescue] of this.rescues) {
+      const partner = this.activeHeroes.find(other => other.hp > 0 && other.y < 10 &&
+        ['idle', 'walk', 'run'].includes(other.state) && Math.abs(other.x - hero.x) <= 100 && Math.abs(other.z - hero.z) <= 36 && inputs[other.index]?.down);
+      rescue.remaining--;
+      rescue.progress = partner ? rescue.progress + 1 : 0;
+      if (partner) helping.add(partner);
+      if (rescue.progress >= RESCUE_HOLD_TICKS) {
+        this.revivePartner(hero);
+      } else if (rescue.remaining <= 0) this.commitLifeLoss(hero);
+    }
+    return helping;
+  }
+
+  private revivePartner(hero: Hero) {
+    this.rescues.delete(hero);
+    hero.hp = Math.ceil(hero.maxHp * .35); hero.displayHp = hero.hp;
+    hero.y = 0; hero.vx = hero.vz = hero.vy = 0;
+    hero.setState('getup'); hero.invuln = 120;
+    sounds.playSuperReady();
   }
 
   private advanceLifeLoss() {
@@ -2774,26 +2823,35 @@ export class ArcadeGame {
       carried.attack = carried.jump = carried.magic = carried.tapLeft = carried.tapRight = false;
       return result;
     });
-    if (this.relicOfferReady && this.relicChoice === null) {
-      if (merged.some(input => input.tapLeft)) this.relicCursor = (this.relicCursor + 2) % 3;
-      if (merged.some(input => input.tapRight)) this.relicCursor = (this.relicCursor + 1) % 3;
-      if (merged.some(input => input.attack)) this.chooseRelic(this.relicCursor);
+    if (this.relicOfferReady && !this.relicsComplete) {
+      for (const hero of this.activeHeroes) {
+        if (this.relicChoices[hero.index] !== null) continue;
+        const input = merged[hero.index];
+        if (input.tapLeft) this.relicCursors[hero.index] = (this.relicCursors[hero.index] + 2) % 3;
+        if (input.tapRight) this.relicCursors[hero.index] = (this.relicCursors[hero.index] + 1) % 3;
+        if (input.attack) this.chooseRelic(this.relicCursors[hero.index], hero.index);
+      }
+      this.relicCursor = this.relicCursors[0];
     }
     if (this.magicCast) {
       this.updateMagic();
       return;
     }
 
+    const helping = this.updateRescues(merged);
+    if (this.lifeLoss) return;
     for (const hero of this.heroes) {
       const input = merged[hero.index];
+      if (this.rescues.has(hero)) continue;
       // Quien agotó sus vidas vuelve a la partida con su botón de ataque, como en las máquinas
       if (hero.gameOver) {
-        if (input.attack && this.coop) this.continueHero(hero);
+        if (input.attack && this.coop && this.phase !== 'levelClear') this.continueHero(hero);
         continue;
       }
       if (this.phase === 'levelClear') hero.celebrate();
-      hero.update(this.phase === 'levelClear' ? EMPTY_INPUT : input, this, this.tick);
+      hero.update(this.phase === 'levelClear' || helping.has(hero) ? EMPTY_INPUT : input, this, this.tick);
     }
+    if (this.lifeLoss) return;
     for (const hero of this.heroes) {
       if (hero.comboTimer > 0 && --hero.comboTimer === 0) hero.combo = 0;
     }
@@ -2838,6 +2896,8 @@ export class ArcadeGame {
       this.bossDown = true;
       this.phase = 'levelClear';
       this.phaseTimer = 0;
+      // Ganar el combate rescata a quien siga caído antes de repartir recompensas.
+      if (this.coop) for (const hero of this.heroes.filter(hero => !hero.gameOver && hero.hp <= 0)) this.revivePartner(hero);
       for (const hero of this.activeHeroes) { hero.score += 5000; hero.celebrate(); }
       this.hitstop = 24;
       this.shake(18, 30);
@@ -2853,7 +2913,7 @@ export class ArcadeGame {
       for (const m of this.monsters) m.receiveHit({ damage: 999, knockdown: true, heavy: true, dir: m.x >= this.boss.x ? 1 : -1, magic: true });
       this.orbs = [];
       this.thunders = [];
-    } else if (this.phase === 'levelClear' && ((this.relicChoice !== null && this.tick - this.relicChosenAt >= 75) || (this.levelIndex >= LEVELS.length && this.phaseTimer >= RESULTS_TICKS))) {
+    } else if (this.phase === 'levelClear' && ((this.relicsComplete && this.tick - this.relicChosenAt >= 75) || (this.levelIndex >= LEVELS.length && this.phaseTimer >= RESULTS_TICKS))) {
       if (this.levelIndex < LEVELS.length) {
         // Recompensa entre niveles: media vida y una vasija de magia
         for (const hero of this.activeHeroes) {
@@ -2909,7 +2969,6 @@ export class ArcadeGame {
   public continueGame() {
     if (this.phase !== 'gameOver') return;
     for (const hero of this.heroes) {
-      hero.score = Math.floor(hero.score / 2);
       this.continueHero(hero);
     }
     this.phase = this.boss ? (this.bossDown ? 'levelClear' : 'boss') : 'play';
@@ -2917,6 +2976,8 @@ export class ArcadeGame {
 
   // Continuación: 3 vidas nuevas, de vuelta en pantalla junto al compañero si lo hay
   private continueHero(hero: Hero) {
+    if (!hero.gameOver) return;
+    hero.score = Math.floor(hero.score / 2);
     const partner = this.activeHeroes.find(h => h !== hero);
     hero.lives = 3;
     hero.gameOver = false;
@@ -3080,7 +3141,7 @@ export class ArcadeGame {
 
     // Sombras en el suelo (se encogen con la altura del salto)
     // En cooperativo el que agotó sus vidas desaparece hasta que continúe
-    const actors: Actor[] = [...(this.coop ? this.activeHeroes : this.heroes), ...this.monsters, ...this.beasts.filter(b => !b.rider)];
+    const actors: Actor[] = [...this.heroes.filter(hero => !hero.gameOver), ...this.monsters, ...this.beasts.filter(b => !b.rider)];
     if (this.boss && !this.boss.removed) actors.push(this.boss);
     for (const a of actors) {
       const s = Math.max(0.4, 1 - a.y / 200);
@@ -3139,6 +3200,19 @@ export class ArcadeGame {
     ctx.restore();
 
     this.renderHud(ctx);
+    for (const [hero, rescue] of this.rescues) {
+      const x = clamp(hero.x - this.camX, 135, VIEW_W - 135), y = screenY(hero.z) - 105;
+      ctx.save();
+      ctx.fillStyle = '#081523ed'; ctx.fillRect(x - 125, y - 48, 250, 70);
+      ctx.strokeStyle = PLAYER_COLORS[hero.index]; ctx.strokeRect(x - 125, y - 48, 250, 70);
+      ctx.textAlign = 'center'; ctx.fillStyle = '#e0f2fe'; ctx.font = 'bold 14px sans-serif';
+      ctx.fillText(`${hero.index + 1}P CAÍDO · ${Math.ceil(rescue.remaining / 60)} s`, x, y - 28);
+      ctx.font = '12px sans-serif'; ctx.fillStyle = '#9dc5e1';
+      ctx.fillText('ACÉRCATE Y MANTÉN ABAJO · 1.5 s', x, y - 8);
+      ctx.fillStyle = '#23405a'; ctx.fillRect(x - 105, y + 4, 210, 5);
+      ctx.fillStyle = '#9cdaff'; ctx.fillRect(x - 105, y + 4, 210 * rescue.progress / RESCUE_HOLD_TICKS, 5);
+      ctx.restore();
+    }
   }
 
   // Panel de un jugador: retrato, vidas, vida, vasijas de magia (o aviso para continuar)
@@ -3162,7 +3236,7 @@ export class ArcadeGame {
       if (this.tick % 60 < 40) {
         ctx.font = 'bold 15px sans-serif';
         ctx.fillStyle = '#e2e8f0';
-        ctx.fillText(`¡PULSA ${hero.index === 0 ? 'J' : '1'} PARA CONTINUAR!`, px + 190, 82);
+        ctx.fillText(this.phase === 'levelClear' ? 'REGRESA EN EL SIGUIENTE COMBATE' : 'ATAQUE: CONTINUAR · −50% PUNTOS', px + 190, 82);
       }
       return;
     }
@@ -3284,10 +3358,12 @@ export class ArcadeGame {
 
     // Ayuda de controles al empezar
     if (this.levelIndex === 0 && this.tick < 900) {
+      const coopHelp = getControls().keyboard.map((keys, player) =>
+        `${player + 1}P · ${keyLabel(keys.up)} / ${keyLabel(keys.down)} / ${keyLabel(keys.left)} / ${keyLabel(keys.right)}: mover · ${keyLabel(keys.light)}: ataque · ${keyLabel(keys.heavy)}: salto · ${keyLabel(keys.special)}: magia`);
       const lines = this.coop
         ? [
-            '1P · WASD: mover · J: combo · K: saltar · J+K: giro · L: magia · doble toque A/D: correr',
-            '2P · Flechas: mover · 1 (o ,): combo · 2 (o .): saltar · 1+2: giro · 3 (o -): magia · doble toque ←/→: correr'
+            ...coopHelp,
+            'RESCATE · Acércate al compañero caído y mantén abajo 1.5 s · Tienes 8 s · Continuar cuesta 50% de tus puntos'
           ]
         : ['WASD / Flechas: mover · J: combo · K: saltar (J en el aire: tajo) · Doble toque ←/→: correr (J: embestida) · J+K: giro · L: magia · Esc: pausa'];
       const h = 12 + lines.length * 22;
@@ -3297,7 +3373,7 @@ export class ArcadeGame {
       ctx.textAlign = 'center';
       ctx.font = '14px sans-serif';
       lines.forEach((line, i) => {
-        ctx.fillStyle = this.coop ? PLAYER_COLORS[i] : '#e2e8f0';
+        ctx.fillStyle = this.coop ? PLAYER_COLORS[i] ?? '#b9daef' : '#e2e8f0';
         ctx.fillText(line, VIEW_W / 2, VIEW_H - h + 24 + i * 22);
       });
       ctx.globalAlpha = 1;

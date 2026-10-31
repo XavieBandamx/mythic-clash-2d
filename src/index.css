@@ -18,6 +18,66 @@
   font-family: 'Cinzel', serif;
 }
 
+/* Cada jugador mantiene su elección y sus controles en el cooperativo. */
+.coop-blessing-players { display:grid; grid-template-columns:1fr 1fr; height:100%; gap:20px; min-height:0; }
+.coop-blessing-player { display:flex; flex-direction:column; min-height:0; padding:20px; border:1px solid #7ba5c349; background:#15283b77; gap:14px; }
+.coop-blessing-player>header { display:grid; grid-template-columns:1fr auto; align-items:center; gap:6px 14px; }
+.coop-blessing-player>header>span { color:#8cb6d4; font-size:8px; letter-spacing:2px; }
+.coop-blessing-player>header h3 { font-size:25px; font-style:italic; font-weight:800; color:#dceefe; grid-column:1; }
+.coop-blessing-player>header>b { grid-column:2; grid-row:1 / 3; font-size:8px; letter-spacing:1px; color:#9ed9ff; }
+.coop-blessing-options { display:grid; grid-template-rows:repeat(3,minmax(0,1fr)); gap:8px; min-height:0; flex:1; }
+.coop-blessing-options button { display:flex; align-items:center; gap:14px; position:relative; padding:12px 14px; min-height:0; text-align:left; background:#152334a6; border:1px solid #6c8da344; cursor:pointer; }
+.coop-blessing-options button:disabled { cursor:default; }
+.coop-blessing-options button[data-active=true] { border-color:#a0d6f9; background:#2b567277; box-shadow:inset 3px 0 #8dd1ff; }
+.coop-blessing-options button>svg { color:#a0d7fa; flex-shrink:0; }
+.coop-blessing-options button>div { display:flex; flex:1; flex-direction:column; gap:5px; }
+.coop-blessing-options button strong { color:#dcefff; font-size:16px; font-style:italic; }
+.coop-blessing-options button span { font-size:10px; line-height:1.5; color:#8facbf; }
+.coop-blessing-options button>b { color:#b8e5ff; font-size:24px; font-weight:850; text-align:right; }
+.coop-blessing-options button small { display:block; max-width:65px; margin-top:3px; font-size:6px; font-weight:500; letter-spacing:1px; color:#86aecb; }
+.coop-blessing-check { position:absolute; right:5px; top:4px; }
+.coop-blessing-player>p { font-size:9px; color:#7294ae; line-height:1.5; }
+@media (max-width:760px) and (min-height:501px) {
+ .coop-blessing-screen .options-heading h2 { font-size:28px; }
+ .coop-blessing-players { grid-template-columns:1fr; grid-template-rows:1fr 1fr; gap:12px; }
+ .coop-blessing-player { padding:12px; gap:8px; }
+ .coop-blessing-player>header h3 { font-size:19px; }
+ .coop-blessing-player>header>span { font-size:6px; }
+ .coop-blessing-options { gap:5px; }
+ .coop-blessing-options button { padding:6px 10px; gap:10px; }
+ .coop-blessing-options button>svg { width:20px; height:20px; }
+ .coop-blessing-options button strong { font-size:13px; }
+ .coop-blessing-options button span { display:none; }
+ .coop-blessing-options button>b { font-size:19px; }
+ .coop-blessing-options button small { max-width:none; font-size:5px; }
+ .coop-blessing-player>p { font-size:8px; }
+}
+@media (max-height:650px) and (orientation:portrait) {
+ .coop-blessing-screen .options-heading h2 { font-size:24px; }
+ .coop-blessing-player { padding:8px; gap:5px; }
+ .coop-blessing-player>header { gap:2px; }
+ .coop-blessing-player>header h3 { font-size:16px; }
+ .coop-blessing-player>header>b { font-size:6px; }
+ .coop-blessing-options button { padding:3px 8px; }
+ .coop-blessing-options button small { display:none; }
+ .coop-blessing-player>p { display:none; }
+}
+@media (max-height:500px) {
+ .coop-blessing-players { gap:12px; }
+ .coop-blessing-player { padding:10px; gap:7px; }
+ .coop-blessing-player>header h3 { font-size:19px; }
+ .coop-blessing-player>header>span { font-size:6px; }
+ .coop-blessing-player>header>b { font-size:6px; }
+ .coop-blessing-options { gap:5px; }
+ .coop-blessing-options button { padding:5px 8px; gap:8px; }
+ .coop-blessing-options button>svg { width:20px; height:20px; }
+ .coop-blessing-options button strong { font-size:13px; }
+ .coop-blessing-options button span { display:none; }
+ .coop-blessing-options button>b { font-size:20px; }
+ .coop-blessing-options button small { font-size:5px; }
+ .coop-blessing-player>p { font-size:8px; }
+}
+
 /* Torre: el duelo actual y la ruta se leen de un vistazo. */
 .tower-screen .options-shell { max-width:1180px; gap:18px; }
 .tower-layout { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr); gap:26px; height:100%; min-height:0; }
