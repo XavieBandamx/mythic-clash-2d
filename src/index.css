@@ -861,3 +861,11 @@
 @media (max-width:760px) and (min-height:501px), (max-height:500px) {
  .tower-floors { grid-template-rows:repeat(4,minmax(0,1fr)); }
 }
+
+/* Diez arenas más selección aleatoria, sin filas implícitas. */
+.arena-roster { grid-template-columns:1fr 1fr; grid-template-rows:repeat(6,minmax(0,1fr)); }
+@media (max-width:760px) and (min-height:501px) { .arena-roster { grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(4,minmax(0,1fr)); } }
+@media (max-height:500px) { .arena-roster { grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(4,minmax(0,1fr)); } .arena-tile-copy strong { font-size:8px; } }
+
+.lan-party { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }.lan-party .lan-partner { padding:6px; min-width:0; }.lan-party strong { font-size:11px; }
+.coop-blessing-options[hidden] { display:none; }

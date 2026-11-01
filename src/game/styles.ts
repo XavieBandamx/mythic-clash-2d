@@ -45,6 +45,7 @@ export const PASSIVE = {
 export function situationalDamage(id: string, heavy: boolean, distance: number, behind: boolean, targetAttacking: boolean, combo: number) {
   if (id === 'odin' && heavy && distance >= 120) return 1.25;
   if (id === 'thor' && heavy && targetAttacking) return 1.25;
+  if (id === 'kali' && heavy && targetAttacking) return 1.15;
   if (id === 'loki' && behind) return 1.25;
   if (id === 'sunwukong' && combo >= 2) return 1.15;
   return 1;

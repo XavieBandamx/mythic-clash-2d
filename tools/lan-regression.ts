@@ -96,7 +96,7 @@ await test('Sala enlaza personajes, controles, carga y comandos sin permitir que
     guest.input({ ...EMPTY_LAN_INPUT, attack: true, right: true }); guest.input({ ...EMPTY_LAN_INPUT, right: false });
     await settle();
     const input = host.consumeInput(); assert.equal(input.attack, true); assert.equal(input.right, false); assert.equal(host.consumeInput().attack, false);
-    await guest.send('blessing', 2); assert.deepEqual(host.consumeCommands(), [{ kind: 'blessing', value: 2 }]);
+    await guest.send('blessing', 2); assert.deepEqual(host.consumeCommands(), [{ kind: 'blessing', value: 2, player: 1 }]);
     await guest.send('state', { fake: true }); assert.equal(host.snapshot, null);
     const snapshot = new SnapshotWriter().capture(new ArcadeGame(gods, 'NORMAL')); host.publish(snapshot); await settle(); assert.equal(guest.snapshot?.version, 1);
     await guest.send('leave'); assert.ok(host.error); assert.equal(host.paused, true);
@@ -203,9 +203,10 @@ await test('La carga tolera demoras, la conexión mide ida y vuelta y una ausenc
 await test('Wi-Fi acepta Asgard y los cuatro nuevos luchadores, y reconstruye el quinto reino y el final', async () => {
   const { ARENAS } = await import('../src/game/arenas');
   const { createRoute } = await import('../src/arcade/run');
+  for (let arena = 0; arena < ARENAS.length; arena++) assert.ok(readLanStart({ deities: ['kali', 'amaterasu'], difficulty: 'NORMAL', mode: 'versus', arena }, DEITIES.map(deity => deity.id)));
   const asgard = ARENAS.findIndex(arena => arena.pantheon === 'Nórdico'); assert.ok(asgard >= 0);
   assert.equal(readLanStart({ deities: ['odin', 'thor'], difficulty: 'NORMAL', mode: 'versus', arena: ARENAS.length }, DEITIES.map(deity => deity.id)), null);
-  for (const ids of [['odin', 'thor'], ['loki', 'sunwukong']] as [string, string][]) {
+  for (const ids of [['odin', 'thor'], ['loki', 'sunwukong'], ['kali', 'amaterasu']] as [string, string][]) {
     const a = new FakeWifi(), b = new FakeWifi(); a.peer = b; b.peer = a;
     const host = new LanSession('host', a), guest = new LanSession('guest', b);
     try {
@@ -223,6 +224,37 @@ await test('Wi-Fi acepta Asgard y los cuatro nuevos luchadores, y reconstruye el
       }
       host.loaded(true); guest.loaded(true); await settle(); assert.ok(host.canSimulate && guest.canSimulate);
     } finally { await guest.close(); await host.close(); }
+  }
+});
+await test('Cuatro dispositivos esperan a todos, separan controles y bendiciones y sincronizan ambos modos', async () => {
+  class PartyWifi extends FakeWifi {
+    slot = 0; hub!: PartyWifi; clients: PartyWifi[] = [];
+    async join() { this.slot = this.hub.clients.length + 1; this.hub.clients.push(this); this.emit('peer', { connected: true, player: this.slot }); this.hub.emit('peer', { connected: true, player: this.slot }); }
+    async send(message: { data: string; target?: number }) {
+      if (this.hub) this.hub.emit('message', { data: message.data, player: this.slot });
+      else for (const client of this.clients) if (!message.target || message.target === client.slot) client.emit('message', { data: message.data });
+    }
+  }
+  for (const mode of ['arcade', 'survival'] as const) {
+    const a = new PartyWifi(), clients = [new PartyWifi(), new PartyWifi(), new PartyWifi()]; clients.forEach(client => client.hub = a);
+    const host = new LanSession('host', a), guests = clients.map(client => new LanSession('guest', client));
+    const ids = ['kali', 'odin', 'amaterasu', 'sunwukong'];
+    try {
+      await host.host(); for (const guest of guests) await guest.join(host.invitations[0]);
+      await host.select(ids[0], true); for (let i=0;i<3;i++) await guests[i].select(ids[i+1], true); await settle();
+      assert.deepEqual(guests.map(guest=>guest.player), [1,2,3]); assert.equal(host.members.length,3); assert.ok(host.remoteReady);
+      const { createRoute } = await import('../src/arcade/run'); const route = createRoute(ids, Math.random, false);
+      await host.start({ deities: ids, difficulty: 'NORMAL', mode, route });
+      host.loaded(true); guests.forEach(guest=>guest.loaded(true));
+      const team=ids.map(id=>DEITIES.find(deity=>deity.id===id)!); const game=new ArcadeGame(team,'NORMAL',{kind:mode,route});
+      host.publish(new SnapshotWriter().capture(game)); await settle();
+      for(let i=0;i<3;i++) { const copy=new ArcadeGame(team,'NORMAL',{kind:mode,route}); new SnapshotReader().apply(copy,clone(guests[i].snapshot!)); assert.equal(copy.heroes.length,4); if(i<2) guests[i].acknowledgeState(); }
+      await settle(); assert.ok(!host.canSimulate); guests[2].acknowledgeState(); await settle(); assert.ok(host.canSimulate && guests.every(guest=>guest.canSimulate));
+      guests[0].input({...EMPTY_LAN_INPUT,left:true,attack:true}); guests[1].input({...EMPTY_LAN_INPUT,right:true,magic:true}); guests[2].input({...EMPTY_LAN_INPUT,jump:true}); await settle();
+      assert.ok(host.consumeInput(1).attack); assert.ok(host.consumeInput(2).magic); assert.ok(host.consumeInput(3).jump); assert.ok(!host.consumeInput(1).attack);
+      await guests[2].send('blessing',2); assert.deepEqual(host.consumeCommands(),[{kind:'blessing',value:2,player:3}]);
+      await guests[1].send('pause',true); await settle(); assert.ok(host.paused && guests.every(guest=>guest.paused));
+    } finally { await Promise.all([host,...guests].map(room=>room.close())); }
   }
 });
 console.log(`\n${passed} pruebas de sincronización LAN aprobadas.`);

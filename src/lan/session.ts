@@ -12,7 +12,7 @@ import type { LanStart } from './protocol';
 export interface NativeWifi {
   host(): Promise<{ addresses: string[]; port: number; token: string }>;
   join(invite: { host: string; port: number; token: string }): Promise<void>;
-  send(message: { data: string }): Promise<void>;
+  send(message: { data: string; target?: number }): Promise<void>;
   close(): Promise<void>;
   copy(options: { text: string }): Promise<void>;
   scan(): Promise<{ text?: string }>;
@@ -31,7 +31,12 @@ function mergeControls(previous: Outgoing, next: Outgoing): Outgoing {
 }
 
 export class LanSession {
-  readonly player: 0 | 1;
+  player: number;
+  peers = new Map<number, { deity: string | null; ready: boolean; loaded: boolean; primed: boolean; input: ArcadeInput; received: number; last?: number }>();
+  private replyTo = 0;
+  private selected = { deity: DEITIES[0].id, ready: false };
+  get members() { return [...this.peers.entries()].sort((a,b) => a[0]-b[0]).map(([player, peer]) => ({ player, ...peer })); }
+  private publishRoster() { if (this.role === 'host') void this.send('roster', [{ player: 0, ...this.selected }, ...this.members.map(({ player, deity, ready }) => ({ player, deity, ready }))]); }
   connected = false;
   error = '';
   remoteDeity: string | null = null;
@@ -67,7 +72,7 @@ export class LanSession {
   private readonly states = new LatestOutbox<Outgoing>(packet => this.send(packet.kind, packet.value, packet.round));
   private readonly controls = new LatestOutbox<Outgoing>(packet => this.send(packet.kind, packet.value, packet.round), mergeControls);
   private closed = false;
-  private commands: { kind: string; value?: unknown }[] = [];
+  private commands: { kind: string; value?: unknown; player?: number }[] = [];
   constructor(readonly role: 'host' | 'guest', private transport: NativeWifi = Wifi, private now: () => number = () => performance.now()) { this.player = role === 'host' ? 0 : 1; }
   static async scanInvite() { return (await Wifi.scan()).text; }
   subscribe = (callback: () => void) => { this.listeners.add(callback); return () => { this.listeners.delete(callback); }; };
@@ -86,11 +91,11 @@ export class LanSession {
   }
   private resetRound(round: number) {
     this.round = round; this.ready = this.primed = this.remotePrimed = false;
-    this.localLoaded = this.remoteLoaded = false; this.snapshot = null; this.versusState = null;
+    this.localLoaded = this.remoteLoaded = false; for (const peer of this.peers.values()) { peer.loaded = peer.primed = false; } this.snapshot = null; this.versusState = null;
     this.states.clear(); this.commands = []; this.resetControls();
   }
   private checkStartup() {
-    if (this.role === 'host' && !this.ready && this.config && this.localLoaded && this.remoteLoaded && this.remotePrimed) {
+    if (this.role === 'host' && !this.ready && this.config && this.localLoaded && this.remoteLoaded && this.remotePrimed && (this.role !== 'host' || this.members.every(p => p.loaded && p.primed))) {
       this.resetControls(); this.ready = true; void this.send('go'); this.changed();
     }
   }
@@ -104,6 +109,7 @@ export class LanSession {
   pollConnection() {
     if (!this.connected || this.closed || this.error) return;
     const now = this.now(), timeout = this.paused || !this.ready || !this.localLoaded || !this.remoteLoaded ? 60000 : 15000;
+    if (this.role === 'host' && this.members.some(peer => now - (peer.last ?? this.lastRemote) > timeout)) return this.fail('Un jugador dejó de responder. Creen una sala nueva.');
     if (now - this.lastRemote > timeout) return this.fail('El compañero dejó de responder. Vuelve a crear o unirte a una sala.');
     const id = ++this.pingId; this.pings.set(id, now);
     while (this.pings.size > 8) this.pings.delete(this.pings.keys().next().value!);
@@ -117,6 +123,18 @@ export class LanSession {
     this.resetControls(); this.states.clear(); if (this.heartbeat) clearInterval(this.heartbeat); this.changed();
     void this.transport.close().catch(() => {});
   }
+  private receiveFrom(raw: unknown, player = 1) {
+    if (this.role !== 'host') { this.receive(raw); return; }
+    const peer = this.peers.get(player); if (!peer) return;
+    this.remoteDeity = peer.deity; this.remoteReady = peer.ready; this.remoteLoaded = peer.loaded; this.remotePrimed = peer.primed; this.remoteInput = peer.input; this.receivedInputAt = peer.received;
+    peer.last = this.now(); this.replyTo = player; this.receive(raw); this.replyTo = 0;
+    Object.assign(peer, { deity: this.remoteDeity, ready: this.remoteReady, loaded: this.remoteLoaded, primed: this.remotePrimed, input: this.remoteInput, received: this.receivedInputAt });
+    this.remoteDeity = this.members[0]?.deity ?? null;
+    this.remoteReady = this.peers.size > 0 && this.members.every(p => p.ready);
+    this.remoteLoaded = this.peers.size > 0 && this.members.every(p => p.loaded);
+    this.remotePrimed = this.peers.size > 0 && this.members.every(p => p.primed);
+    this.checkStartup(); this.changed();
+  }
   private receive(raw: unknown) {
     if (this.closed || this.error) return;
     if (typeof raw !== 'string' || raw.length > 1024 * 1024) return this.fail('Mensaje de red inválido');
@@ -125,6 +143,7 @@ export class LanSession {
     if (!packet || packet.version !== LAN_VERSION) return this.fail('Ambos celulares necesitan la misma versión del juego');
     this.lastRemote = this.now();
     const { kind, value } = packet;
+    if (kind === 'roster' && this.role === 'guest' && Array.isArray(value)) { this.peers.clear(); for (const member of value) if (member.player !== this.player) this.peers.set(member.player, { ...member, input: { ...EMPTY_LAN_INPUT }, received: 0 }); this.changed(); return; }
     if (kind === 'prepare' && this.role === 'guest' && Number.isSafeInteger(packet.round) && packet.round! > this.round) { this.resetRound(packet.round!); this.changed(); return; }
     if (ROUND_PACKETS.has(kind) && packet.round !== this.round) return;
     if (kind === 'primed' && this.role === 'host') { this.remotePrimed = true; this.checkStartup(); return; }
@@ -147,6 +166,7 @@ export class LanSession {
       const selection = value as { deity: string; ready: boolean };
       if (!DEITIES.some(deity => deity.id === selection.deity)) return;
       this.remoteDeity = selection.deity; this.remoteReady = selection.ready === true;
+      queueMicrotask(() => this.publishRoster());
     } else if (kind === 'start' && this.role === 'guest') {
       const config = readLanStart(value, DEITIES.map(deity => deity.id));
       if (!config) return this.fail('La configuración de la partida no es válida');
@@ -161,16 +181,16 @@ export class LanSession {
     } else if (kind === 'state' && this.role === 'guest') { this.snapshot = value as ArcadeSnapshot; return; }
     else if (kind === 'loaded') { this.remoteLoaded = value === true; this.checkStartup(); }
     else if (['pause', 'blessing', 'continue', 'rematch'].includes(kind)) {
-      if (this.role === 'host') this.commands.push({ kind, value });
-      if (kind === 'pause') { this.paused = value === true; this.resetControls(); }
+      if (this.role === 'host') this.commands.push({ kind, value, player: this.replyTo || 1 });
+      if (kind === 'pause') { if (this.role === 'host') void this.send('pause', value); this.paused = value === true; this.resetControls(); }
     }
     this.changed();
   }
   private async initialize() {
     if (this.transport === Wifi && !hasLocalWifi()) throw new Error('Wi-Fi local está disponible en la app Android');
     this.handles = await Promise.all([
-      this.transport.addListener('message', event => this.receive(event.data)),
-      this.transport.addListener('peer', event => { this.connected = event.connected === true; this.lastRemote = this.now(); this.pollConnection(); this.changed(); }),
+      this.transport.addListener('message', event => this.receiveFrom(event.data, Number(event.player) || 1)),
+      this.transport.addListener('peer', event => { this.connected = event.connected === true; const slot = Number(event.player) || 1; if (this.role === 'guest') this.player = slot; else if (!this.config) this.peers.set(slot, { deity: null, ready: false, loaded: false, primed: false, input: { ...EMPTY_LAN_INPUT }, received: 0 }); this.publishRoster(); this.lastRemote = this.now(); this.pollConnection(); this.changed(); }),
       this.transport.addListener('closed', event => this.fail(String(event.reason ?? 'Se perdió la conexión'))),
       this.transport.addListener('suspended', () => { if (this.connected) { this.paused = true; void this.send('pause', true); this.commands.push({ kind: 'pause', value: true }); this.changed(); } }),
     ]);
@@ -193,15 +213,16 @@ export class LanSession {
   }
   async send(kind: string, value?: unknown, round = this.round) {
     if (this.closed || !this.connected || this.error) return;
-    try { await this.transport.send({ data: JSON.stringify({ version: LAN_VERSION, kind, value, round }) }); }
+    try { await this.transport.send({ data: JSON.stringify({ version: LAN_VERSION, kind, value, round }), target: ['pong'].includes(kind) ? this.replyTo : 0 }); }
     catch { this.fail('Se perdió la conexión Wi-Fi'); }
   }
-  select(deity: string, ready: boolean) { return this.send('selection', { deity, ready }); }
+  select(deity: string, ready: boolean) { this.selected = { deity, ready }; this.publishRoster(); return this.send('selection', { deity, ready }); }
   copyInvite(text: string) { return this.transport.copy({ text }); }
   async start(config: LanStart) {
     if (this.role !== 'host' || !this.connected || !this.remoteReady || this.starting || this.config) return;
     const checked = readLanStart(config, DEITIES.map(deity => deity.id));
     if (!checked) throw new Error('Configuración inválida');
+    if (config.deities.length !== this.peers.size + 1 || config.mode === 'versus' && this.peers.size !== 1) throw new Error('El equipo cambió. Revisen los jugadores de la sala.');
     config = checked;
     this.starting = true; this.resetRound(this.round + 1); this.config = config;
     await this.send('start', config); this.starting = false; this.changed();
@@ -214,7 +235,12 @@ export class LanSession {
     this.controls.offer({ kind, value, round: this.round });
   }
   input(value: ArcadeInput) { this.offerControls('input', value); }
-  consumeInput() {
+  consumeInput(player = 1) {
+    if (this.role === 'host' && this.peers.has(player)) {
+      const peer = this.peers.get(player)!;
+      if (!this.canSimulate || this.now() - peer.received > 250) return { ...EMPTY_LAN_INPUT };
+      const input = { ...peer.input }; for (const key of ['attack', 'jump', 'magic', 'tapLeft', 'tapRight'] as const) peer.input[key] = false; return input;
+    }
     if (!this.canSimulate || this.now() - this.receivedInputAt > 250) { this.remoteInput = { ...EMPTY_LAN_INPUT }; return { ...EMPTY_LAN_INPUT }; }
     const input = { ...this.remoteInput };
     for (const key of ['attack', 'jump', 'magic', 'tapLeft', 'tapRight'] as const) this.remoteInput[key] = false;

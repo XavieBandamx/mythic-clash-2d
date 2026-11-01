@@ -40,7 +40,7 @@ export default function LanLobby({ back, start, createSession = role => new LanS
     });
   }, [room, start]);
   useEffect(() => { if (room?.connected) void room.select(deity, ready); }, [room, deity, ready, room?.connected]);
-  useEffect(() => { if (room?.role === 'host' && room.connected) void room.send('settings', { deities: [deity, room.remoteDeity ?? deity], difficulty, mode, arena }); }, [room, room?.connected, deity, difficulty, mode, arena]);
+  useEffect(() => { if (room?.role === 'host' && room.connected) void room.send('settings', { deities: [deity, ...room.members.map(member => member.deity ?? deity)], difficulty, mode, arena }); }, [room, room?.connected, deity, difficulty, mode, arena]);
   useEffect(() => {
     if (!room?.connected) return;
     for (const id of [deity, room.remoteDeity]) {
@@ -58,14 +58,15 @@ export default function LanLobby({ back, start, createSession = role => new LanS
     catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo conectar'); setRoom(null); await session.close(); }
     finally { setBusy(false); }
   };
+  const teamIds = [deity, ...(room?.members.filter(member => member.player > 0).map(member => member.deity ?? deity) ?? [])];
   const remote = DEITIES.find(item => item.id === room?.remoteDeity);
   return <OptionsFrame kind="lan-screen" eyebrow="SALA PRIVADA / WI-FI LOCAL" title="Juega por Wi-Fi"
     subtitle="Mismo Wi-Fi o punto de acceso. No necesitan internet."
-    footer={<><button className="options-back" onClick={back}><ArrowLeft size={16} /> Volver</button><span>Mantengan ambos juegos abiertos y conectados a la misma red</span></>}>
+    footer={<><button className="options-back" onClick={back}><ArrowLeft size={16} /> Volver</button><span>Mantengan sus juegos abiertos y conectados a la misma red</span></>}>
     {room && <div className="control-tabs lan-tabs"><button className="control-tab" aria-pressed={view === 'room'} onClick={() => setView('room')}>Sala e invitación</button><button className="control-tab" aria-pressed={view === 'team'} onClick={() => setView('team')}>Mi equipo {room.connected ? '●' : ''}</button></div>}
     <div className={`lan-layout ${room ? '' : 'lan-layout-entry'}`}>
       <section className="lan-card" data-visible={view === 'room'}><Wifi size={38} strokeWidth={1.2} /><h3>{room ? room.role === 'host' ? 'Tu sala privada' : 'Conectado a la sala' : 'Reúnan a sus dioses'}</h3>
-        {!room && <><p>Un celular crea la partida. El compañero pega su invitación y controla a su propio dios.</p>
+        {!room && <><p>Un celular crea la partida. Hasta tres compañeros pegan la misma invitación y controla a su propio dios.</p>
           <button className="arena-confirm" disabled={busy} onClick={() => void connect('host')}>Crear sala <ArrowRight size={16} /></button>
           <label>Invitación del anfitrión<input value={invite} onChange={event => setInvite(event.target.value)} placeholder="192.168…:puerto#invitación" autoCapitalize="none" autoCorrect="off" spellCheck={false} /></label>
           <button className="options-reset" disabled={busy || !invite.trim()} onClick={() => void connect('guest')}>Unirme a la sala</button></>}
@@ -78,11 +79,11 @@ export default function LanLobby({ back, start, createSession = role => new LanS
       {room && <section className="lan-card lan-team-card" data-role={room.role} data-visible={view === 'team'}><span className="title-eyebrow">{mode === 'versus' ? 'TU LUCHADOR' : 'TU EQUIPO'}</span><label>Tu dios<select value={deity} disabled={ready || busy} onChange={event => setDeity(event.target.value)}>{DEITIES.map(item => <option key={item.id} value={item.id}>{item.name} / {item.pantheon}</option>)}</select></label>
         {room.role === 'host' && <><label>Modo de juego<select value={mode} disabled={ready} onChange={event => setMode(event.target.value as typeof mode)}><option value="arcade">Arcade cooperativo</option><option value="survival">Supervivencia cooperativa</option><option value="versus">Versus · 1 contra 1</option></select></label>{mode === 'versus' && <label>Arena<select value={arena} disabled={ready} onChange={event => setArena(Number(event.target.value))}>{ARENAS.map((item, index) => <option key={item.name} value={index}>{item.name}</option>)}</select></label>}</>}
         {room.role === 'host' && mode !== 'versus' && <label>Dificultad<select value={difficulty} disabled={ready} onChange={event => setDifficulty(event.target.value as Difficulty)}><option value="FACIL">Fácil</option><option value="NORMAL">Normal</option><option value="DIFICIL">Difícil</option></select></label>}
-        <div className="lan-partner"><span>COMPAÑERO</span><strong>{remote?.name ?? 'Todavía no ha elegido'}</strong><small>{room?.remoteReady ? 'LISTO ✓' : 'ESPERANDO'}</small></div>
+        <div className="lan-party">{room.members.map(member => <div className="lan-partner" key={member.player}><span>JUGADOR {member.player + 1}</span><strong>{DEITIES.find(item => item.id === member.deity)?.name ?? 'Eligiendo personaje'}</strong><small>{member.ready ? 'LISTO ✓' : 'ESPERANDO'}</small></div>)}</div><p>{room.role === 'host' ? room.members.length + 1 : room.members.length + 1} / 4 jugadores · Más jugadores, más enemigos y presión.</p>
         <button className="options-reset" disabled={!room?.connected || !!room.error} onClick={() => setReady(value => !value)}>{ready ? 'Listo ✓ · Cambiar elección' : 'Estoy listo'}</button>
-        {room?.role === 'host' && <button className="arena-confirm" disabled={!ready || !room.remoteReady || !room.connected || !!room.error} onClick={() => void room.start({ deities: [deity, room.remoteDeity!], difficulty, mode, arena, route: createRoute([deity, room.remoteDeity!]) })}>Comenzar partida <ArrowRight size={16} /></button>}
+        {room?.role === 'host' && <button className="arena-confirm" disabled={mode === 'versus' && room.members.length !== 1 || !ready || !room.remoteReady || !room.connected || !!room.error} onClick={() => void room.start({ deities: teamIds, difficulty, mode, arena, route: createRoute(teamIds) })}>Comenzar partida <ArrowRight size={16} /></button>}
         {room.role === 'guest' && room.roomSettings && <p role="status">{room.roomSettings.mode === 'versus' ? `Versus · ${ARENAS[room.roomSettings.arena ?? 0].name}` : room.roomSettings.mode === 'survival' ? `Supervivencia · ${room.roomSettings.difficulty}` : `Arcade · ${room.roomSettings.difficulty}`}</p>}
-        {room?.role === 'guest' && ready && <p role="status">El anfitrión iniciará cuando ambos estén listos.</p>}
+        {room?.role === 'guest' && ready && <p role="status">El anfitrión iniciará cuando todos estén listos.</p>}
         <p>El anfitrión debe mantener el juego abierto. Si la conexión se pierde, se detiene la partida y tendrán que crear una sala nueva.</p>
       </section>}
     </div>

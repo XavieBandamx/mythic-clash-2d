@@ -8,7 +8,12 @@ const DESCRIPTIONS = [
   'Entre columnas y arena, los dioses se enfrentan al juicio de Osiris.',
   'La piedra ancestral de Tenochtitlan espera a sus nuevos campeones.',
   'Pétalos y relámpagos acompañan el duelo en el reino de la tormenta.',
-  'Más allá de los reinos, la torre reúne a quienes desafían a los dioses.'
+  'Más allá de los reinos, la torre reúne a quienes desafían a los dioses.',
+  'La nieve y el trueno custodian el puente de Asgard.',
+  'Las puertas del Abismo arden bajo un cielo de ceniza.',
+  'La luna ilumina un duelo entre ruinas y aguas serenas.',
+  'Un jardín suspendido entre nubes espera a sus campeones.',
+  'El eclipse anuncia el combate entre templos ancestrales.'
 ];
 
 export default function ArenaSelect({ selected, highlight, choose, back, fighters }: {
@@ -27,7 +32,7 @@ export default function ArenaSelect({ selected, highlight, choose, back, fighter
           <div className="arena-random-mosaic" aria-hidden="true">{ARENAS.slice(0, 4).map(item => <img key={item.src} src={item.src} alt="" />)}<Shuffle /></div>}
         <div className="arena-preview-caption"><span>{arena?.pantheon ?? (arena ? 'MÁS ALLÁ DE LOS REINOS' : 'QUE DECIDA EL DESTINO')}</span>
           <h3>{arena?.name ?? 'Arena aleatoria'}</h3>
-          <p>{arena ? DESCRIPTIONS[selected - 1] : 'Cualquiera de las cinco arenas. El escenario se revela al comenzar el combate.'}</p>
+          <p>{arena ? DESCRIPTIONS[selected - 1] : `Cualquiera de las ${ARENAS.length} arenas. El escenario se revela al comenzar el combate.`}</p>
         </div>
         <div className="arena-preview-index" aria-hidden="true">{selected ? String(selected).padStart(2, '0') : '?'}</div>
       </div>

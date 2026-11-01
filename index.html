@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#060813" /><link rel="stylesheet" href="%BASE_URL%boot.css" />
     <title>Mythic Clash 2D - Torneo de Dioses</title>
     <meta name="description" content="Videojuego de peleas en 2D de alta precisión con físicas reales, mitologías griega, egipcia, mexicana y japonesa, combates 1v1 y versus IA." />
     <meta property="og:title" content="Mythic Clash 2D - Torneo de Dioses" />
@@ -11,7 +12,24 @@
     <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body>
-    <div id="root"></div>
+    <section id="boot-screen" class="boot-screen" role="progressbar" aria-label="Cargando Mythic Clash 2D" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="boot-frame" aria-hidden="true"></div><div class="boot-content">
+        <img class="boot-logo" src="%BASE_URL%boot-logo.webp" alt="Mythic Clash 2D" />
+        <h1 class="boot-title">PREPARANDO EL TORNEO</h1>
+        <div class="boot-meter"><div class="boot-track"><div id="boot-fill" class="boot-fill"></div></div><span id="boot-percent" class="boot-percent">0%</span></div>
+        <p id="boot-status" class="boot-status" aria-live="polite">Despertando a los dioses…</p>
+        <button id="boot-retry" class="boot-retry" hidden>Reintentar</button>
+        <div class="boot-version">VERSIÓN __GAME_VERSION__</div><div class="boot-tagline">EL TORNEO DE LOS DIOSES</div>
+      </div>
+    </section><div id="root"></div>
+    <script>
+      window.addEventListener('error', function (event) {
+        var screen = document.getElementById('boot-screen');
+        if (!screen || !(event.target && event.target.tagName === 'SCRIPT' || event.error && event.error.name === 'SyntaxError')) return;
+        document.getElementById('boot-status').textContent = 'No se pudo iniciar el juego. Reintenta; en Android revisa que WebView esté actualizado.';
+        var retry = document.getElementById('boot-retry'); retry.hidden = false; retry.onclick = function () { location.reload(); };
+      }, true);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -21,7 +21,12 @@ export const ARENAS: ArenaDef[] = [
   { pantheon: 'México', name: 'La Cancha de Tenochtitlan', src: url('mexico.webp'), floorY: 545 },
   { pantheon: 'Japón', name: 'El Dojo de la Tormenta', src: url('japon.webp'), floorY: 612, storm: '200, 170, 255', petals: true },
   { name: 'La Torre de Babel', src: url('babel.webp'), floorY: 610, storm: '230, 230, 255' },
-  { pantheon: 'Nórdico', snow: true, name: 'El Puente de Asgard', src: url('asgard.webp'), floorY: 595, storm: '200, 220, 255' }
+  { pantheon: 'Nórdico', snow: true, name: 'El Puente de Asgard', src: url('asgard.webp'), floorY: 595, storm: '200, 220, 255' },
+  // Neutrales; van al final porque el versus por Wi-Fi envía la arena por índice
+  { name: 'Las Puertas del Abismo', src: url('abismo.webp'), floorY: 628 },
+  { name: 'El Santuario de la Luna', src: url('luna.webp'), floorY: 579 },
+  { name: 'El Jardín Celestial', src: url('jardin.webp'), floorY: 580, petals: true },
+  { name: 'El Templo del Eclipse', src: url('eclipse.webp'), floorY: 595 }
 ];
 
 // Arena de Origen en la cima de la torre (no se elige en el menú)

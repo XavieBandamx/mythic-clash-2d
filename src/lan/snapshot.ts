@@ -77,7 +77,7 @@ export class SnapshotReader {
       if (['hero', 'monster', 'boss', 'beast'].includes(node.type)) {
         value = this.actors.get(node.id);
         if (!value) {
-          if (node.type === 'hero' && deity(meta[0]) && (meta[1] === 0 || meta[1] === 1)) value = new Hero(deity(meta[0])!, Number(meta[1]));
+          if (node.type === 'hero' && deity(meta[0]) && (Number.isInteger(meta[1]) && Number(meta[1]) >= 0 && Number(meta[1]) < game.heroes.length)) value = new Hero(deity(meta[0])!, Number(meta[1]));
           else if (node.type === 'boss' && deity(meta[0])) value = new Boss(deity(meta[0])!, 0, 0, 1, 1, 0);
           else if (node.type === 'monster' && ['grunt', 'brute', 'runner', 'thief', 'mini'].includes(String(meta[0])) && meta[1] && typeof meta[1] === 'object') value = new Monster(meta[0] as MonsterKind, meta[1] as MonsterSkin, 0, 0, 1, 1);
           else if (node.type === 'beast') { const def = Object.values(BEASTS).find(item => item.id === meta[0]); if (def) value = new Beast(def, 0, 0); }

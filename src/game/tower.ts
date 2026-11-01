@@ -39,6 +39,7 @@ export function towerSkill(floor: number): number {
 export const TOWER_ENDINGS: Record<string, string> = {
   odin: 'Odín entregó los hilos de Origen a las raíces de Yggdrasil. Esta vez no buscó conocer el destino: decidió dejar que cada mundo escribiera el suyo.',
   thor: 'Thor sostuvo con Mjölnir el telar que amenazaba con romperse. Su victoria no se oyó como un trueno, sino como el primer amanecer en paz de los reinos.',
+  kali: 'Kali cortó las cadenas del telar y dejó que los mundos respiraran. Su danza cerró el ciclo de Origen y abrió un amanecer libre.',
   loki: 'Loki desató el último nudo de Origen y encontró una salida que nadie había previsto. Dejó el telar intacto y una sonrisa entre sus hilos.',
   sunwukong: 'El Rey Mono rechazó el trono del creador. Guardó el bastón, saltó sobre una nube y regresó a sus montañas con una historia imposible que contar.',
   zeus: 'Con Origen vencido, Zeus reclamó el telar del cosmos para el Olimpo. Pero al tocar sus hilos comprendió que ningún trono es eterno, y por primera vez el rey de los dioses decidió gobernar escuchando.',

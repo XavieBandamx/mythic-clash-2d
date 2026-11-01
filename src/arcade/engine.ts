@@ -37,7 +37,7 @@ const COOP_BOSS_HP_MUL = 1.25;
 export const COOP_LINK_WINDOW = 120;
 export const COOP_GUARD_TICKS = 240;
 export const COOP_GUARD_INTERVAL = 600;
-const PLAYER_COLORS = ['#fbbf24', '#38bdf8']; // Distintivo de cada jugador (1P dorado, 2P celeste)
+const PLAYER_COLORS = ['#fbbf24', '#38bdf8', '#c084fc', '#4ade80']; // Distintivo de cada jugador (1P dorado, 2P celeste)
 const LAND_SQUASH_TICKS = 8;
 const TRAIL_LENGTH = 6; // Poses guardadas para las imágenes fantasma (se dibuja una de cada dos)
 
@@ -2079,7 +2079,7 @@ export class ArcadeGame {
     return this.heroes.filter(h => !h.gameOver && !this.rescues.has(h));
   }
 
-  public get teamStanding() { return this.coop && this.activeHeroes.filter(hero => hero.hp > 0 && !hero.isDown).length === 2; }
+  public get teamStanding() { return this.coop && this.activeHeroes.filter(hero => hero.hp > 0 && !hero.isDown).length >= 2; }
   public get coopTacticHint(): string {
     if (!this.teamStanding) return '';
     if (this.coopGuard) return 'GUARDIA ENVOLVENTE · GOLPEEN DESDE LADOS OPUESTOS, UNO CADA JUGADOR (2 s)';
@@ -2210,6 +2210,9 @@ export class ArcadeGame {
     this.hitstop = 0; this.magicCast = null;
     this.lifeLossQueue = [];
     this.endCoopLink(); this.endCoopGuard();
+    if (this.heroes.length > 2) for (const wave of this.waves) {
+      for (let i = 0; i < (this.heroes.length - 2) * 2; i++) wave.spawns.push({ kind: i % 2 ? 'runner' : 'brute', side: i % 2 ? 'left' : 'right', zFrac: .2 + (i % 4) * .18, delay: 90 + i * 70 });
+    }
     this.coopLinkedWave = -1; this.coopGuardCooldown = COOP_GUARD_INTERVAL; this.coopFeedback = null;
     this.rescues.clear();
     this.goTimer = final ? 0 : 240;
@@ -2225,8 +2228,8 @@ export class ArcadeGame {
 
     // En cooperativo, el 2P entra un poco atrás y más al frente
     for (const hero of this.heroes) {
-      hero.x = this.camX + (this.coop ? (hero.index === 0 ? 260 : 170) : 220);
-      hero.z = DEPTH * (this.coop ? (hero.index === 0 ? 0.4 : 0.85) : 0.6);
+      hero.x = this.camX + (this.coop ? (260 - hero.index * 55) : 220);
+      hero.z = DEPTH * (this.coop ? (.25 + hero.index * .18) : 0.6);
       hero.y = 0;
       hero.vx = hero.vz = hero.vy = 0;
       hero.mount = null;
@@ -2277,7 +2280,7 @@ export class ArcadeGame {
   }
 
   private get hpMul(): number {
-    return (0.85 + 0.15 * this.stageDifficulty) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_HP_MUL : 1);
+    return (0.85 + 0.15 * this.stageDifficulty) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_HP_MUL + Math.max(0, this.heroes.length - 2) * .15 : 1);
   }
 
   private get dmgMul(): number {
@@ -2373,7 +2376,7 @@ export class ArcadeGame {
     this.phaseTimer = 0;
     this.camX = this.runKind === 'survival' ? 0 : BOSS_CAM_X;
     const final = this.bossDeity === ORIGEN;
-    const hp = Math.round(300 * (1 + 0.2 * this.stageDifficulty) * (final ? 1.6 : 1) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_BOSS_HP_MUL : 1));
+    const hp = Math.round(300 * (1 + 0.2 * this.stageDifficulty) * (final ? 1.6 : 1) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_BOSS_HP_MUL + Math.max(0, this.heroes.length - 2) * .4 : 1));
     this.boss = new Boss(this.bossDeity, this.camX + VIEW_W + 120, DEPTH * 0.5, hp, this.dmgMul, this.camX + VIEW_W * 0.72);
     // Hades (nivel 1) apenas te lee; el jefe de Japón casi todo; Origen todo. Fácil los vuelve más torpes
     this.boss.iq = clamp((final ? 1 : 0.4 + 0.15 * this.stageDifficulty) / this.calmFactor, 0.15, 1);
@@ -2934,7 +2937,7 @@ export class ArcadeGame {
       updateParticles(this.particles);
       this.continueTimer--;
       if (this.continueTimer % 60 === 0) sounds.playNav();
-      if (list.some(i => i.attack) && this.continueTimer < CONTINUE_TICKS - 30) this.continueGame();
+      if (this.continueTimer < CONTINUE_TICKS - 30) list.forEach((input, player) => { if (input.attack) this.continuePlayer(player); });
       else if (this.continueTimer <= 0) this.endRun('finalOver');
       return;
     }
@@ -3151,6 +3154,11 @@ export class ArcadeGame {
   }
 
   // Continuar cuesta la mitad de los puntos, como en las máquinas
+  public continuePlayer(player: number) {
+    const hero = this.heroes[player]; if (!hero || this.runKind === 'survival') return;
+    this.continueHero(hero);
+    if (this.phase === 'gameOver' && this.activeHeroes.length) this.phase = this.boss ? 'boss' : 'play';
+  }
   public continueGame() {
     if (this.phase !== 'gameOver') return;
     for (const hero of this.heroes) {
@@ -3517,7 +3525,10 @@ export class ArcadeGame {
     const hero = this.hero;
     ctx.save();
 
-    this.heroes.forEach((h, i) => this.renderHeroPanel(ctx, h, 16 + i * 396));
+    this.heroes.forEach((h, i) => {
+      if (this.heroes.length <= 2) this.renderHeroPanel(ctx, h, 16 + i * 396);
+      else { ctx.save(); ctx.scale(.66, .66); this.renderHeroPanel(ctx, h, 16 + i * 396); ctx.restore(); }
+    });
 
     // Puntos (uno por jugador) y nivel
     ctx.textAlign = 'right';
@@ -3685,7 +3696,7 @@ export class ArcadeGame {
     } else if (this.phase === 'victory') {
       overlay(this.coop ? '¡CAMPEONES DEL COSMOS!' : '¡CAMPEÓN DEL COSMOS!', '#fbbf24', [
         this.coop
-          ? `${this.heroes.map(h => h.deity.name).join(' y ')} vencieron a los cuatro panteones y al mismo Origen`
+          ? `${this.heroes.map(h => h.deity.name).join(' y ')} vencieron a los cinco panteones y al mismo Origen`
           : `${hero.deity.name} venció a los cuatro panteones y al mismo Origen`,
         `Puntos finales: ${scores}`,
         recordLine

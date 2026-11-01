@@ -28,7 +28,7 @@ public class LanTransportTest {
                     socket.setSoTimeout(4000);
                     DataInputStream input = new DataInputStream(socket.getInputStream());
                     check("a".repeat(32).equals(LanTransport.readFrame(input)), "El reintento perdió la invitación");
-                    LanTransport.writeFrame(new DataOutputStream(socket.getOutputStream()), "MYTHIC-LAN-1");
+                    LanTransport.writeFrame(new DataOutputStream(socket.getOutputStream()), "MYTHIC-LAN-2:1");
                     check("tras reintentar".equals(LanTransport.readFrame(input)), "No envió datos después de reintentar");
                 }
             }
@@ -39,8 +39,22 @@ public class LanTransportTest {
         try { client.join("127.0.0.1", port, "a".repeat(32), new Events()); client.send("tras reintentar"); server.get(5, TimeUnit.SECONDS); }
         finally { client.shutdown(); server.cancel(true); }
     }
+    static void fourPlayers() throws Exception {
+        LanTransport host = new LanTransport(); LanTransport[] guests = {new LanTransport(),new LanTransport(),new LanTransport()};
+        LanTransport extra = new LanTransport();
+        try {
+            Events a = new Events(); LanTransport.HostInfo room = host.host(a,true); Events[] events = {new Events(),new Events(),new Events()};
+            for(int i=0;i<3;i++) guests[i].join("127.0.0.1",room.port,room.token,events[i]);
+            host.send("difusión"); for(Events e:events) check("difusión".equals(e.messages.poll(3,TimeUnit.SECONDS)),"Falló difusión");
+            host.send("privado",host.epoch(),3); check("privado".equals(events[2].messages.poll(3,TimeUnit.SECONDS)),"Falló destino");
+            check(events[0].messages.poll(100,TimeUnit.MILLISECONDS)==null,"Filtró mensaje a otro jugador");
+            boolean full=false;try{extra.join("127.0.0.1",room.port,room.token,new Events());}catch(IOException expected){full=true;}check(full,"Permitió quinto jugador");
+            for(int i=0;i<3;i++)guests[i].send("control "+i);
+            for(int i=0;i<3;i++)check(a.messages.poll(3,TimeUnit.SECONDS)!=null,"Perdió controles");
+        }finally{host.shutdown();extra.shutdown();for(LanTransport guest:guests)guest.shutdown();}
+    }
     public static void main(String[] args) throws Exception {
-        delayedPeer();
+        delayedPeer(); fourPlayers();
         CountWrites frame = new CountWrites(); LanTransport.writeFrame(new DataOutputStream(frame), "control ágil ⚡");
         check(frame.calls == 1, "La cabecera genera una escritura TCP separada");
         check("control ágil ⚡".equals(LanTransport.readFrame(new DataInputStream(new ByteArrayInputStream(frame.toByteArray())))), "El marco unido no conserva UTF-8");
@@ -61,7 +75,7 @@ public class LanTransportTest {
             }
             boolean rejected = false;
             try { third.join("127.0.0.1", room.port, room.token, new Events()); } catch (IOException expected) { rejected = true; }
-            check(rejected, "Permitió un tercer jugador");
+            check(!rejected, "Rechazó al tercer jugador");
             guest.send("siguen conectados"); check("siguen conectados".equals(a.messages.poll(3, TimeUnit.SECONDS)), "El tercer jugador interrumpió la partida");
             int oldEpoch = host.epoch();
             guest.close(); check(a.closed.await(3, TimeUnit.SECONDS), "No notificó la desconexión");

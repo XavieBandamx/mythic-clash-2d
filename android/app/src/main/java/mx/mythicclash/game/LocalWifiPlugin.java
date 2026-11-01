@@ -20,6 +20,8 @@ public class LocalWifiPlugin extends Plugin {
     }
     private final LanTransport.Listener events = new LanTransport.Listener() {
         public void connected() { event("peer", "connected", true); }
+        public void connected(int player) { JSObject data = new JSObject(); data.put("connected", true); data.put("player", player); notifyListeners("peer", data); }
+        public void message(String message, int player) { JSObject data = new JSObject(); data.put("data", message); data.put("player", player); notifyListeners("message", data); }
         public void message(String message) { event("message", "data", message); }
         public void closed(String reason) { event("closed", "reason", reason); }
     };
@@ -44,8 +46,8 @@ public class LocalWifiPlugin extends Plugin {
     }
     @PluginMethod public void send(PluginCall call) {
         final String data = call.getString("data", "");
-        final int epoch = transport.epoch();
-        writes.execute(() -> { try { transport.send(data, epoch); call.resolve(); } catch (Exception error) { call.reject("No se pudo enviar el mensaje"); } });
+        final int epoch = transport.epoch(), target = call.getInt("target", 0);
+        writes.execute(() -> { try { transport.send(data, epoch, target); call.resolve(); } catch (Exception error) { call.reject("No se pudo enviar el mensaje"); } });
     }
     @PluginMethod public void close(PluginCall call) { operation.incrementAndGet(); transport.close(); call.resolve(); }
     @PluginMethod public void copy(PluginCall call) {

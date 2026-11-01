@@ -110,13 +110,13 @@ test('El invitado alcanza antes su propia posición sin predecir golpes y los re
   motion.smooth(now); assert.equal(fighters[0].x, 280); assert.equal(fighters[1].x, 1000);
 });
 test('El catálogo separa cinco reinos de Sun Wukong como invitado', () => {
-  assert.equal(DEITIES.length, 16); assert.equal(REALM_PANTHEONS.length, 5); assert.equal(LEVELS.length, 5);
+  assert.equal(DEITIES.length, 17); assert.equal(REALM_PANTHEONS.length, 5); assert.equal(LEVELS.length, 5);
   assert.equal(DEITIES.find(deity => deity.id === 'sunwukong')?.pantheon, 'Invitado');
   assert.ok(!LEVELS.some(level => level.bossOrder.includes('sunwukong')));
   const route = createRoute(['odin', 'thor']); assert.equal(route.find(stop => LEVELS[stop.realm].pantheon === 'Nórdico')?.boss, 'loki');
 });
 test('Los cuatro súper nuevos conectan, consumen energía y vuelven a una fase jugable', () => {
-  for (const id of ['odin', 'thor', 'loki', 'sunwukong']) {
+  for (const id of ['odin', 'thor', 'loki', 'sunwukong', 'kali']) {
     const fighter = new CanvasFighter(1, DEITIES.find(deity => deity.id === id)!, false, 300, 1);
     const rival = new CanvasFighter(2, DEITIES[0], false, 400, -1); rival.hp = rival.maxHp = 300;
     fighter.superMeter = 100; assert.equal(fighter.executeSpecial(rival), true);
@@ -157,6 +157,20 @@ test('La Torre integra nórdicos, mantiene diez rivales y permite final del invi
     assert.ok(!run.rivals.some(rival => rival.id === hero.id));
     for (const realm of REALM_PANTHEONS) assert.equal(run.rivals.filter(rival => rival.pantheon === realm && rival.id !== 'origen').length, 2);
     assert.ok(TOWER_ENDINGS[hero.id]);
+  }
+});
+test('Cuatro héroes conservan rescates, bendiciones y presión adicional en ambos modos', () => {
+  const team=['kali','odin','thor','sunwukong'].map(id=>DEITIES.find(deity=>deity.id===id)!);
+  for(const kind of ['arcade','survival'] as const) {
+    const game=new ArcadeGame(team,'NORMAL',{kind,remember:false});
+    const pair=new ArcadeGame(team.slice(0,2),'NORMAL',{kind,route:game.route,remember:false});
+    assert.equal(game.heroes.length,4); assert.ok((game as any).waves[0].spawns.length > (pair as any).waves[0].spawns.length);
+    for(let tick=0;tick<900;tick++){ game.heroes.forEach(hero=>hero.invuln=1000);game.step(team.map(()=>({...idle,right:true,attack:tick%30===0}))); }
+    assert.ok(game.heroes.every(hero=>Number.isFinite(hero.x) && Number.isFinite(hero.hp)));
+    const fourth=game.heroes[3]; fourth.hp=0;game.loseLife(fourth);assert.ok(game.rescues.has(fourth));
+    fourth.hp=fourth.maxHp; fourth.setState('idle');game.rescues.clear();game.phase='levelClear';(game as any).phaseTimer=330;
+    for(let player=0;player<3;player++)game.chooseRelic(player%3,player);
+    assert.equal(game.relicChoices[3],null);game.chooseRelic(2,3);assert.deepEqual(game.relicChoices,[0,1,2,2]);
   }
 });
 console.log(`\n${passed} pruebas de rutas, supervivencia, resultados y versus aprobadas.`);

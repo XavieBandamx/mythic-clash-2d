@@ -10,8 +10,8 @@ Juego de peleas 2D en navegador (React + Canvas) con dioses de **Grecia, Egipto,
 
 Esta guía describe la implementación actual, incluidas las mejoras de rutas, resultados, supervivencia y versus por Wi-Fi. No usar el orden fijo de reinos ni la selección del primer jefe disponible como referencia del arcade. Los detalles de estos modos están en `MODOS.md` y los de la APK en `ANDROID.md`.
 
-- Android **1.3**, versionCode **4**, identificador `mx.mythicclash.game`. APK de depuración para pruebas; conservar su firma al actualizarla.
-- Protocolo LAN **4**: ambos dispositivos deben actualizarse. Se juega por Wi-Fi local o punto de acceso sin datos. Bluetooth queda para después.
+- Android **1.4**, versionCode **5**, identificador `mx.mythicclash.game`. APK de depuración para pruebas; conservar su firma al actualizarla.
+- Protocolo LAN **5**: ambos dispositivos deben actualizarse. Se juega por Wi-Fi local o punto de acceso sin datos. Bluetooth queda para después.
 - El usuario y su hijo completaron el arcade cooperativo anterior en celulares físicos. Los modos nuevos necesitan otra prueba física; la prueba entre pestañas no demuestra su respuesta sobre una red real.
 - **Pulido Wi-Fi 1.2:** ver `ANDROID.md`. Inicio confirmado por ambos dispositivos tras aplicar el primer estado; versus a 30 Hz después de simular, formato compacto, una escritura activa y una reciente pendiente, controles agrupados sin perder toques breves, RTT visible, espera de carga tolerante y revanchas aisladas. Las pruebas con retrasos no sustituyen medir el juego en celulares físicos.
 - Las fuentes y los recursos están incluidos en la APK. No duplicar sprites ni volver a añadir originales o APK a Git; las APK se adjuntan a versiones de GitHub.
@@ -33,7 +33,7 @@ Esta guía describe la implementación actual, incluidas las mejoras de rutas, r
 - **No hacer commit ni push sin que lo pida.** Cuando dice "publícalo" quiere decir commit + push a `main`.
 - Mensajes de commit en español, con un título y viñetas.
 - **No quiere letreros flotantes de reacción** sobre los jefes ("¡BLOQUEA!", "¡CASTIGO!", "¡SE ZAFA!", "ORIGEN APRENDE…"): se quitaron por cursis. Sí se quedan los carteles de juego (nivel, jefe, mini-jefe, resultados).
-- **No quiere figuras religiosas actuales como personajes:** nada de Jesucristo, Buda ni similares. Al proponer mitologías nuevas, preferir las que ya no se practican (nórdica, inca, celta, mesopotámica, china clásica como Sun Wukong) y tratar con cuidado las religiones vivas (hindú, yoruba).
+- **Solo excluye a Jesucristo y a Buda como personajes.** Todos los demás dioses entran, incluidos los de religiones vivas como la hindú (eligió a Kali). No volver a cuestionarlo ni proponer alternativas por ese motivo; basta con un diseño respetuoso.
 - **No le gustó pixelear ni homologar el tamaño del pixel** de los sprites ("se ven horribles"). Para mejorar arte se piden versiones en alta resolución a Gemini.
 - Lo juega y lo enseña **en celular** (Brave/Android), en vertical y en horizontal. Todo cambio de pantalla debe probarse en tamaño celular y **sin scroll** en las pantallas principales.
 - Genera el arte él mismo. Desde el rediseño usa **ChatGPT** (de pago) para hojas de personajes, bestias, monstruos y medallones; antes usaba **Gemini Pro**. Los fondos y objetos los hace en **Grok**. Claude no genera imágenes: hay que darle **prompts completos, uno por personaje, listos para copiar** (no plantillas con huecos que llenar).
@@ -207,3 +207,19 @@ Con eso se han corrido bots que juegan niveles enteros para revisar combos, mini
 ## Integración nórdica 1.3 (rama mejora/reino-nordico)
 
 16 luchadores: Odín, Thor y Loki pertenecen al quinto reino; Sun Wukong es invitado sin reino. Draugr, Troll, Svartalfar, Jötunn y Vargr comparten los recursos entre modos. Arcade visita cinco reinos y Origen; supervivencia rota también los jefes; Torre incluye diez rivales y Origen. Asgard es válida por LAN. APK 1.3 / código 4 / protocolo 4: actualizar ambos dispositivos. La versión 1.2 publicada se conserva hasta publicar esta actualización. Falta prueba física de la 1.3.
+
+## Kali y arenas (rama mejora/kali-arenas)
+
+17 personajes, cinco reinos y diez arenas. Kali es invitada sin reino propio: Furia Carmesí potencia 15% el fuerte contra enemigos atacando; Danza Carmesí aplica tres impactos en versus; arcade usa la magia de área compartida. Tiene ambas hojas 4x4, retrato y final de Torre. El selector muestra las once opciones incluyendo aleatoria en una cuadrícula compacta. Validación LAN dinámica para todas las arenas y Kali. No se ha regenerado la APK con esta integración ni probado físicamente en celulares.
+
+## Cooperativo Wi-Fi hasta cuatro jugadores — APK de prueba 1.4
+
+Un anfitrión y hasta tres invitados comparten la misma invitación. Arcade y supervivencia admiten de dos a cuatro; versus conserva dos. Protocolo LAN 5 y saludo nativo MYTHIC-LAN-2: actualizar todos los celulares a APK 1.4 (versionCode 5). Cada conexión tiene número de jugador, controles, carga y confirmación inicial; el inicio espera a todos. Cada jugador elige su bendición y puede rescatar compañeros. Una desconexión detiene la sala completa; no hay incorporación en mitad de partida. Más de dos jugadores añade dos enemigos por oleada y jugador, con corredores/brutos, 0.15 de multiplicador de vida de monstruos y 0.4 de jefes por jugador adicional. Si el equipo ocupa los tres dioses de un reino, el guardián de ese reino puede ser un espejo. Récords cooperativos conservan la lista completa de personajes. APK local ignorada en artifacts/android; todavía requiere prueba física en cuatro celulares y revisión visual móvil.
+
+## Pantalla de arranque
+
+index.html muestra la carga antes de iniciar React. public/boot.css y las dos imágenes WebP son la portada; src/main.tsx precarga recursos del menú en lotes de cuatro, cuenta tareas terminadas y muestra reintento si falla. Los escenarios de combate se cargan al entrar a cada modo. game-version.json es la fuente compartida para la versión visible (Vite) y versionName/versionCode Android (Gradle). La versión de protocolo LAN sigue independiente. No agregar una espera mínima artificial.
+
+## Publicación vigente 1.4 — Codex
+
+Publicación conjunta: Kali invitada (17 luchadores), diez arenas, cooperativo Wi-Fi de dos a cuatro jugadores, dificultad por tamaño del equipo y pantalla inicial con progreso real. main contiene la integración nórdica anterior y estas mejoras. APK de depuración 1.4/código 5, protocolo 5; todos deben actualizar. 62 hojas activas compartidas. Prueba breve real con cuatro emuladores Android15/WebView124: arcade, supervivencia, pausa y desconexión. No equivale a prueba física ni campaña completa. Arranque verificado en vertical/horizontal, error y reintento. WebView83 no es compatible. APK y SHA256 se distribuyen como adjuntos de GitHub, nunca en Git.

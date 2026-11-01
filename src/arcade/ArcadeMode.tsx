@@ -184,8 +184,8 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
       }
       if (network?.role === 'host') {
         for (const command of network.consumeCommands()) {
-          if (command.kind === 'blessing' && !network.paused && Number.isInteger(command.value)) game.chooseRelic(Number(command.value), 1);
-          if (command.kind === 'continue' && game.phase === 'gameOver') game.continueGame();
+          if (command.kind === 'blessing' && !network.paused && Number.isInteger(command.value)) game.chooseRelic(Number(command.value), command.player ?? 1);
+          if (command.kind === 'continue' && game.phase === 'gameOver') game.continuePlayer(command.player ?? 1);
         }
         game.paused = network.paused || !network.connected || !!network.error;
       }
@@ -193,7 +193,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
       if (network?.paused || network?.error) { held.clear(); pressed.clear(); }
       if (!ready) accumulator = 0;
       while (accumulator >= SIM_STEP_MS) {
-        game.step(network ? [readInput(SOLO_KEYS), network.consumeInput()] : keyMaps.map(readInput));
+        game.step(network ? [readInput(SOLO_KEYS), ...deities.slice(1).map((_, i) => network.consumeInput(i + 1))] : keyMaps.map(readInput));
         pressed.clear(); // Cada pulsación se consume en un solo paso
         accumulator -= SIM_STEP_MS;
       }
@@ -282,7 +282,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
         <div className="absolute left-1/2 -translate-x-1/2 bottom-[20%] portrait:bottom-auto portrait:top-[42%] z-30 flex gap-3">
           {phase === 'gameOver' && (
             <button
-              onClick={() => network?.role === 'guest' ? void network.send('continue') : gameRef.current?.continueGame()}
+              onClick={() => network?.role === 'guest' ? void network.send('continue') : gameRef.current?.continuePlayer(playerIndex)}
               className="px-8 py-4 rounded-xl font-black text-lg bg-gradient-to-r from-amber-400 to-amber-600 text-slate-950 shadow-lg shadow-amber-900/50 animate-pulse"
             >
               ¡CONTINUAR!

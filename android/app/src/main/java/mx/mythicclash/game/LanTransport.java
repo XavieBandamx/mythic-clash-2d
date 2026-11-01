@@ -9,7 +9,7 @@ import java.util.concurrent.*;
 
 /** Sockets y enmarcado independientes de Android para poder probar el transporte real en JVM. */
 public final class LanTransport {
-    public interface Listener { void connected(); void message(String data); void closed(String reason); }
+    public interface Listener { void connected(); void message(String data); void closed(String reason); default void connected(int player) { connected(); } default void message(String data, int player) { message(data); } }
     public static final class HostInfo {
         public final List<String> addresses; public final int port; public final String token;
         HostInfo(List<String> addresses, int port, String token) { this.addresses = addresses; this.port = port; this.token = token; }
@@ -18,8 +18,10 @@ public final class LanTransport {
     private final Object writeLock = new Object();
     private volatile ServerSocket server;
     private volatile Socket peer;
+    private final Map<Integer, Socket> guests = new ConcurrentHashMap<>();
     private volatile Socket connecting;
     private volatile int generation;
+    private volatile boolean started;
     public static boolean local(InetAddress address) { return address.isSiteLocalAddress() || address.isLinkLocalAddress() || address.isLoopbackAddress(); }
     public static void writeFrame(DataOutputStream out, String message) throws IOException {
         byte[] bytes = message.getBytes(StandardCharsets.UTF_8);
@@ -41,7 +43,8 @@ public final class LanTransport {
         connecting = null;
         try { if (peer != null) peer.close(); } catch (IOException ignored) {}
         try { if (server != null) server.close(); } catch (IOException ignored) {}
-        peer = null; server = null;
+        for (Socket guest : guests.values()) try { guest.close(); } catch (IOException ignored) {}
+        guests.clear(); started = false; peer = null; server = null;
     }
     public void shutdown() { close(); workers.shutdownNow(); }
     public HostInfo host(Listener events) throws IOException { return host(events, false); }
@@ -68,15 +71,17 @@ public final class LanTransport {
                     Socket candidate = listener.accept();
                     try {
                         candidate.setSoTimeout(4000); candidate.setTcpNoDelay(true);
-                        if (!local(candidate.getInetAddress()) || peer != null) throw new IOException("Sala ocupada");
+                        if (!local(candidate.getInetAddress()) || guests.size() >= 3 || started) throw new IOException("Sala ocupada");
                         String supplied = readFrame(new DataInputStream(candidate.getInputStream()));
                         if (!MessageDigest.isEqual(token.getBytes(StandardCharsets.UTF_8), supplied.getBytes(StandardCharsets.UTF_8))) throw new IOException("Invitación inválida");
                         synchronized (this) {
                             if (generation != round) throw new IOException("Sala cerrada");
-                            writeFrame(new DataOutputStream(candidate.getOutputStream()), "MYTHIC-LAN-1"); peer = candidate;
+                            int slot = 1; while (guests.containsKey(slot)) slot++;
+                            writeFrame(new DataOutputStream(candidate.getOutputStream()), "MYTHIC-LAN-2:" + slot); guests.put(slot, candidate);
                         }
-                        candidate.setSoTimeout(65000); events.connected();
-                        workers.execute(() -> read(candidate, round, events));
+                        final int slot = guests.entrySet().stream().filter(e -> e.getValue() == candidate).findFirst().get().getKey();
+                        candidate.setSoTimeout(65000); events.connected(slot);
+                        workers.execute(() -> readGuest(candidate, slot, round, events));
                     } catch (Exception denied) { try { candidate.close(); } catch (IOException ignored) {} }
                 }
             } catch (IOException error) { if (generation == round) { close(); events.closed("La sala se cerró"); } }
@@ -91,9 +96,11 @@ public final class LanTransport {
             if (!local(address)) throw new IOException("La dirección debe pertenecer a la red local");
             candidate = connectLocal(address, port, round); candidate.setSoTimeout(6000); candidate.setTcpNoDelay(true);
             writeFrame(new DataOutputStream(candidate.getOutputStream()), token);
-            if (!"MYTHIC-LAN-1".equals(readFrame(new DataInputStream(candidate.getInputStream())))) throw new IOException("Versión de sala incompatible");
+            String welcome = readFrame(new DataInputStream(candidate.getInputStream()));
+            if (!welcome.matches("MYTHIC-LAN-2:[1-3]")) throw new IOException("Versión de sala incompatible");
+            int slot = Integer.parseInt(welcome.substring(welcome.length()-1));
             synchronized (this) { if (generation != round) throw new IOException("Conexión cancelada"); peer = candidate; connecting = null; }
-            candidate.setSoTimeout(65000); events.connected(); final Socket established = candidate; workers.execute(() -> read(established, round, events));
+            candidate.setSoTimeout(65000); events.connected(slot); final Socket established = candidate; workers.execute(() -> read(established, round, events));
         } catch (IOException error) { if (candidate != null) candidate.close(); throw error; }
     }
     public int epoch() { return generation; }
@@ -111,12 +118,27 @@ public final class LanTransport {
         throw last;
     }
     public void send(String data) throws IOException { send(data, generation); }
-    public void send(String data, int expectedEpoch) throws IOException {
+    public void send(String data, int expectedEpoch) throws IOException { send(data, expectedEpoch, 0); }
+    public void send(String data, int expectedEpoch, int target) throws IOException {
+        if (server != null) {
+            if (data.contains("\"kind\":\"start\"")) started = true;
+            if (generation != expectedEpoch) throw new IOException("Sala cerrada");
+            for (Map.Entry<Integer,Socket> entry : guests.entrySet()) if (target == 0 || target == entry.getKey()) {
+                synchronized (entry.getValue()) { writeFrame(new DataOutputStream(entry.getValue().getOutputStream()), data); }
+            }
+            return;
+        }
         synchronized (writeLock) {
             Socket socket = peer;
             if (generation != expectedEpoch || socket == null || socket.isClosed()) throw new IOException("Compañero desconectado");
             writeFrame(new DataOutputStream(socket.getOutputStream()), data);
         }
+    }
+    private void readGuest(Socket socket, int slot, int round, Listener events) {
+        try {
+            DataInputStream in = new DataInputStream(socket.getInputStream());
+            while (generation == round && guests.get(slot) == socket) events.message(readFrame(in), slot);
+        } catch (IOException error) { if (generation == round && guests.remove(slot, socket)) { close(); events.closed("Se perdió la conexión con el jugador " + (slot+1)); } }
     }
     private void read(Socket socket, int round, Listener events) {
         try {

@@ -44,3 +44,7 @@ Se verifican rutas de todas las parejas, ausencia de repeticiones evitables, ide
 El usuario confirmó el arcade cooperativo de la versión anterior en dos celulares físicos. Las rutas nuevas, supervivencia y versus necesitan una nueva prueba en esos dispositivos, especialmente para evaluar respuesta y dificultad durante partidas largas.
 
 El reino nórdico integra Odín, Thor y Loki como guardianes. Sun Wukong es invitado jugable sin reino propio. La Torre tiene diez rivales más Origen. Los encuentros de jefe de supervivencia rotan por los cinco reinos.
+
+## Cooperativo Wi-Fi hasta cuatro jugadores — APK de prueba 1.4
+
+Un anfitrión y hasta tres invitados comparten la misma invitación. Arcade y supervivencia admiten de dos a cuatro; versus conserva dos. Protocolo LAN 5 y saludo nativo MYTHIC-LAN-2: actualizar todos los celulares a APK 1.4 (versionCode 5). Cada conexión tiene número de jugador, controles, carga y confirmación inicial; el inicio espera a todos. Cada jugador elige su bendición y puede rescatar compañeros. Una desconexión detiene la sala completa; no hay incorporación en mitad de partida. Más de dos jugadores añade dos enemigos por oleada y jugador, con corredores/brutos, 0.15 de multiplicador de vida de monstruos y 0.4 de jefes por jugador adicional. Si el equipo ocupa los tres dioses de un reino, el guardián de ese reino puede ser un espejo. Récords cooperativos conservan la lista completa de personajes. APK local ignorada en artifacts/android; todavía requiere prueba física en cuatro celulares y revisión visual móvil.

@@ -30,14 +30,14 @@ export default function BlessingMenu({ choice, cursor, choose, coop, players }: 
 
 function CoopBlessings({ players, choose }: { players: BlessingPlayer[]; choose: (index: number, player: number) => void }) {
   const ready = players.filter(player => player.available).every(player => player.choice !== null);
-  return <OptionsFrame kind="coop-blessing-screen" eyebrow="REINO COMPLETADO / COOPERATIVO" title="Dos dioses. Dos bendiciones."
-    subtitle="Cada jugador elige su propio poder. Avanzan cuando ambos estén listos."
+  return <OptionsFrame kind="coop-blessing-screen" eyebrow="REINO COMPLETADO / COOPERATIVO" title="Un equipo. Un poder por dios."
+    subtitle="Cada jugador elige su propio poder. Avanzan cuando todos estén listos."
     footer={<div className="blessing-status" role="status">{ready ? 'Bendiciones recibidas. Preparando el siguiente reino…' : 'Elijan con sus controles o toquen una tarjeta. El efecto dura hasta elegir otra bendición.'}</div>}>
     <div className="coop-blessing-players">{players.map((player, index) => {
-      const keys = getControls().keyboard[player.local ? 0 : index];
+      const keys = getControls().keyboard[player.local ? 0 : index] ?? getControls().keyboard[0];
       return <section className="coop-blessing-player" key={index} aria-label={`Bendición del jugador ${index + 1}`}>
         <header><span>JUGADOR {index + 1}{player.local ? ' / TÚ' : ''}</span><h3>{player.name}</h3><b>{!player.available ? 'FUERA DE COMBATE' : player.choice === null ? player.controllable === false ? 'COMPAÑERO ELIGIENDO' : 'ELIGE TU PODER' : 'LISTO ✓'}</b></header>
-        <div className="coop-blessing-options">{BLESSINGS.map(({ title, Icon, amount, stat, description }, option) => <button key={title}
+        <div className="coop-blessing-options" hidden={player.controllable === false}>{BLESSINGS.map(({ title, Icon, amount, stat, description }, option) => <button key={title}
           data-active={(player.choice ?? player.cursor) === option} disabled={!player.available || player.choice !== null || player.controllable === false}
           aria-pressed={player.choice === option} onClick={() => choose(option, index)} aria-label={`Jugador ${index + 1}: ${title}`}>
           <Icon size={27} strokeWidth={1.3} /><div><strong>{title}</strong><span>{description}</span></div>

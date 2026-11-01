@@ -85,7 +85,7 @@ interface Props {
 export default function MainMenu({ items, selected, difficulty, touch, highlight, choose }: Props) {
   const active = items[selected];
   const mode = active?.screen === 'LAN_MENU' ? 'ARCADE_COOP' : active?.mode ?? 'PVE';
-  const details = active?.screen === 'LAN_MENU' ? { ...MODES.ARCADE_COOP, title: 'Sala Wi-Fi', tag: '2 DISPOSITIVOS', description: 'Crea una sala privada y juega con otro celular en la misma red, sin internet.' } : MODES[mode];
+  const details = active?.screen === 'LAN_MENU' ? { ...MODES.ARCADE_COOP, title: 'Sala Wi-Fi', tag: 'HASTA 4 JUGADORES', description: 'Crea una sala privada y juega con otro celular en la misma red, sin internet.' } : MODES[mode];
   const settings = active?.screen === 'LAN_MENU' ? undefined : active?.screen;
   const controls = getControls().keyboard[0];
   const navigate = `${keyLabel(controls.up)} / ${keyLabel(controls.down)}`;
@@ -105,7 +105,7 @@ export default function MainMenu({ items, selected, difficulty, touch, highlight
         <div className="title-menu-heading"><span>ELIGE TU CAMINO</span><i /></div>
         {items.map((item, index) => {
           if (!item.mode && item.screen !== 'LAN_MENU') return null;
-          const entry = item.screen === 'LAN_MENU' ? { title: 'Sala Wi-Fi', tag: '2 DISPOSITIVOS', icon: Wifi } : MODES[item.mode!], Icon = entry.icon;
+          const entry = item.screen === 'LAN_MENU' ? { title: 'Sala Wi-Fi', tag: 'HASTA 4 JUGADORES', icon: Wifi } : MODES[item.mode!], Icon = entry.icon;
           return <button key={item.mode ?? item.screen} type="button" className="title-mode" data-active={selected === index}
             aria-label={`${entry.title} · ${entry.tag}`} onMouseEnter={() => highlight(index)} onFocus={() => highlight(index)} onClick={() => choose(item)}>
             <span className="title-mode-index">{String(index + 1).padStart(2, '0')}</span>

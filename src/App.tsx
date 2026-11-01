@@ -597,6 +597,13 @@ export class Fighter {
         if (t === 22 && dist < 165 && Math.abs(opponent.y - this.y) < 120) this.superHit(opponent, 32, 10, -5, 25, particles, '#86efac');
         break;
       }
+      case 'kali': {
+        if ([16, 28, 40].includes(t)) {
+          for (let i = 0; i < 18; i++) spark(this.x + this.facing * i * 13, this.y - 85 + Math.sin(i) * 30, '#fb7185', 'spark', 3);
+          if (dist < 250 && Math.abs(opponent.y - this.y) < 130) this.superHit(opponent, t === 40 ? 16 : 9, t === 40 ? 15 : 2, t === 40 ? -6 : -1, 16, particles, '#fb7185');
+        }
+        break;
+      }
       case 'sunwukong': {
         if ([16, 28, 40].includes(t)) {
           const reach = t === 16 ? 190 : t === 28 ? 245 : 300;
@@ -3125,7 +3132,7 @@ export default function App({ createLanSession }: { createLanSession?: (role: 'h
             network={lanSession ?? undefined}
             kind={gameMode === 'SURVIVAL' || gameMode === 'SURVIVAL_COOP' ? 'survival' : 'arcade'}
             touch={showTouchControls}
-            deities={(gameMode === 'ARCADE_COOP' || gameMode === 'SURVIVAL_COOP') ? [DEITIES[p1DeityIndex], DEITIES[p2DeityIndex]] : [DEITIES[p1DeityIndex]]}
+            deities={lanSession?.config ? lanSession.config.deities.map(id => DEITIES.find(deity => deity.id === id)!) : (gameMode === 'ARCADE_COOP' || gameMode === 'SURVIVAL_COOP') ? [DEITIES[p1DeityIndex], DEITIES[p2DeityIndex]] : [DEITIES[p1DeityIndex]]}
             difficulty={difficulty}
             onExit={() => {
               setP1Ready(false);
