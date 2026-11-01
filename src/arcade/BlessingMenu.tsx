@@ -8,7 +8,7 @@ const BLESSINGS = [
   { title: 'Sabiduría', tag: 'DESATA TU MAGIA', Icon: Sparkles, amount: '+2', stat: 'VASIJAS DE MAGIA', description: 'Recibe vasijas y aumenta un 15% el poder de tu magia.' }
 ] as const;
 
-export interface BlessingPlayer { name: string; choice: number | null; cursor: number; available: boolean }
+export interface BlessingPlayer { name: string; choice: number | null; cursor: number; available: boolean; controllable?: boolean; local?: boolean }
 
 export default function BlessingMenu({ choice, cursor, choose, coop, players }: {
   choice: number | null; cursor: number; choose: (index: number, player?: number) => void; coop: boolean; players?: BlessingPlayer[];
@@ -34,16 +34,16 @@ function CoopBlessings({ players, choose }: { players: BlessingPlayer[]; choose:
     subtitle="Cada jugador elige su propio poder. Avanzan cuando ambos estén listos."
     footer={<div className="blessing-status" role="status">{ready ? 'Bendiciones recibidas. Preparando el siguiente reino…' : 'Elijan con sus controles o toquen una tarjeta. El efecto dura hasta elegir otra bendición.'}</div>}>
     <div className="coop-blessing-players">{players.map((player, index) => {
-      const keys = getControls().keyboard[index];
+      const keys = getControls().keyboard[player.local ? 0 : index];
       return <section className="coop-blessing-player" key={index} aria-label={`Bendición del jugador ${index + 1}`}>
-        <header><span>JUGADOR {index + 1}</span><h3>{player.name}</h3><b>{!player.available ? 'FUERA DE COMBATE' : player.choice === null ? 'ELIGE TU PODER' : 'LISTO ✓'}</b></header>
+        <header><span>JUGADOR {index + 1}{player.local ? ' / TÚ' : ''}</span><h3>{player.name}</h3><b>{!player.available ? 'FUERA DE COMBATE' : player.choice === null ? player.controllable === false ? 'COMPAÑERO ELIGIENDO' : 'ELIGE TU PODER' : 'LISTO ✓'}</b></header>
         <div className="coop-blessing-options">{BLESSINGS.map(({ title, Icon, amount, stat, description }, option) => <button key={title}
-          data-active={(player.choice ?? player.cursor) === option} disabled={!player.available || player.choice !== null}
+          data-active={(player.choice ?? player.cursor) === option} disabled={!player.available || player.choice !== null || player.controllable === false}
           aria-pressed={player.choice === option} onClick={() => choose(option, index)} aria-label={`Jugador ${index + 1}: ${title}`}>
           <Icon size={27} strokeWidth={1.3} /><div><strong>{title}</strong><span>{description}</span></div>
           <b>{amount}<small>{stat}</small></b>{player.choice === option && <Check className="coop-blessing-check" size={14} />}
         </button>)}</div>
-        <p>{player.available ? `${keyLabel(keys.left)} / ${keyLabel(keys.right)} elegir · ${keyLabel(keys.light)} confirmar` : 'Podrás continuar en el siguiente combate por la mitad de tus puntos.'}</p>
+        <p>{player.available ? player.controllable === false ? 'Eligiendo desde su dispositivo' : `${keyLabel(keys.left)} / ${keyLabel(keys.right)} elegir · ${keyLabel(keys.light)} confirmar` : 'Podrás continuar en el siguiente combate por la mitad de tus puntos.'}</p>
       </section>;
     })}</div>
   </OptionsFrame>;

@@ -8,6 +8,9 @@ import { Volume2, VolumeX, Eye, RefreshCw, Home, Swords, Gamepad2, Music } from 
 import ArcadeMode from './arcade/ArcadeMode';
 import CharacterSelect from './CharacterSelect';
 import MainMenu from './MainMenu';
+import LanLobby from './lan/LanLobby';
+import { hasLocalWifi } from './lan/session';
+import type { LanSession } from './lan/session';
 import DifficultyMenu from './DifficultyMenu';
 import ArenaSelect from './ArenaSelect';
 import TowerMenu, { TowerEnding, TowerResult } from './TowerMenu';
@@ -43,7 +46,7 @@ import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from '.
    Retratos Mitológicos Ilustrados y Efectos Visuales de Impacto
    ========================================================================== */
 
-export type GameState = 'MAIN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'STAGE_SELECT' | 'TOWER_MAP' | 'TOWER_END' | 'CONTROLS_MENU' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
+export type GameState = 'MAIN_MENU' | 'LAN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'STAGE_SELECT' | 'TOWER_MAP' | 'TOWER_END' | 'CONTROLS_MENU' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
 export type GameMode = 'PVP' | 'PVE' | 'ARCADE' | 'ARCADE_COOP' | 'TOWER';
 
 export class Fighter {
@@ -1685,12 +1688,13 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [gameState, setGameState] = useState<GameState>('MAIN_MENU');
+  const [lanSession, setLanSession] = useState<LanSession | null>(null);
   const [gameMode, setGameMode] = useState<GameMode>('PVE');
   const [difficulty, setDifficulty] = useState<Difficulty>('NORMAL');
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [showHitboxes, setShowHitboxes] = useState<boolean>(false);
   // En celulares y tablets los controles táctiles salen solos
-  const [showTouchControls, setShowTouchControls] = useState<boolean>(() => window.matchMedia('(pointer: coarse)').matches);
+  const [showTouchControls, setShowTouchControls] = useState<boolean>(() => hasLocalWifi() || window.matchMedia('(pointer: coarse)').matches);
 
   // Selección de personajes
   const [p1DeityIndex, setP1DeityIndex] = useState<number>(0); // Zeus
@@ -1777,12 +1781,14 @@ export default function App() {
     { label: 'Modo Arcade: Camino de los Dioses', mode: 'ARCADE' as GameMode },
     { label: 'Arcade Cooperativo (2 Jugadores)', mode: 'ARCADE_COOP' as GameMode },
     { label: 'Torre de los Dioses', mode: 'TOWER' as GameMode },
+    ...(hasLocalWifi() ? [{ label: 'Cooperativo Wi-Fi', screen: 'LAN_MENU' as GameState }] : []),
     { label: `Opciones de Dificultad: ${difficulty}`, screen: 'DIFFICULTY_MENU' as GameState },
     { label: 'Configurar Controles', screen: 'CONTROLS_MENU' as GameState }
   ].filter(item => !(showTouchControls && (item.mode === 'PVP' || item.mode === 'ARCADE_COOP')));
   const menuIndex = Math.min(mainMenuSelected, menuItems.length - 1);
   const chooseMenuItem = (item: (typeof menuItems)[number]) => {
     sounds.playSelect();
+    setLanSession(null);
     if (item.mode) openCharSelect(item.mode);
     else if (item.screen) setGameState(item.screen);
   };
@@ -1795,6 +1801,7 @@ export default function App() {
   // Teclado Dual Controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (gameState === 'LAN_MENU' && e.target instanceof HTMLElement && e.target.closest('input, select, textarea')) return;
       sounds.init();
 
       // Enter y espacio activan normalmente los controles de la barra superior.
@@ -2974,6 +2981,13 @@ export default function App() {
           choose={chooseMenuItem}
         />}
 
+        {gameState === 'LAN_MENU' && <LanLobby back={() => setGameState('MAIN_MENU')}
+          start={(session, config) => {
+            setLanSession(session); setGameMode('ARCADE_COOP'); setDifficulty(config.difficulty);
+            setP1DeityIndex(DEITIES.findIndex(deity => deity.id === config.deities[0]));
+            setP2DeityIndex(DEITIES.findIndex(deity => deity.id === config.deities[1]));
+            setShowTouchControls(true); setGameState('ARCADE');
+          }} />}
         {gameState === 'CONTROLS_MENU' && <ControlsMenu onBack={() => setGameState('MAIN_MENU')} />}
 
         {/* --- ESCENA 2: MENÚ DE DIFICULTAD --- */}
@@ -3004,6 +3018,7 @@ export default function App() {
 
         {gameState === 'ARCADE' && (
           <ArcadeMode
+            network={lanSession ?? undefined}
             touch={showTouchControls}
             deities={gameMode === 'ARCADE_COOP' ? [DEITIES[p1DeityIndex], DEITIES[p2DeityIndex]] : [DEITIES[p1DeityIndex]]}
             difficulty={difficulty}

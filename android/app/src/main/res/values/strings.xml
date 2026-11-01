@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Mythic Clash 2D</string>
+    <string name="title_activity_main">Mythic Clash 2D</string>
+    <string name="package_name">mx.mythicclash.game</string>
+    <string name="custom_url_scheme">mx.mythicclash.game</string>
+</resources>

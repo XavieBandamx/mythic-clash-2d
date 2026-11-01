@@ -8,6 +8,8 @@ Juego de peleas 2D en navegador (React + Canvas) con dioses de **Grecia, Egipto,
 
 ## Cómo correrlo
 
+- **Android / LAN:** ver `ANDROID.md`. Capacitor 8 empaqueta `dist` sin servidor remoto; `npm run android:apk` genera la APK de depuración. El menú Wi-Fi solo aparece en Android. `src/lan` gestiona sesiones y copias visuales; el anfitrión ejecuta el motor, el invitado solo renderiza. El plugin nativo `LocalWifiPlugin` usa `LanTransport` para TCP local y ZXing para QR sin internet. No agregar un servidor externo ni `server.url` para resolver la LAN. `npm run test:lan` y `tools/test-lan-native.ps1` verifican la sincronización y el transporte.
+
 - Necesita **Node 24** (Vite 8 no corre con Node viejo).
 - `npm install`
 - `npm start` (o `npm run dev`): servidor en http://localhost:3000.

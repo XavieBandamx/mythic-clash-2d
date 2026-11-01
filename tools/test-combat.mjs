@@ -9,7 +9,7 @@ const directory = await mkdtemp(join(tmpdir(), 'mythic-combat-'));
 try {
   const output = join(directory, 'regression.mjs');
   await build({
-    entryPoints: ['tools/combat-regression.ts'], outfile: output, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic',
+    entryPoints: [process.argv[2] ?? 'tools/combat-regression.ts'], outfile: output, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic',
     define: { 'import.meta.env.BASE_URL': '"/"' },
     plugins: [{
       name: 'urls-de-sprites-en-node',

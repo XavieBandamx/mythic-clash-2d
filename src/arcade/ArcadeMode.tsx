@@ -9,12 +9,15 @@ import { VIEW_H, VIEW_W } from './draw';
 import TouchControls from '../TouchControls';
 import BlessingMenu from './BlessingMenu';
 import type { BlessingPlayer } from './BlessingMenu';
+import type { LanSession } from '../lan/session';
+import { SnapshotReader, SnapshotWriter } from '../lan/snapshot';
 
 interface ArcadeModeProps {
   deities: DeityData[]; // Uno por jugador: con dos se juega en cooperativo
   difficulty: Difficulty;
   onExit: () => void;
   touch?: boolean;
+  network?: LanSession;
 }
 
 interface KeyMap {
@@ -56,7 +59,7 @@ const GAME_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', '
 // ==========================================================================
 // COMPONENTE DEL MODO ARCADE: canvas propio, teclado y bucle a paso fijo
 // ==========================================================================
-export default function ArcadeMode({ deities, difficulty, onExit, touch = false }: ArcadeModeProps) {
+export default function ArcadeMode({ deities, difficulty, onExit, touch = false, network }: ArcadeModeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
@@ -68,6 +71,13 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
   const [relicCursor, setRelicCursor] = useState(0);
   const [blessingPlayers, setBlessingPlayers] = useState<BlessingPlayer[]>([]);
   const [lifeMessage, setLifeMessage] = useState('');
+  const [, connectionChanged] = useState(0);
+  useEffect(() => network?.subscribe(() => connectionChanged(value => value + 1)), [network]);
+  const playerIndex = network?.player ?? 0;
+  const togglePause = () => {
+    if (network) { network.paused = !network.paused; void network.send('pause', network.paused); connectionChanged(value => value + 1); }
+    else if (gameRef.current) gameRef.current.paused = !gameRef.current.paused;
+  };
   const [mobileHud, setMobileHud] = useState({ hp: 100, maxHp: 100, lives: 3, magic: 2, realm: 'Grecia', background: 'grecia-fondo.webp' });
 
   useEffect(() => {
@@ -77,6 +87,8 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
     if (!ctx) return;
 
     const game = new ArcadeGame(deities, difficulty);
+    const writer = new SnapshotWriter(), reader = new SnapshotReader();
+    let lastSnapshot = network?.snapshot, lastPublish = 0, lastInput = 0;
     gameRef.current = game;
     let shownPhase = game.phase;
     let shownRelic = game.relicChoice;
@@ -98,8 +110,10 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (GAME_KEYS.includes(e.code)) e.preventDefault();
       if (e.repeat) return;
+      if (network?.paused && e.code !== 'Escape') return;
       if (game.phase === 'levelClear' && /^Digit[123]$/.test(e.code)) {
-        game.chooseRelic(Number(e.code.slice(-1)) - 1, 0);
+        if (network?.role === 'guest') void network.send('blessing', Number(e.code.slice(-1)) - 1);
+        else game.chooseRelic(Number(e.code.slice(-1)) - 1, playerIndex);
         return;
       }
       held.add(e.code);
@@ -108,7 +122,9 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
       if (e.code === 'Escape') {
         if (game.phase === 'gameOver' || game.phase === 'finalOver' || game.phase === 'victory') exit();
         else {
-          game.paused = !game.paused;
+          if (network) { network.paused = !network.paused; void network.send('pause', network.paused); }
+          game.paused = network?.paused ?? !game.paused;
+          if (network) connectionChanged(value => value + 1);
           sounds.playNav();
         }
       } else if (e.code === 'KeyQ' && game.paused) {
@@ -149,16 +165,38 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
     const loop = (now: number) => {
       accumulator += Math.min(now - lastTime, 250);
       lastTime = now;
+      network?.loaded(!game.loading);
+      if (network?.role === 'guest') {
+        const input = readInput(SOLO_KEYS);
+        if (now - lastInput >= 30 || input.attack || input.jump || input.magic || input.tapLeft || input.tapRight) { network.input(input); lastInput = now; pressed.clear(); }
+        if (network.snapshot && network.snapshot !== lastSnapshot) {
+          try { reader.apply(game, network.snapshot); lastSnapshot = network.snapshot; }
+          catch { network.error = 'No se pudo sincronizar la partida. Ambos necesitan la misma APK.'; network.paused = true; connectionChanged(value => value + 1); }
+        }
+        accumulator = 0;
+      }
+      if (network?.role === 'host') {
+        for (const command of network.consumeCommands()) {
+          if (command.kind === 'blessing' && !network.paused && Number.isInteger(command.value)) game.chooseRelic(Number(command.value), 1);
+          if (command.kind === 'continue' && game.phase === 'gameOver') game.continueGame();
+        }
+        game.paused = network.paused || !network.connected || !!network.error;
+      }
+      const ready = !network || network.role === 'host' && network.connected && !network.error && network.localLoaded && network.remoteLoaded;
+      if (network?.paused || network?.error) { held.clear(); pressed.clear(); }
+      if (!ready) accumulator = 0;
       while (accumulator >= SIM_STEP_MS) {
-        game.step(keyMaps.map(readInput));
+        game.step(network ? [readInput(SOLO_KEYS), network.consumeInput()] : keyMaps.map(readInput));
         pressed.clear(); // Cada pulsación se consume en un solo paso
         accumulator -= SIM_STEP_MS;
       }
+      if (network?.role === 'host' && now - lastPublish >= 50) { network.publish(writer.capture(game)); lastPublish = now; }
+      if (network?.role === 'guest') reader.smooth(now);
       game.render(ctx);
       // El HUD legible de la consola vertical se actualiza sin cambiar la simulación.
       if (now - lastHud >= 200) {
         lastHud = now;
-        const hero = game.heroes[0];
+        const hero = game.heroes[playerIndex];
         const next = { hp: Math.max(0, Math.ceil(hero.hp)), maxHp: hero.maxHp, lives: hero.lives, magic: hero.magic,
           realm: game.level.pantheon ?? 'El encuentro final', background: game.level.art?.background ?? 'grecia-fondo.webp' };
         setMobileHud(previous => Object.keys(next).every(key => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next);
@@ -172,7 +210,8 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
       if (shownRelic !== game.relicChoice) { shownRelic = game.relicChoice; setRelic(game.relicChoice); }
       if (shownCursor !== game.relicCursor) { shownCursor = game.relicCursor; setRelicCursor(game.relicCursor); }
       if (offerRelics && deities.length > 1) {
-        const players = game.heroes.map(hero => ({ name: hero.deity.name, choice: game.relicChoices[hero.index], cursor: game.relicCursors[hero.index], available: !hero.gameOver }));
+        const players = game.heroes.map(hero => ({ name: hero.deity.name, choice: game.relicChoices[hero.index], cursor: game.relicCursors[hero.index], available: !hero.gameOver,
+          controllable: !network || hero.index === playerIndex, local: !!network && hero.index === playerIndex }));
         const signature = JSON.stringify(players);
         if (signature !== shownPlayers) { shownPlayers = signature; setBlessingPlayers(players); }
       }
@@ -193,6 +232,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
+      void network?.close();
     };
     // La lista se recrea en cada render de App: se reinicia la partida solo si cambian los dioses
   }, [deities.map(d => d.id).join(','), difficulty]);
@@ -202,8 +242,8 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
       {touch && <img className="arcade-ambient" src={`${import.meta.env.BASE_URL}backgrounds/${mobileHud.background}`} alt="" />}
       <div className="arcade-console">
       {touch && <div className="arcade-mobile-hud">
-        <div><span>CAMINO DE LOS DIOSES / {mobileHud.realm}</span><strong>{deities[0].name}</strong></div>
-        <div className="arcade-mobile-health"><span>VIDA <b>{mobileHud.hp} / {mobileHud.maxHp}</b></span><progress value={mobileHud.hp} max={mobileHud.maxHp} aria-label="Vida del jugador 1" /></div>
+        <div><span>CAMINO DE LOS DIOSES / {mobileHud.realm}</span><strong>{deities[playerIndex].name}</strong></div>
+        <div className="arcade-mobile-health"><span>VIDA <b>{mobileHud.hp} / {mobileHud.maxHp}</b></span><progress value={mobileHud.hp} max={mobileHud.maxHp} aria-label={`Vida del jugador ${playerIndex + 1}`} /></div>
         <div className="arcade-mobile-resources"><span><b>{mobileHud.lives}</b> VIDAS</span><span><b>{mobileHud.magic}</b> MAGIA</span></div>
       </div>}
       <div className="arcade-viewport">
@@ -214,15 +254,25 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false 
         className="arcade-canvas"
       />
       </div>
-      {touch && !showRelics && (phase === 'play' || phase === 'boss' || phase === 'bossIntro') && <TouchControls mode="arcade" docked />}
+      {touch && !showRelics && !network?.paused && !network?.error && (phase === 'play' || phase === 'boss' || phase === 'bossIntro') && <TouchControls mode="arcade" docked />}
       </div>
       <div className="sr-only" role="status" aria-live="assertive">{lifeMessage}</div>
-      {showRelics && <BlessingMenu choice={relic} cursor={relicCursor} coop={deities.length > 1} players={blessingPlayers} choose={(index, player = 0) => gameRef.current?.chooseRelic(index, player)} />}
+      {showRelics && <BlessingMenu choice={relic} cursor={relicCursor} coop={deities.length > 1} players={blessingPlayers} choose={(index, player = 0) => {
+        if (network && player !== playerIndex) return;
+        if (network?.role === 'guest') void network.send('blessing', index);
+        else gameRef.current?.chooseRelic(index, player);
+      }} />}
+      {network && (!network.connected || network.error || !network.remoteLoaded || network.paused) && <div className="lan-overlay" role="status">
+        <h2>{network.error ? 'Conexión interrumpida' : network.paused ? 'Partida pausada' : 'Esperando al compañero'}</h2>
+        <p>{network.error || 'Mantengan ambos dispositivos conectados a la misma red y el juego abierto.'}</p>
+        {network.connected && !network.error && network.remoteLoaded && network.paused && <button className="arena-confirm" onClick={togglePause}>Reanudar partida</button>}
+        <button className="options-back" onClick={() => onExitRef.current()}>Volver al menú</button>
+      </div>}
       {(phase === 'gameOver' || phase === 'finalOver' || phase === 'victory') && (
         <div className="absolute left-1/2 -translate-x-1/2 bottom-[20%] portrait:bottom-auto portrait:top-[42%] z-30 flex gap-3">
           {phase === 'gameOver' && (
             <button
-              onClick={() => gameRef.current?.continueGame()}
+              onClick={() => network?.role === 'guest' ? void network.send('continue') : gameRef.current?.continueGame()}
               className="px-8 py-4 rounded-xl font-black text-lg bg-gradient-to-r from-amber-400 to-amber-600 text-slate-950 shadow-lg shadow-amber-900/50 animate-pulse"
             >
               ¡CONTINUAR!

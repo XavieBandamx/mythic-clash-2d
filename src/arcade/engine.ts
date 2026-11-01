@@ -2054,6 +2054,10 @@ export class ArcadeGame {
   }
 
   // Jugador 1 (las pruebas y el modo de un jugador lo usan directamente)
+  public prepareRemoteLevel(index: number) {
+    if (Number.isInteger(index) && index >= 0 && index <= LEVELS.length && index !== this.levelIndex) this.startLevel(index);
+  }
+
   public get hero(): Hero {
     return this.heroes[0];
   }

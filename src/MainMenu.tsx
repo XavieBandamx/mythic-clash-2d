@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { ArrowUpRight, Swords, Flame, Users, Mountain, SlidersHorizontal, Gamepad2 } from 'lucide-react';
+import { ArrowUpRight, Swords, Flame, Users, Mountain, SlidersHorizontal, Gamepad2, Wifi } from 'lucide-react';
 import type { GameMode, GameState } from './App';
 import { DEITIES } from './game/deities';
 import { ARENAS } from './game/arenas';
@@ -75,9 +75,9 @@ interface Props {
 
 export default function MainMenu({ items, selected, difficulty, touch, highlight, choose }: Props) {
   const active = items[selected];
-  const mode = active?.mode ?? 'PVE';
-  const details = MODES[mode];
-  const settings = active?.screen;
+  const mode = active?.screen === 'LAN_MENU' ? 'ARCADE_COOP' : active?.mode ?? 'PVE';
+  const details = active?.screen === 'LAN_MENU' ? { ...MODES.ARCADE_COOP, title: 'Cooperativo Wi-Fi', tag: '2 DISPOSITIVOS', description: 'Crea una sala privada y juega con otro celular en la misma red, sin internet.' } : MODES[mode];
+  const settings = active?.screen === 'LAN_MENU' ? undefined : active?.screen;
   const controls = getControls().keyboard[0];
   const navigate = `${keyLabel(controls.up)} / ${keyLabel(controls.down)}`;
   const confirm = keyLabel(controls.light);
@@ -95,9 +95,9 @@ export default function MainMenu({ items, selected, difficulty, touch, highlight
       <nav className="title-menu" aria-label="Modos de juego">
         <div className="title-menu-heading"><span>ELIGE TU CAMINO</span><i /></div>
         {items.map((item, index) => {
-          if (!item.mode) return null;
-          const entry = MODES[item.mode], Icon = entry.icon;
-          return <button key={item.mode} type="button" className="title-mode" data-active={selected === index}
+          if (!item.mode && item.screen !== 'LAN_MENU') return null;
+          const entry = item.screen === 'LAN_MENU' ? { title: 'Cooperativo Wi-Fi', tag: '2 DISPOSITIVOS', icon: Wifi } : MODES[item.mode!], Icon = entry.icon;
+          return <button key={item.mode ?? item.screen} type="button" className="title-mode" data-active={selected === index}
             aria-label={`${entry.title} · ${entry.tag}`} onMouseEnter={() => highlight(index)} onFocus={() => highlight(index)} onClick={() => choose(item)}>
             <span className="title-mode-index">{String(index + 1).padStart(2, '0')}</span>
             <Icon className="title-mode-icon" size={18} strokeWidth={1.5} />
@@ -106,7 +106,7 @@ export default function MainMenu({ items, selected, difficulty, touch, highlight
         })}
         <div className="title-settings">
           {items.map((item, index) => {
-            if (!item.screen) return null;
+            if (!item.screen || item.screen === 'LAN_MENU') return null;
             const isDifficulty = item.screen === 'DIFFICULTY_MENU', Icon = isDifficulty ? SlidersHorizontal : Gamepad2;
             return <button key={item.screen} data-active={selected === index} aria-label={isDifficulty ? `Dificultad: ${difficulty}` : 'Configurar controles'}
               onMouseEnter={() => highlight(index)} onFocus={() => highlight(index)} onClick={() => choose(item)}>
