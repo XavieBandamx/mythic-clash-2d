@@ -12,7 +12,7 @@ import type { Difficulty, Particle } from '../game/core';
 import { EXTRA_ROWS, GRID_4X4_ANIMATIONS, drawLoading, drawSpriteFrame, getExtraSheetConfig, getSpriteSheetConfig, spriteAssetSrc, isLoading, loadSpriteSheet } from '../game/sprites';
 import type { SpriteSheetConfig, SpriteSheetEntry } from '../game/sprites';
 import { drawDeityPortraitIcon } from '../game/portraits';
-import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from '../game/styles';
+import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul, situationalDamage } from '../game/styles';
 import { BEASTS, BOSS_CAM_X, BOSS_SPECIALS, FINAL_LEVEL, LEVELS, MONSTER_SPRITES, MONSTER_STATS, ORIGEN, THIEF_SKIN, buildWaves, origenSpecials } from './levels';
 import type { BeastAttack, BeastDef, BossSpecial, LevelDef, MonsterKind, MonsterSkin, MonsterStats, Wave, WaveSpawn } from './levels';
 import { DEPTH, VIEW_H, VIEW_W, drawAmbient, drawBackground, drawBreakable, drawForeground, drawHazard, drawItem, drawMonsterOutlined, drawOrb, drawTelegraph, screenY } from './draw';
@@ -1945,8 +1945,8 @@ type Phase = 'play' | 'bossIntro' | 'boss' | 'levelClear' | 'gameOver' | 'finalO
 const CONTINUE_TICKS = 600;    // Cuenta regresiva de 10 s para continuar
 const COMBO_WINDOW = 180;      // Sin conectar un golpe en 3 s, el combo se pierde
 const RESULTS_TICKS = 600;     // Pantalla de resultados de cada nivel (se salta con ataque)
-const PROP_COUNT: Partial<Record<string, number>> = { Grecia: 6, Egipto: 6, 'México': 6, 'Japón': 6 }; // Objetos de primer plano por reino
-const PROP_SLUG: Record<string, string> = { Grecia: 'grecia', Egipto: 'egipto', 'México': 'mexico', 'Japón': 'japon' };
+const PROP_COUNT: Partial<Record<string, number>> = { Grecia: 6, Egipto: 6, 'México': 6, 'Japón': 6, 'Nórdico': 6 }; // Objetos de primer plano por reino
+const PROP_SLUG: Record<string, string> = { Grecia: 'grecia', Egipto: 'egipto', 'México': 'mexico', 'Japón': 'japon', 'Nórdico': 'nordico' };
 const RECORDS_KEY = 'mythic-clash-records';
 
 // Multiplicador de puntos por combo: x2 a los 6 golpes seguidos, hasta x5
@@ -1997,7 +1997,8 @@ export class ArcadeGame {
   public totals = { kills: 0, minis: 0, bosses: 0, deaths: 0, rescues: 0, continues: 0, secs: 0 };
   public completedWaves = 0;
   public finishedSeconds: number | null = null;
-  public get realmIndex() { return this.runKind === 'survival' ? this.route[this.levelIndex % 4].realm : this.route[this.levelIndex]?.realm ?? 4; }
+  public get routeStopIndex() { return this.runKind === 'survival' ? (this.levelIndex + Math.floor(this.levelIndex / 5)) % this.route.length : this.levelIndex; }
+  public get realmIndex() { return this.route[this.routeStopIndex]?.realm ?? LEVELS.length; }
   public get stageDifficulty() { return this.runKind === 'survival' ? this.levelIndex * .35 : this.levelIndex; }
   public levelIndex: number = 0;
   public level: LevelDef = LEVELS[0];
@@ -2185,7 +2186,7 @@ export class ArcadeGame {
     this.levelIndex = index;
     if (this.runKind === 'survival') this.calmFactor = (this.difficulty === 'FACIL' ? 1.6 : this.difficulty === 'DIFICIL' ? .5 : 1) / (1 + index * .025);
     this.level = final ? FINAL_LEVEL : LEVELS[this.realmIndex];
-    this.waves = final ? [] : buildWaves(this.realmIndex);
+    this.waves = final ? [] : buildWaves(this.realmIndex, this.runKind === 'survival' ? Math.min(4, Math.floor(index / 5)) : index);
     if (this.runKind === 'survival') {
       const template = this.waves[Math.min(this.waves.length - 1, Math.floor(index / 5))];
       this.waves = [{ camX: 0, spawns: [...template.spawns, ...Array.from({ length: Math.min(8, Math.floor(index / 3)) }, (_, i) => ({ kind: (i % 3 === 0 ? 'brute' : i % 3 === 1 ? 'runner' : 'grunt') as MonsterKind, side: (i % 2 ? 'left' : 'right') as 'left' | 'right', zFrac: .2 + (i % 4) * .2, delay: 90 + i * 45 }))] }];
@@ -2236,7 +2237,7 @@ export class ArcadeGame {
 
     // El jefe nunca es el dios que controla alguno de los jugadores
     const playerIds = this.heroes.map(h => h.deity.id);
-    const bossId = this.route[this.runKind === 'survival' ? index % 4 : index]?.boss ?? this.level.bossOrder.find(id => !playerIds.includes(id)) ?? this.level.bossOrder[0];
+    const bossId = this.route[this.routeStopIndex]?.boss ?? this.level.bossOrder.find(id => !playerIds.includes(id)) ?? this.level.bossOrder[0];
     this.bossDeity = final ? ORIGEN : DEITIES.find(d => d.id === bossId) ?? DEITIES[0];
     loadSpriteSheet(getSpriteSheetConfig(this.bossDeity).src);
     const bossExtra = getExtraSheetConfig(this.bossDeity);
@@ -2245,13 +2246,14 @@ export class ArcadeGame {
     const loadArt = (file?: string) => (file ? loadSpriteSheet(`${import.meta.env.BASE_URL}backgrounds/${file}`) : null);
     this.art = { background: loadArt(this.level.art?.background), floor: loadArt(this.level.art?.floor) };
 
-    loadSpriteSheet(spriteAssetSrc(BEASTS[this.level.pantheon].id));
+    const levelBeast = BEASTS[this.level.pantheon];
+    if (levelBeast) loadSpriteSheet(spriteAssetSrc(levelBeast.id));
     const propCount = final ? 0 : PROP_COUNT[this.level.pantheon] ?? 0;
     this.props = Array.from({ length: propCount }, (_, i) =>
       loadSpriteSheet(`${import.meta.env.BASE_URL}props/${PROP_SLUG[this.level.pantheon]}-${i}.webp`)
     );
     // Objetos y trampas del nivel, para que no aparezcan dibujados por código mientras cargan
-    for (const name of ['magia', 'comida', `vasija-${this.realmIndex}`, `vasija-rota-${this.realmIndex}`, `trampa-${this.realmIndex}`]) {
+    for (const name of final ? ['magia', 'comida'] : ['magia', 'comida', `vasija-${this.realmIndex}`, `vasija-rota-${this.realmIndex}`, `trampa-${this.realmIndex}`]) {
       loadSpriteSheet(`${import.meta.env.BASE_URL}items/${name}.webp`);
     }
     for (const skin of [...Object.values(this.level.skins), THIEF_SKIN]) {
@@ -2292,8 +2294,9 @@ export class ArcadeGame {
       this.shake(8, 20);
       sounds.playSuperActivation();
     }
-    if (mounted) {
-      const beast = new Beast(BEASTS[this.level.pantheon], x, monster.z);
+    const beastDef = BEASTS[this.level.pantheon];
+    if (mounted && beastDef) {
+      const beast = new Beast(beastDef, x, monster.z);
       this.beasts.push(beast);
       this.mountOn(monster, beast);
       if (!this.beastHintShown) {
@@ -2417,7 +2420,10 @@ export class ArcadeGame {
   // source: el héroe que golpea (se lleva los puntos); null si el golpe es de un enemigo
   private applyHit(target: Actor, hit: HitInfo, source: Hero | null): boolean {
     const fromHero = source !== null;
-    if (source) hit = this.heroPassiveHit(source, target, hit);
+    if (source) {
+      if (!hit.magic) hit = { ...hit, damage: hit.damage * situationalDamage(source.deity.id, hit.heavy, Math.abs(target.x - source.x), source.facing === target.facing, ['windup', 'strike', 'attack', 'charge', 'dashAttack'].includes(target.state), source.combo) };
+      hit = this.heroPassiveHit(source, target, hit);
+    }
     if (!this.teamStanding) { this.endCoopLink(); this.endCoopGuard(); }
     if (source && target instanceof Monster && this.coopLink?.members.includes(target)) hit = { ...hit, damage: hit.damage * .6 };
     const bossGuarding = target instanceof Boss && target.state === 'guard';
@@ -2632,10 +2638,11 @@ export class ArcadeGame {
       if (hazard.x < this.camX - 100 || hazard.x > this.camX + VIEW_W + 100) continue;
       hazard.clock = (hazard.clock + 1) % 300;
       // La arena y el viento desplazan; el fuego permanece; el rayo es puntual.
-      if (hazard.clock >= 240 && hazard.clock < 290 && (this.realmIndex === 1 || this.realmIndex === 3)) {
+      if (hazard.clock >= 240 && hazard.clock < 290 && (this.realmIndex === 1 || this.realmIndex === 3 || this.realmIndex === 4)) {
         for (const actor of [...this.activeHeroes, ...this.monsters]) {
           if (Math.abs(actor.x - hazard.x) < 95 && Math.abs(actor.z - hazard.z) < 42 && actor.y < 60 && !actor.isDown) {
             if (this.realmIndex === 1) { actor.vx *= 0.5; actor.vz *= 0.5; actor.x += Math.sign(hazard.x - actor.x) * 0.7; }
+            else if (this.realmIndex === 4) { actor.vx *= .65; actor.vz *= .65; }
             else actor.x += actor.x >= hazard.x ? 3.5 : -3.5;
           }
         }
@@ -3311,7 +3318,7 @@ export class ArcadeGame {
     for (const hazard of this.hazards) {
       if (hazard.clock < 165 || this.phase !== 'play') continue;
       const active = hazard.clock >= 240 && hazard.clock < (this.realmIndex === 0 ? 260 : 290);
-      const color = ['#93c5fd', '#fbbf24', '#fb7185', '#86efac'][this.realmIndex] ?? '#fff';
+      const color = ['#93c5fd', '#fbbf24', '#fb7185', '#86efac', '#a5f3fc'][this.realmIndex] ?? '#fff';
       drawTelegraph(ctx, hazard.x, screenY(hazard.z), 95, Math.min(1, (hazard.clock - 165) / 75), color);
       if (active && !drawHazard(ctx, this.realmIndex, hazard.x, screenY(hazard.z), this.tick)) {
         ctx.save(); ctx.globalAlpha = 0.65; ctx.fillStyle = color;
@@ -3338,7 +3345,7 @@ export class ArcadeGame {
       if (prop.broken) continue;
       const y = screenY(prop.z);
       ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(prop.x, y, 26, 9, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = ['#a77b57', '#c6a66a', '#627f67', '#857578'][this.realmIndex] ?? '#958579';
+      ctx.fillStyle = ['#a77b57', '#c6a66a', '#627f67', '#857578', '#7893aa'][this.realmIndex] ?? '#958579';
       ctx.beginPath(); ctx.moveTo(prop.x - 15, y - 48); ctx.lineTo(prop.x + 15, y - 48); ctx.bezierCurveTo(prop.x + 9, y - 32, prop.x + 36, y - 16, prop.x + 17, y); ctx.lineTo(prop.x - 17, y); ctx.bezierCurveTo(prop.x - 36, y - 16, prop.x - 9, y - 32, prop.x - 15, y - 48); ctx.fill();
       ctx.strokeStyle = '#e7c788'; ctx.lineWidth = 3; ctx.strokeRect(prop.x - 15, y - 49, 30, 5);
       ctx.fillStyle = prop.drop === 'food' ? '#86efac' : '#93c5fd'; ctx.fillRect(prop.x - 4, y - 25, 8, 8);

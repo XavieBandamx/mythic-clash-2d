@@ -2,7 +2,7 @@
 
 ## Arcade
 
-- Cada aventura sortea los cuatro reinos y sus guardianes. El Origen siempre es el quinto encuentro.
+- Cada aventura sortea los cinco reinos y sus guardianes. El Origen siempre es el sexto encuentro.
 - Los guardianes excluyen los personajes de ambos jugadores. Si juegan Zeus y Poseidón, Grecia conserva a Hades; si usan otros dioses, Zeus y Poseidón también pueden ser jefes.
 - El dispositivo recuerda la ruta reciente para evitar repetir inicio y guardianes cuando existen alternativas.
 - Enemigos, peligros, objetos y arte pertenecen al reino; vida, daño e inteligencia de jefes crecen según la posición en la aventura.
@@ -24,7 +24,7 @@
 - Cada jugador controla su personaje con los controles habituales de P1 en su dispositivo. El anfitrión representa a P1 y el invitado a P2.
 - Versus conserva rondas, K.O., victorias y revancha compartida. El anfitrión ejecuta el combate y reloj; publica a 30 Hz después de simular y el invitado interpola las posiciones. El inicio espera recursos y confirmación del estado inicial; los mensajes anteriores no se reutilizan en una revancha. Los toques breves se conservan hasta el siguiente paso de simulación.
 - Pausa compartida y detención al perder la conexión. Dos dispositivos en la misma red privada o punto de acceso, sin servidores externos ni Bluetooth.
-- El protocolo usa versión 3: ambos dispositivos deben actualizar la APK. Android conserva el identificador y usa versionCode 3 / versionName 1.2.
+- El protocolo usa versión 4: ambos dispositivos deben actualizar la APK. Android conserva el identificador y usa versionCode 4 / versionName 1.3.
 
 ## Verificación
 
@@ -42,3 +42,5 @@ cd android
 Se verifican rutas de todas las parejas, ausencia de repeticiones evitables, identidad de cada reino, acumulación de resultados, 31 oleadas, récords, ausencia de continuaciones, tiempo final congelado, snapshots de supervivencia y sincronización del versus. La interfaz se revisó en vertical 360×640 y 390×844, y horizontal 844×390. Se probó el versus con dos instancias reales de App y transporte de prueba entre pestañas: selección, inicio, controles remotos y pausa compartida.
 
 El usuario confirmó el arcade cooperativo de la versión anterior en dos celulares físicos. Las rutas nuevas, supervivencia y versus necesitan una nueva prueba en esos dispositivos, especialmente para evaluar respuesta y dificultad durante partidas largas.
+
+El reino nórdico integra Odín, Thor y Loki como guardianes. Sun Wukong es invitado jugable sin reino propio. La Torre tiene diez rivales más Origen. Los encuentros de jefe de supervivencia rotan por los cinco reinos.

@@ -10,6 +10,7 @@ export interface ArenaDef {
   floorY: number;  // Fila de la imagen donde empieza el piso
   storm?: string;  // Color del destello de relámpago, si la arena tiene tormenta
   petals?: boolean;
+  snow?: boolean;
 }
 
 const url = (file: string) => `${import.meta.env.BASE_URL}arenas/${file}`;
@@ -19,7 +20,8 @@ export const ARENAS: ArenaDef[] = [
   { pantheon: 'Egipto', name: 'El Tribunal de Osiris', src: url('egipto.webp'), floorY: 560 },
   { pantheon: 'México', name: 'La Cancha de Tenochtitlan', src: url('mexico.webp'), floorY: 545 },
   { pantheon: 'Japón', name: 'El Dojo de la Tormenta', src: url('japon.webp'), floorY: 612, storm: '200, 170, 255', petals: true },
-  { name: 'La Torre de Babel', src: url('babel.webp'), floorY: 610, storm: '230, 230, 255' }
+  { name: 'La Torre de Babel', src: url('babel.webp'), floorY: 610, storm: '230, 230, 255' },
+  { pantheon: 'Nórdico', snow: true, name: 'El Puente de Asgard', src: url('asgard.webp'), floorY: 595, storm: '200, 220, 255' }
 ];
 
 // Arena de Origen en la cima de la torre (no se elige en el menú)
@@ -48,6 +50,11 @@ export function drawArena(ctx: CanvasRenderingContext2D, img: HTMLImageElement, 
       ctx.fillStyle = `rgba(${arena.storm}, ${alpha})`;
       ctx.fillRect(0, 0, w, h);
     }
+  }
+
+  if (arena.snow) {
+    ctx.fillStyle = '#dff5ffb0';
+    for (let i = 0; i < 28; i++) { const x = ((i * 149 - frame * (1 + i % 3)) % w + w) % w; const y = (i * 97 + frame * (1 + i % 2)) % h; ctx.beginPath(); ctx.arc(x, y, 1 + i % 3, 0, Math.PI * 2); ctx.fill(); }
   }
 
   // Pétalos de cerezo arrastrados por el viento (posiciones deterministas, sin estado)

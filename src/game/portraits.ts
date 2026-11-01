@@ -8,6 +8,7 @@ const PORTRAIT_IDS = new Set([
   'ra', 'anubis', 'osiris',
   'quetzalcoatl', 'huitzilopochtli', 'mictlantecuhtli',
   'amaterasu', 'susanoo', 'raijin',
+  'odin', 'thor', 'loki', 'sunwukong',
   'origen'
 ]);
 

@@ -21,7 +21,7 @@ import type { RoundWinner } from './game/match';
 import { victoryFrame, heavyFrame, jumpFrame, castFrame, versusSuperRelease } from './game/spriteMotion';
 import { profileFor, GUARD_WINDOW, GUARD_RECOVERY, INPUT_BUFFER } from './game/combat';
 import { awardMastery } from './game/progression';
-import { DEITIES } from './game/deities';
+import { DEITIES, REALM_PANTHEONS } from './game/deities';
 import type { DeityData } from './game/deities';
 import { sounds } from './game/sound';
 import { SIM_STEP_MS, checkAABB, spawnBloodBurst, renderParticles, updateParticles as updateParticlesList } from './game/core';
@@ -35,7 +35,7 @@ import { ARENAS, ORIGEN_ARENA, drawArena } from './game/arenas';
 import { ORIGEN } from './arcade/levels';
 import { buildTower, towerSkill } from './game/tower';
 import type { TowerRun } from './game/tower';
-import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul } from './game/styles';
+import { PASSIVE, STYLE_ATTACK_SPEED, STYLE_KNOCKBACK_TAKEN, STYLE_REACH, statDamageMul, statDefenseMul, situationalDamage } from './game/styles';
 
 import type { ArenaDef } from './game/arenas';
 import { EXTRA_ROWS, drawLoading, getExtraSheetConfig, getSpriteSheetConfig, isLoading, loadSpriteSheet } from './game/sprites';
@@ -566,6 +566,45 @@ export class Fighter {
     };
 
     switch (this.deity.id) {
+      case 'odin': {
+        if (t === 12) this.superX = opponent.x;
+        if (t >= 12 && t <= 38) { spark(this.superX, this.groundY - 30, '#93c5fd', 'spark', 2); }
+        if ([26, 38].includes(t)) {
+          particles.push({ x: this.superX, y: this.groundY - 80, vx: 0, vy: 0, radius: 80, color: '#93c5fd', alpha: 1, decay: .08, type: 'ring' });
+          if (Math.abs(opponent.x - this.superX) < 95) this.superHit(opponent, 15, 5, -4, 20, particles, '#93c5fd');
+        }
+        break;
+      }
+      case 'thor': {
+        if (t === 16) { this.superX = this.x; this.superCaught = false; }
+        if (t === 32) this.superCaught = false;
+        if (t >= 16 && t <= 50) {
+          this.superX += t < 32 ? this.facing * 23 : Math.sign(this.x - this.superX) * 24;
+          spark(this.superX, this.y - 85, '#7dd3fc', 'lightning', 4);
+          particles.push({ x: this.superX, y: this.y - 85, vx: 0, vy: 0, radius: 19, color: '#e2e8f0', alpha: 1, decay: .25, type: 'ring' });
+          if (!this.superCaught && Math.abs(opponent.x - this.superX) < 65 && Math.abs(opponent.y - this.y) < 115) {
+            this.superHit(opponent, t < 32 ? 20 : 14, 10, -5, 22, particles, '#7dd3fc'); this.superCaught = true;
+          }
+        }
+        break;
+      }
+      case 'loki': {
+        if (t === 14) {
+          for (let i = 0; i < 18; i++) spark(this.x, this.y - 80, '#86efac', 'smoke', 7);
+          this.x = Math.max(70, Math.min(1210, opponent.x - opponent.facing * 105));
+          this.facing = this.x < opponent.x ? 1 : -1;
+        }
+        if (t === 22 && dist < 165 && Math.abs(opponent.y - this.y) < 120) this.superHit(opponent, 32, 10, -5, 25, particles, '#86efac');
+        break;
+      }
+      case 'sunwukong': {
+        if ([16, 28, 40].includes(t)) {
+          const reach = t === 16 ? 190 : t === 28 ? 245 : 300;
+          for (let i = 0; i < 16; i++) spark(this.x + this.facing * (i / 16) * reach, this.y - 85 + Math.sin(i) * 20, '#fcd34d', 'spark', 3);
+          if (dist < reach && Math.abs(opponent.y - this.y) < 130) this.superHit(opponent, t === 40 ? 14 : 10, t === 40 ? 16 : 2, t === 40 ? -7 : -1, 16, particles, '#fcd34d');
+        }
+        break;
+      }
       case 'hades': {
         // Niebla del Tártaro: llamas oscuras sobre donde estaba el rival que lo desgarran mientras siga dentro
         if (t === 12) this.superX = opponent.x;
@@ -2431,6 +2470,7 @@ export default function App({ createLanSession }: { createLanSession?: (role: 'h
 
       const heavy = attacker.state === 'ATTACK_HEAVY';
       let damage = baseDamage * dmgMultiplier * attacker.damageMul * defender.defMul * defender.damageTakenMul();
+      damage *= situationalDamage(attacker.deity.id, heavy, Math.abs(defender.x - attacker.x), attacker.facing === defender.facing, ['ATTACK_LIGHT', 'ATTACK_HEAVY', 'SPECIAL'].includes(defender.state), attacker.comboCount);
       knockX *= STYLE_KNOCKBACK_TAKEN[defender.deity.style];
       if (heavy && attacker.deity.id === 'poseidon') knockX *= PASSIVE.poseidonPush;
       if (heavy && attacker.deity.id === 'zeus') {

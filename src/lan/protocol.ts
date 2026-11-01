@@ -1,9 +1,10 @@
+import { ARENAS } from '../game/arenas';
 import { validRoute } from '../arcade/run';
 import type { RouteStop } from '../arcade/run';
 import type { ArcadeInput } from '../arcade/engine';
 import type { Difficulty } from '../game/core';
 
-export const LAN_VERSION = 3;
+export const LAN_VERSION = 4;
 export const EMPTY_LAN_INPUT: ArcadeInput = { left: false, right: false, up: false, down: false, attack: false, jump: false, magic: false, tapLeft: false, tapRight: false };
 export function readLanInput(value: unknown): ArcadeInput {
   const record = value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -15,7 +16,7 @@ export function readLanStart(value: unknown, ids: readonly string[]): LanStart |
   if (!data || !Array.isArray(data.deities) || data.deities.length !== 2 || !data.deities.every(id => typeof id === 'string' && ids.includes(id)) || !['FACIL', 'NORMAL', 'DIFICIL'].includes(data.difficulty ?? '')) return null;
   if (data.mode !== undefined && !['arcade', 'survival', 'versus'].includes(data.mode)) return null;
   if (data.route !== undefined && !validRoute(data.route, data.deities)) return null;
-  if (data.arena !== undefined && (!Number.isInteger(data.arena) || data.arena < 0 || data.arena > 4)) return null;
+  if (data.arena !== undefined && (!Number.isInteger(data.arena) || data.arena < 0 || data.arena >= ARENAS.length)) return null;
   return { mode: data.mode ?? 'arcade', route: data.route, arena: data.arena ?? 0, deities: [...data.deities] as [string, string], difficulty: data.difficulty! };
 }
 // Una invitación contiene dirección local, puerto efímero y secreto de la sala.

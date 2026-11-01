@@ -171,7 +171,7 @@ test('Arcade celebra con la hoja extra y bloquea ataques durante los resultados'
 });
 test('Celebrar desmonta al héroe y no sustituye la caída de un jugador muerto', () => {
   const g = new ArcadeGame([god('zeus'), god('ra')], 'NORMAL');
-  const beast = new Beast(BEASTS.Grecia, g.hero.x, g.hero.z);
+  const beast = new Beast(BEASTS.Grecia!, g.hero.x, g.hero.z);
   g.hero.mount = beast; beast.rider = g.hero; g.hero.celebrate();
   assert.equal(g.hero.mount, null); assert.equal(beast.rider, null);
   const fallen = g.heroes[1]; fallen.hp = 0; fallen.setState('down'); fallen.celebrate();
@@ -449,7 +449,7 @@ test('Solo no activa tácticas y las parejas excluyen monstruos fuera de pantall
   g.monsters = [new Monster('grunt', LEVELS[0].skins.grunt, -50, 100, 1, 1), new Monster('mini', LEVELS[0].skins.mini, 400, 100, 1, 1), new Monster('thief', LEVELS[0].skins.grunt, 600, 100, 1, 1)];
   (g as any).updateCoopTactics(); assert.equal(g.coopLink, null);
   const rider = new Monster('grunt', LEVELS[0].skins.grunt, 450, 100, 1, 1);
-  rider.mount = new Beast(BEASTS.Grecia, 450, 100);
+  rider.mount = new Beast(BEASTS.Grecia!, 450, 100);
   g.monsters = [rider, new Monster('grunt', LEVELS[0].skins.grunt, 650, 100, 1, 1)];
   (g as any).updateCoopTactics(); assert.equal(g.coopLink, null);
 });
@@ -513,7 +513,7 @@ test('Giro de Anubis tiene evasión gratuita con cooldown', () => {
 test('Reflejo que desmonta a un enemigo no cierra la partida', () => {
   const g = new ArcadeGame(god('mictlantecuhtli'), 'NORMAL');
   const m = new Monster('grunt', LEVELS[0].skins.grunt, 300, g.hero.z, 1, 1);
-  const beast = new Beast(BEASTS.Grecia, m.x, m.z);
+  const beast = new Beast(BEASTS.Grecia!, m.x, m.z);
   m.mount = beast; beast.rider = m; m.hp = 1; m.facing = -1; m.setState('strike'); m.stateTimer = 3;
   g.hero.x = 260; g.hero.invuln = 0;
   assert.doesNotThrow(() => m.update(g));

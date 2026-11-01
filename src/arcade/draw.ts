@@ -50,6 +50,10 @@ function drawFarLandmark(ctx: CanvasRenderingContext2D, pantheon: Pantheon, x: n
       ctx.fillRect(x - w / 2, base - (i + 1) * 30, w, 30);
     }
     ctx.fillRect(x - 24, base - 185, 48, 35);
+  } else if (pantheon === 'Nórdico') {
+    ctx.fillRect(x - 14, base - 170, 28, 170);
+    ctx.strokeStyle = color; ctx.lineWidth = 17;
+    for (const side of [-1, 1]) { ctx.beginPath(); ctx.moveTo(x, base - 85); ctx.lineTo(x + side * 65, base - 160); ctx.lineTo(x + side * 145, base - 190); ctx.stroke(); }
   } else {
     // Monte nevado y pagoda
     ctx.moveTo(x - 200, base);
@@ -105,6 +109,9 @@ function drawMidProp(ctx: CanvasRenderingContext2D, pantheon: Pantheon, x: numbe
     ctx.fillStyle = '#facc15';
     ctx.fillRect(x - 10, base - 128, 6, 6);
     ctx.fillRect(x + 4, base - 128, 6, 6);
+  } else if (pantheon === 'Nórdico') {
+    ctx.fillStyle = theme.mid; ctx.fillRect(x - 25, base - 135, 50, 135);
+    ctx.strokeStyle = '#a5f3fc'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x, base - 110); ctx.lineTo(x, base - 30); ctx.moveTo(x - 13, base - 88); ctx.lineTo(x + 13, base - 65); ctx.moveTo(x + 13, base - 95); ctx.lineTo(x - 13, base - 70); ctx.stroke();
   } else {
     // Torii
     ctx.fillStyle = theme.mid;
@@ -843,6 +850,9 @@ export function drawHazard(ctx: CanvasRenderingContext2D, level: number, x: numb
     drawGrounded(ctx, img, x, y + 30, 80); // Ancha como el aviso (≈190 px)
   } else if (level === 2) {
     drawGrounded(ctx, img, x, y + 8, 220 + Math.sin(tick * 0.4) * 8);
+  } else if (level === 4) {
+    ctx.globalAlpha = .85 + Math.sin(tick * .35) * .15;
+    drawGrounded(ctx, img, x, y + 8, 175 + Math.sin(tick * .18) * 5);
   } else {
     drawGrounded(ctx, img, x + Math.sin(tick * 0.15) * 6, y + 8, 230);
   }
@@ -982,6 +992,14 @@ export function drawAmbient(ctx: CanvasRenderingContext2D, pantheon: Pantheon, t
       ctx.arc(x, y, 2.5 + glow * 1.5, 0, Math.PI * 2);
       ctx.fill();
     }
+  } else if (pantheon === 'Nórdico') {
+    // Nieve y aurora: formas tenues detrás del combate, sin tapar los avisos.
+    for (let band = 0; band < 3; band++) {
+      ctx.strokeStyle = ['#86efac15', '#a5b4fc16', '#c4b5fd12'][band]; ctx.lineWidth = 20; ctx.beginPath();
+      for (let x = 0; x <= VIEW_W; x += 24) { const y = 60 + band * 32 + Math.sin(x * .006 + tick * .005 + band) * 25; if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
+    }
+    ctx.fillStyle = '#e0f2fed0';
+    for (let i = 0; i < 40; i++) { const x = wrapX(i * 157 - tick * (1 + i % 3) - drift); const y = (i * 97 + tick * (.7 + (i % 4) * .2)) % VIEW_H; ctx.beginPath(); ctx.arc(x, y, 1 + i % 3, 0, Math.PI * 2); ctx.fill(); }
   } else if (pantheon === 'Japón') {
     // Pétalos de cerezo con el viento
     for (let i = 0; i < 24; i++) {

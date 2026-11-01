@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { ArrowUpRight, Swords, Flame, Users, Mountain, SlidersHorizontal, Gamepad2, Wifi } from 'lucide-react';
 import type { GameMode, GameState } from './App';
-import { DEITIES } from './game/deities';
+import { DEITIES, REALM_PANTHEONS } from './game/deities';
 import { ARENAS } from './game/arenas';
 import { GRID_4X4_ANIMATIONS, spriteAssetSrc, getSpriteSheetConfig, loadSpriteSheet } from './game/sprites';
 import { MONSTER_SPRITES } from './arcade/levels';
@@ -12,12 +12,12 @@ export interface MainMenuItem { label: string; mode?: GameMode; screen?: GameSta
 
 const MODES = {
   PVP: { title: 'Versus local', tag: '2 JUGADORES', icon: Swords, description: 'Frente a frente. Dos rondas ganadas deciden quién se queda con la arena.', pair: ['zeus', 'ra'] },
-  PVE: { title: 'Duelo contra IA', tag: '1 JUGADOR', icon: Swords, description: 'Elige a tu dios y mide tu técnica contra un rival de otro reino.', pair: ['amaterasu', 'anubis'] },
-  ARCADE: { title: 'Camino de los Dioses', tag: 'ARCADE', icon: Flame, description: 'Cruza cuatro reinos, domina sus bestias y alcanza el encuentro con Origen.', pair: ['quetzalcoatl', 'raijin'] },
-  ARCADE_COOP: { title: 'Arcade cooperativo', tag: '2 JUGADORES', icon: Users, description: 'Dos dioses, un mismo camino. Conquista los cuatro reinos en compañía.', pair: ['poseidon', 'huitzilopochtli'] },
-  SURVIVAL: { title: 'Supervivencia', tag: 'SIN LÍMITES', icon: Flame, description: 'Resiste oleadas cada vez más difíciles. Sin continuaciones: supera tu récord.', pair: ['minotauro', 'guardian-chacal'] },
+  PVE: { title: 'Duelo contra IA', tag: '1 JUGADOR', icon: Swords, description: 'Elige a tu dios y mide tu técnica contra un rival de otro reino.', pair: ['amaterasu', 'odin'] },
+  ARCADE: { title: 'Camino de los Dioses', tag: 'ARCADE', icon: Flame, description: 'Cruza los reinos, domina sus bestias y alcanza el encuentro con Origen.', pair: ['quetzalcoatl', 'raijin'] },
+  ARCADE_COOP: { title: 'Arcade cooperativo', tag: '2 JUGADORES', icon: Users, description: 'Dos dioses, un mismo camino. Conquista todos los reinos en compañía.', pair: ['poseidon', 'huitzilopochtli'] },
+  SURVIVAL: { title: 'Supervivencia', tag: 'SIN LÍMITES', icon: Flame, description: 'Resiste oleadas cada vez más difíciles. Sin continuaciones: supera tu récord.', pair: ['minotauro', 'draugr'] },
   SURVIVAL_COOP: { title: 'Supervivencia cooperativa', tag: '2 JUGADORES', icon: Users, description: 'Resistan juntos. Jefes cada cinco oleadas y récords por pareja.', pair: ['escorpion', 'oni-gigante', 'guerrero-aguila'] },
-  TOWER: { title: 'Torre de los Dioses', tag: 'DESAFÍO', icon: Mountain, description: 'Ocho rivales y un creador. Asciende hasta la cima y descubre tu final.', pair: ['hades', 'susanoo', 'mictlantecuhtli'] }
+  TOWER: { title: 'Torre de los Dioses', tag: 'DESAFÍO', icon: Mountain, description: `${REALM_PANTHEONS.length * 2} rivales y un creador. Asciende hasta la cima y descubre tu final.`, pair: ['sunwukong'] }
 } as const;
 
 // Composición de portada: cada pareja necesita espacio según sus armas y siluetas.
@@ -28,7 +28,7 @@ const TITLE_POSES: Record<GameMode, readonly { x: number; y: number; height: num
   ARCADE_COOP: [{ x: 220, y: 615, height: 365 }, { x: 590, y: 610, height: 425 }],
   SURVIVAL: [{ x: 230, y: 620, height: 390 }, { x: 600, y: 615, height: 365 }],
   SURVIVAL_COOP: [{ x: 175, y: 625, height: 300 }, { x: 415, y: 605, height: 405 }, { x: 665, y: 625, height: 305 }],
-  TOWER: [{ x: 175, y: 625, height: 315 }, { x: 415, y: 600, height: 415 }, { x: 665, y: 625, height: 315 }]
+  TOWER: [{ x: 410, y: 620, height: 440 }]
 };
 
 function TitleFighters({ mode }: { mode: GameMode }) {
@@ -98,7 +98,7 @@ export default function MainMenu({ items, selected, difficulty, touch, highlight
       <div className="title-copy">
         <span className="title-eyebrow"><i /> EL TORNEO DE LOS DIOSES</span>
         <h1><span>MYTHIC</span><span>CLASH<small>2D</small></span></h1>
-        <p>Cuatro reinos. Un solo vencedor.</p>
+        <p>Todos los reinos. Un solo vencedor.</p>
       </div>
 
       <nav className="title-menu" aria-label="Modos de juego">
@@ -129,7 +129,7 @@ export default function MainMenu({ items, selected, difficulty, touch, highlight
         <div className="title-halo" aria-hidden="true" />
         <div className="title-slash title-slash-blue" aria-hidden="true" />
         <div className="title-slash title-slash-red" aria-hidden="true" />
-        <div className="title-stage-caption" aria-hidden="true">GRECIA / EGIPTO / MÉXICO / JAPÓN</div>
+        <div className="title-stage-caption" aria-hidden="true">GRECIA / EGIPTO / MÉXICO / JAPÓN / NÓRDICO</div>
         {active?.screen === 'LAN_MENU' ? <div className="title-network-art" aria-hidden="true"><Gamepad2 className="title-network-pad" /><Wifi className="title-network-signal" /><Gamepad2 className="title-network-pad" /></div> : settings ? <div className="title-network-art title-options-art" aria-hidden="true">{settings === 'DIFFICULTY_MENU' ? <SlidersHorizontal /> : <Gamepad2 />}</div> : <div className="title-fighters" key={mode}><TitleFighters mode={mode} /></div>}
         <div className="title-stage-floor" aria-hidden="true" />
         <div className="title-feature" aria-live="polite">
@@ -140,7 +140,7 @@ export default function MainMenu({ items, selected, difficulty, touch, highlight
       </aside>
     </div>
     <footer className="title-footer">
-      <span><b>{DEITIES.length}</b> DIOSES <i /> <b>{new Set(DEITIES.map(d => d.pantheon)).size}</b> REINOS</span>
+      <span><b>{DEITIES.length}</b> DIOSES <i /> <b>{REALM_PANTHEONS.length}</b> REINOS</span>
       <div>{touch ? 'Toca un modo para comenzar' : <><kbd>{navigate}</kbd> elegir <i /> <kbd>{confirm} / Enter</kbd> confirmar</>}</div>
     </footer>
   </section>;

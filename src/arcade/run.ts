@@ -22,7 +22,7 @@ export function createRoute(players: string[], random = Math.random, remember = 
   return route;
 }
 export function validRoute(value: unknown, players: string[]): value is RouteStop[] {
-  return Array.isArray(value) && value.length === 4 && new Set(value.map(stop => stop?.realm)).size === 4 && value.every(stop => Number.isInteger(stop?.realm) && LEVELS[stop.realm]?.bossOrder.includes(stop.boss) && !players.includes(stop.boss));
+  return Array.isArray(value) && value.length === LEVELS.length && new Set(value.map(stop => stop?.realm)).size === LEVELS.length && value.every(stop => Number.isInteger(stop?.realm) && LEVELS[stop.realm]?.bossOrder.includes(stop.boss) && !players.includes(stop.boss));
 }
 export interface SurvivalRecord { characters: string[]; wave: number; score: number; difficulty: string; date: string }
 const RECORD_KEY = 'mythic-clash-survival-records-v1';

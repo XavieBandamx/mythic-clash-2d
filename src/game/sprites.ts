@@ -61,6 +61,10 @@ const redesigned = (frameWidth: number, frameHeight: number): Partial<SpriteShee
   frameWidth, frameHeight, scale: REDESIGN_SCALE, footOffset: 0, pixelArt: false, animations: GRID_4X4_ANIMATIONS, lyingFrame: 2, getupFrame: 3
 });
 export const SPRITE_SHEET_OVERRIDES: Record<string, Partial<SpriteSheetConfig>> = {
+  odin: redesigned(526, 238),
+  thor: redesigned(368, 255),
+  loki: redesigned(386, 241),
+  sunwukong: redesigned(386, 244),
   amaterasu: redesigned(444, 254),
   anubis: redesigned(594, 245),
   hades: redesigned(476, 255),
@@ -99,6 +103,10 @@ export function getSpriteSheetConfig(deity: DeityData): SpriteSheetConfig {
 // Originales en assets/sprites/<id>-extra-original.webp.
 export const EXTRA_ROWS = { jump: 0, defense: 1, super: 2, finish: 3 } as const;
 const EXTRA_SHEET_OVERRIDES: Record<string, Pick<SpriteSheetConfig, 'frameWidth' | 'frameHeight' | 'scale'>> = {
+  odin: { frameWidth: 532, frameHeight: 254, scale: 0.766 },
+  thor: { frameWidth: 502, frameHeight: 266, scale: 0.702 },
+  loki: { frameWidth: 408, frameHeight: 252, scale: 0.71 },
+  sunwukong: { frameWidth: 446, frameHeight: 273, scale: 0.676 },
   zeus: { frameWidth: 346, frameHeight: 258, scale: 0.754 },
   poseidon: { frameWidth: 426, frameHeight: 265, scale: 0.809 },
   hades: { frameWidth: 488, frameHeight: 247, scale: 0.741 },

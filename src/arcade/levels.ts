@@ -45,6 +45,10 @@ export const MONSTER_STATS: Record<MonsterKind, MonsterStats> = {
 // pixelArt: hojas pequeñas que se amplían sin suavizado para no verse borrosas.
 export const MONSTER_SPRITES: Record<string, { frameWidth: number; frameHeight: number; idleHeight: number; pixelArt?: boolean }> = {
   // Rediseñados con Susanoo como modelo de estilo (originales en assets/sprites/<id>-original.webp)
+  draugr: { frameWidth: 332, frameHeight: 242, idleHeight: 221.5 },
+  troll: { frameWidth: 388, frameHeight: 249, idleHeight: 234.25 },
+  svartalfar: { frameWidth: 382, frameHeight: 237, idleHeight: 195.25 },
+  jotunn: { frameWidth: 366, frameHeight: 260, idleHeight: 224.5 },
   hoplita: { frameWidth: 538, frameHeight: 252, idleHeight: 247.5 },
   momia: { frameWidth: 590, frameHeight: 239, idleHeight: 226 },
   minotauro: { frameWidth: 432, frameHeight: 259, idleHeight: 239 },
@@ -82,11 +86,12 @@ export interface BeastDef {
 }
 
 // Hojas rediseñadas junto a Susanoo (assets/sprites/<id>-original.webp): height = idleHeight × 0.73, la misma escala de los dioses.
-export const BEASTS: Record<Pantheon, BeastDef> = {
+export const BEASTS: Partial<Record<Pantheon, BeastDef>> = {
   Grecia: { id: 'cerbero', name: 'Cerbero', frameWidth: 474, frameHeight: 238, idleHeight: 215, height: 157, seat: { dx: -14, dy: 124 }, attack: 'fire', color: '#f97316' },
   Egipto: { id: 'cocodrilo', name: 'Cocodrilo de Sobek', frameWidth: 462, frameHeight: 211, idleHeight: 137, height: 100, seat: { dx: 10, dy: 116 }, attack: 'tail', color: '#d6a75c' },
   México: { id: 'jaguar', name: 'Jaguar de Guerra', frameWidth: 516, frameHeight: 212, idleHeight: 195.5, height: 143, seat: { dx: 11, dy: 132 }, attack: 'pounce', color: '#14b8a6' },
-  Japón: { id: 'kirin', name: 'Kirin', frameWidth: 436, frameHeight: 295, idleHeight: 239.5, height: 175, seat: { dx: 20, dy: 155 }, attack: 'thunder', color: '#60a5fa' }
+  Japón: { id: 'kirin', name: 'Kirin', frameWidth: 436, frameHeight: 295, idleHeight: 239.5, height: 175, seat: { dx: 20, dy: 155 }, attack: 'thunder', color: '#60a5fa' },
+  Nórdico: { id: 'vargr', name: 'Vargr de Escarcha', frameWidth: 446, frameHeight: 228, idleHeight: 222.25, height: 162, seat: { dx: 4, dy: 171 }, attack: 'pounce', color: '#a5f3fc' }
 };
 
 // El duende ladrón es igual en todos los niveles: suelta vasijas de magia y comida al golpearlo
@@ -133,6 +138,9 @@ export interface LevelDef {
 
 // Poderes de cada dios cuando actúa como jefe
 export const BOSS_SPECIALS: Record<string, BossSpecial[]> = {
+  odin: ['orb', 'thunder'],
+  thor: ['thunder', 'slam'],
+  loki: ['teleport', 'orb'],
   zeus: ['thunder', 'charge'],
   hades: ['orb', 'slam'],
   poseidon: ['charge', 'slam'],
@@ -239,6 +247,19 @@ export const LEVELS: LevelDef[] = [
     },
     bossOrder: ['raijin', 'susanoo', 'amaterasu'],
     art: { background: 'japon-fondo.webp', horizonY: 718, floor: 'japon-suelo.webp' }
+  },
+  {
+    pantheon: 'Nórdico', title: 'Senderos de Yggdrasil',
+    subtitle: 'Los muertos y los gigantes custodian el camino hacia Asgard',
+    theme: { skyTop: '#111b3d', skyBottom: '#574378', sun: '#a5f3fc', far: '#283754', mid: '#788ca3', floor: '#52606d', floorLine: '#263341', wall: '#354456' },
+    skins: {
+      grunt: { name: 'Draugr', spriteId: 'draugr', body: '#64748b', detail: '#475569', accent: '#93c5fd', head: 'helmet', weapon: 'axe' },
+      brute: { name: 'Troll', spriteId: 'troll', body: '#52634c', detail: '#78350f', accent: '#fde68a', head: 'bull', weapon: 'club' },
+      runner: { name: 'Svartalfar', spriteId: 'svartalfar', body: '#334155', detail: '#4c1d95', accent: '#a5f3fc', head: 'hood', weapon: 'claws' },
+      mini: { name: 'Jötunn', spriteId: 'jotunn', body: '#6e96b7', detail: '#cbd5e1', accent: '#67e8f9', head: 'helmet', weapon: 'axe' }
+    },
+    bossOrder: ['odin', 'thor', 'loki'],
+    art: { background: 'nordico-fondo.webp', horizonY: 710, floor: 'nordico-suelo.webp' }
   }
 ];
 
@@ -312,8 +333,8 @@ export const LEVEL_LENGTH = 4200;
 export const BOSS_CAM_X = LEVEL_LENGTH - 1280;
 
 // Oleadas crecientes por nivel: más soldados, corredores desde el nivel 2 y brutos en las oleadas finales
-export function buildWaves(levelIndex: number): Wave[] {
-  const positions = [[450, 1150, 1850, 2500], [350, 1050, 1900, 2550], [500, 1350, 2050, 2600], [400, 1200, 1800, 2650]][levelIndex % 4];
+export function buildWaves(levelIndex: number, stage = levelIndex): Wave[] {
+  const positions = [[450, 1150, 1850, 2500], [350, 1050, 1900, 2550], [500, 1350, 2050, 2600], [400, 1200, 1800, 2650], [420, 1100, 1950, 2600]][levelIndex % LEVELS.length];
   return positions.map((camX, k) => {
     const spawns: WaveSpawn[] = [];
     let delay = 0;
@@ -330,11 +351,12 @@ export function buildWaves(levelIndex: number): Wave[] {
     };
 
     // Grecia enseña el grupo; Egipto cubre tiradores; México presiona con cargas; Japón mezcla flancos.
-    push('grunt', 2 + Math.floor((k + levelIndex) / 2) - (levelIndex === 1 ? 1 : 0));
-    push('runner', (k % 2 === 1 ? 2 : 0) + (levelIndex >= 1 ? 1 : 0));
-    push('brute', k >= 2 ? 1 + (levelIndex >= 3 && k === 3 ? 1 : 0) : levelIndex >= 1 && k === 1 ? 1 : 0);
+    push('grunt', 2 + Math.floor((k + stage) / 2) - (levelIndex === 1 ? 1 : 0));
+    push('runner', (k % 2 === 1 ? 2 : 0) + (stage >= 1 ? 1 : 0));
+    push('brute', k >= 2 ? 1 + (stage >= 3 && k === 3 ? 1 : 0) : stage >= 1 && k === 1 ? 1 : 0);
     // Jinetes: uno en la 2.ª oleada de cada nivel y otro en la última desde el nivel 3
-    if (k === 1 || (k === 3 && levelIndex >= 2)) spawns.push({ kind: 'grunt', side: 'right', delay: 120, zFrac: 0.5, mounted: true });
+    if (BEASTS[LEVELS[levelIndex].pantheon] && (k === 1 || (k === 3 && stage >= 2))) spawns.push({ kind: 'grunt', side: 'right', delay: 120, zFrac: 0.5, mounted: true });
+    if (LEVELS[levelIndex].pantheon === 'Nórdico' && k % 2 === 1) push('runner', 1);
     // Mini-jefe en la 3.ª oleada: rompe la rutina a mitad del nivel
     if (k === 2) spawns.push({ kind: 'mini', side: 'right', delay: delay + 60, zFrac: 0.5 });
     // Un duende ladrón por oleada (dos en la última) para ir juntando magia y comida

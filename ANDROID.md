@@ -77,3 +77,7 @@ Se comprobó además el flujo de dos instancias en navegador con un transporte l
 Solo se mantiene la APK 1.2 y su SHA-256 en `artifacts/android/` (ignorado por Git) y como descarga vigente de GitHub. Las APK no se agregan al código fuente. Los binarios Android anteriores se retiran de las descargas, conservando sus notas de versión.
 
 Las 47 hojas recortadas están en uso y permanecen en `assets/sprites/`. Los 47 originales de edición se respaldaron fuera del repositorio en `D:/Repositorios/mythic-clash-2d-fuentes-sprites/`, con verificación en `SHA256.json`, y se retiraron del árbol actual de Git. Esto no cambia los recursos empaquetados en la APK ni reescribe el historial de Git.
+
+## Integración nórdica 1.3
+
+APK de prueba `artifacts/android/mythic-clash-2d-nordico-1.3.apk`: versionCode 4, versionName 1.3, protocolo LAN 4. Ambos teléfonos deben actualizarse. Incluye 16 personajes, cinco reinos, Vargr y Asgard. Se conservan temporalmente los binarios 1.2 publicados hasta publicar la actualización. Actualmente hay 60 hojas activas (34 de personajes/Origen, 21 de monstruos y cinco bestias); sus fuentes están respaldadas fuera del repositorio con SHA-256. Las pruebas automáticas de sincronización no sustituyen probar la 1.3 en dos celulares.

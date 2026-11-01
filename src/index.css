@@ -851,3 +851,13 @@
 .lan-versus-badge { max-width:calc(100% - 20px); }
 .lan-versus-badge>span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .lan-versus-badge>button { flex-shrink:0; }
+
+/* El mapa y la Torre crecen con el catálogo de reinos. */
+@media (orientation:portrait) and (max-width:700px) {
+ .run-route { grid-template-columns:1fr !important; gap:5px; }
+ .run-route article { grid-template-columns:42px 1fr; padding:6px 10px; }
+ .run-route img { width:40px; }.run-route article small { font-size:10px; }
+}
+@media (max-width:760px) and (min-height:501px), (max-height:500px) {
+ .tower-floors { grid-template-rows:repeat(4,minmax(0,1fr)); }
+}

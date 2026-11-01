@@ -1,6 +1,6 @@
 # Mythic Clash 2D – Torneo de Dioses
 
-Juego de peleas 2D en navegador (React + Canvas) con dioses de **Grecia, Egipto, México y Japón**. Tiene versus estilo Street Fighter, un arcade beat 'em up estilo Golden Axe, una torre estilo Mortal Kombat y un jefe final, **Origen**.
+Juego de peleas 2D en navegador (React + Canvas) con dioses de **Grecia, Egipto, México, Japón y Nórdico**. Tiene versus estilo Street Fighter, un arcade beat 'em up estilo Golden Axe, una torre estilo Mortal Kombat y un jefe final, **Origen**.
 
 - **Repo:** https://github.com/XavieBandamx/mythic-clash-2d (privado), rama `main`.
 - **Publicado:** https://mythic-clash-2d.vercel.app. **Cada push a `main` se publica solo en Vercel**, así que commit + push equivale a actualizar el juego en línea.
@@ -10,8 +10,8 @@ Juego de peleas 2D en navegador (React + Canvas) con dioses de **Grecia, Egipto,
 
 Esta guía describe la implementación actual, incluidas las mejoras de rutas, resultados, supervivencia y versus por Wi-Fi. No usar el orden fijo de reinos ni la selección del primer jefe disponible como referencia del arcade. Los detalles de estos modos están en `MODOS.md` y los de la APK en `ANDROID.md`.
 
-- Android **1.2**, versionCode **3**, identificador `mx.mythicclash.game`. APK de depuración para pruebas; conservar su firma al actualizarla.
-- Protocolo LAN **3**: ambos dispositivos deben actualizarse. Se juega por Wi-Fi local o punto de acceso sin datos. Bluetooth queda para después.
+- Android **1.3**, versionCode **4**, identificador `mx.mythicclash.game`. APK de depuración para pruebas; conservar su firma al actualizarla.
+- Protocolo LAN **4**: ambos dispositivos deben actualizarse. Se juega por Wi-Fi local o punto de acceso sin datos. Bluetooth queda para después.
 - El usuario y su hijo completaron el arcade cooperativo anterior en celulares físicos. Los modos nuevos necesitan otra prueba física; la prueba entre pestañas no demuestra su respuesta sobre una red real.
 - **Pulido Wi-Fi 1.2:** ver `ANDROID.md`. Inicio confirmado por ambos dispositivos tras aplicar el primer estado; versus a 30 Hz después de simular, formato compacto, una escritura activa y una reciente pendiente, controles agrupados sin perder toques breves, RTT visible, espera de carga tolerante y revanchas aisladas. Las pruebas con retrasos no sustituyen medir el juego en celulares físicos.
 - Las fuentes y los recursos están incluidos en la APK. No duplicar sprites ni volver a añadir originales o APK a Git; las APK se adjuntan a versiones de GitHub.
@@ -78,24 +78,24 @@ public/
   backgrounds/*.webp           Fondos y suelos del arcade + Telar del Cosmos
   items/*.webp                 Magia, comida, vasija-N / vasija-rota-N y trampa-N del arcade (N = nivel 0 Grecia … 3 Japón)
   props/<reino>-N.webp         Objetos de primer plano del arcade (6 por reino: grecia, egipto, mexico, japon)
-assets/sprites/                Solo las 47 hojas de juego: <id>.webp / <id>-extra.webp
+assets/sprites/                Solo las 60 hojas de juego: <id>.webp / <id>-extra.webp
 art-src/                       Otros originales (fondos, objetos y medallones; no se publican)
 art-src/logo/                  Logo (logo-v1) e ícono (icono-v1) sobre fondo verde: aprobados pero AÚN NO se usan en el juego
 tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales con los pies alineados
 ```
 
-`assets/sprites/` contiene únicamente las **47 hojas usadas por el juego**: 26 de dioses/Origen (principal y extra), 17 de monstruos y 4 de bestias. `spriteAssetSrc()` comparte las mismas URLs y caché entre modos. Los 47 originales de edición se retiraron del árbol de Git por solicitud del usuario y se respaldaron, con hashes SHA-256 verificados, en **`D:/Repositorios/mythic-clash-2d-fuentes-sprites/`** (`SHA256.json`). No eliminarlos del respaldo ni volver a incorporarlos al repositorio. Los originales también siguen recuperables desde el historial anterior; no se reescribió la historia de Git.
+`assets/sprites/` contiene únicamente las **60 hojas usadas por el juego**: 34 de dioses/Origen (principal y extra), 21 de monstruos y 5 de bestias. `spriteAssetSrc()` comparte las mismas URLs y caché entre modos. Los 60 originales de edición se retiraron del árbol de Git por solicitud del usuario y se respaldaron, con hashes SHA-256 verificados, en **`D:/Repositorios/mythic-clash-2d-fuentes-sprites/`** (`SHA256.json`). No eliminarlos del respaldo ni volver a incorporarlos al repositorio. Los originales también siguen recuperables desde el historial anterior; no se reescribió la historia de Git.
 
 En `artifacts/android/` se conserva solo `mythic-clash-2d-wifi-fluido-1.2.apk` y su archivo `.sha256`, ambos ignorados por Git. Publicar esos dos archivos como adjuntos de la versión Android 1.2; retirar APK/sumas antiguas de versiones previas y conservar el historial de cambios. Los originales de fondos, objetos y medallones en `art-src/` son fuentes de otros recursos y no forman parte de la limpieza de sprites.
 
 ## Lo que ya existe
 
 ### Modos de juego (menú principal)
-- **Versus local (P1 vs P2)** y **contra la IA**, con 3 dificultades. Hay 5 arenas pintadas: Coliseo del Olimpo, Tribunal de Osiris, Cancha de Tenochtitlan, Dojo de la Tormenta y Torre de Babel. Antes de pelear se elige la arena (o aleatoria).
-- **Arcade (Camino de los Dioses)**: beat 'em up de cuatro reinos en orden variable (Grecia, Egipto, México, Japón), guardianes sorteados entre los dioses que no usan los jugadores, dificultad por etapa y un nivel final contra **Origen**, el Tejedor de Mundos, un jefe no jugable al doble de tamaño. Rediseñado como titán cósmico con máscara dorada, con sus dos hojas activas (`assets/sprites/origen.webp` y `assets/sprites/origen-extra.webp`).
+- **Versus local (P1 vs P2)** y **contra la IA**, con 3 dificultades. Hay 6 arenas pintadas: Coliseo del Olimpo, Tribunal de Osiris, Cancha de Tenochtitlan, Dojo de la Tormenta, Torre de Babel y Puente de Asgard (reino nórdico; original en `art-src/arenas`). Antes de pelear se elige la arena (o aleatoria).
+- **Arcade (Camino de los Dioses)**: beat 'em up de cinco reinos en orden variable (Grecia, Egipto, México, Japón, Nórdico), guardianes sorteados entre los dioses que no usan los jugadores, dificultad por etapa y un nivel final contra **Origen**, el Tejedor de Mundos, un jefe no jugable al doble de tamaño. Rediseñado como titán cósmico con máscara dorada, con sus dos hojas activas (`assets/sprites/origen.webp` y `assets/sprites/origen-extra.webp`).
 - **Arcade cooperativo** para 2 jugadores. Al caer, si el compañero sigue vivo hay 8 segundos para rescatarlo: acercarse (100 px en X y 36 en profundidad) y mantener abajo 1.5 segundos, sin recibir golpes. El rescatado vuelve con 35% de vida, sin gastar vida ni ganar magia. Si expira el plazo o caen ambos, se procesa la pérdida de vida normal; vencer al jefe recupera al compañero que siga caído. Continuar cuesta la mitad de los puntos del jugador que regresa, tanto individualmente como cuando caen ambos. Cada jugador activo elige su propia bendición con sus controles o su panel; el siguiente reino espera ambas confirmaciones. Un jugador sin vidas no bloquea la elección y puede continuar en el siguiente combate.
 - **Tácticas cooperativas:** una pareja de enemigos por oleada se enlaza, recibe 60% del daño y reparte sus objetivos. Dos jugadores deben golpear a miembros distintos dentro de 120 ticks para romper el enlace y abrirlos. Los jefes pueden plantar una guardia de 240 ticks con orientación fija: dos jugadores golpeando desde lados opuestos en 120 ticks la rompen y dejan una apertura. Solo se activa con espacio lateral y no interrumpe poderes ni introducciones. Anillos en el suelo y un aviso en el HUD explican las tácticas; se cancelan cuando no quedan dos jugadores en pie. Los rayos alternan jugadores y fijan su posición al aparecer el círculo. La vida adicional cooperativa baja a ×1.15 en monstruos y ×1.25 en jefes. El modo individual conserva su comportamiento. `MYTHIC_COOP_SOAK=1` ejecuta recorridos automáticos de dos parejas además de las pruebas normales.
-- **Torre de los Dioses**: 8 pisos de versus contra rivales al azar (2 por reino), IA que sube de nivel, 3 continues, Origen en la cima y un final escrito para cada dios.
+- **Torre de los Dioses**: 10 pisos de versus contra rivales al azar (2 por reino), IA que sube de nivel, 3 continues, Origen en la cima y un final escrito para cada dios.
 - **Configurar Controles**: reasignar teclado (P1 y P2), botones del control y tamaño/lado de los botones táctiles.
 - **Supervivencia** individual o cooperativa: arenas con oleadas sin etapa final, dificultad creciente por estadísticas y presión, jefes y bendiciones cada cinco oleadas. Conserva vidas/rescates, pero no permite continuaciones. Récords por oleada superada y después puntos del equipo, separados por modalidad y dificultad; muestran los personajes y se guardan localmente en ambos dispositivos al recibir el cierre.
 - **Sala Wi-Fi (Android):** arcade cooperativo, supervivencia cooperativa o versus 1 contra 1. El anfitrión decide modo/arena y simula; el invitado controla a P2 desde sus controles habituales de P1. Pausa compartida, rondas, K.O. y revancha en versus. Al desconectarse se detiene la partida; no existe reconexión o migración de anfitrión.
@@ -203,3 +203,7 @@ g.step({ left:false, right:true, up:false, down:false, attack:false, jump:false,
 g.render(canvas.getContext('2d'));
 ```
 Con eso se han corrido bots que juegan niveles enteros para revisar combos, mini-jefes, resultados y continuar. Para ver una pantalla, se dibuja en un canvas encimado de 1280×720.
+
+## Integración nórdica 1.3 (rama mejora/reino-nordico)
+
+16 luchadores: Odín, Thor y Loki pertenecen al quinto reino; Sun Wukong es invitado sin reino. Draugr, Troll, Svartalfar, Jötunn y Vargr comparten los recursos entre modos. Arcade visita cinco reinos y Origen; supervivencia rota también los jefes; Torre incluye diez rivales y Origen. Asgard es válida por LAN. APK 1.3 / código 4 / protocolo 4: actualizar ambos dispositivos. La versión 1.2 publicada se conserva hasta publicar esta actualización. Falta prueba física de la 1.3.

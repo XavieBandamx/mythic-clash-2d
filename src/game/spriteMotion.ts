@@ -12,6 +12,6 @@ export function castFrame(ticks: number, releaseTick: number, duration: number) 
   return ticks < releaseTick + Math.max(6, (duration - releaseTick) * 0.55) ? 2 : 3;
 }
 export function versusSuperRelease(id: string) {
-  return ({ zeus: 14, ra: 14, hades: 12, poseidon: 12, anubis: 12, osiris: 24,
+  return ({ odin: 26, thor: 16, loki: 14, sunwukong: 16, zeus: 14, ra: 14, hades: 12, poseidon: 12, anubis: 12, osiris: 24,
     quetzalcoatl: 12, huitzilopochtli: 12, mictlantecuhtli: 26, amaterasu: 16, susanoo: 14, raijin: 14 } as Record<string, number>)[id] ?? 20;
 }

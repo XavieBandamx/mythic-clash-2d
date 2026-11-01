@@ -30,7 +30,7 @@ await test('Invitaciones admiten solo redes privadas, puertos válidos y un secr
 
 await test('La copia remota conserva clases, identidad, monturas y referencias circulares sin enviar recursos', () => {
   const host = new ArcadeGame(gods, 'NORMAL'), guest = new ArcadeGame(gods, 'NORMAL');
-  const monster = new Monster('grunt', LEVELS[0].skins.grunt, 500, 100, 1, 1), beast = new Beast(BEASTS.Grecia, 500, 100);
+  const monster = new Monster('grunt', LEVELS[0].skins.grunt, 500, 100, 1, 1), beast = new Beast(BEASTS.Grecia!, 500, 100);
   host.monsters = [monster]; host.beasts = [beast]; monster.mount = beast; beast.rider = monster; monster.target = host.heroes[1];
   host.boss = new Boss(gods[0], 800, 100, 1000, 1, 800); host.phase = 'boss'; host.heroes[1].score = 1234;
   const writer = new SnapshotWriter(), reader = new SnapshotReader(), wire = JSON.stringify(writer.capture(host));
@@ -199,5 +199,30 @@ await test('La carga tolera demoras, la conexión mide ida y vuelta y una ausenc
     now += 20000; host.pollConnection(); await settle(); assert.equal(host.error, ''); assert.equal(host.roundTripMs, 0);
     now += 61000; host.pollConnection(); assert.ok(host.error); assert.equal(host.connected, false);
   } finally { await guest.close(); await host.close(); }
+});
+await test('Wi-Fi acepta Asgard y los cuatro nuevos luchadores, y reconstruye el quinto reino y el final', async () => {
+  const { ARENAS } = await import('../src/game/arenas');
+  const { createRoute } = await import('../src/arcade/run');
+  const asgard = ARENAS.findIndex(arena => arena.pantheon === 'Nórdico'); assert.ok(asgard >= 0);
+  assert.equal(readLanStart({ deities: ['odin', 'thor'], difficulty: 'NORMAL', mode: 'versus', arena: ARENAS.length }, DEITIES.map(deity => deity.id)), null);
+  for (const ids of [['odin', 'thor'], ['loki', 'sunwukong']] as [string, string][]) {
+    const a = new FakeWifi(), b = new FakeWifi(); a.peer = b; b.peer = a;
+    const host = new LanSession('host', a), guest = new LanSession('guest', b);
+    try {
+      await host.host(); await guest.join(host.invitations[0]); await guest.select(ids[1], true);
+      const route = createRoute(ids, Math.random, false);
+      await host.start({ deities: ids, difficulty: 'NORMAL', mode: 'arcade', arena: asgard, route });
+      assert.equal(guest.config?.route?.length, 5); assert.equal(guest.config?.arena, asgard); assert.deepEqual(guest.config?.deities, ids);
+      const team = ids.map(id => DEITIES.find(deity => deity.id === id)!);
+      const source = new ArcadeGame(team, 'NORMAL', { route }), target = new ArcadeGame(team, 'NORMAL', { route });
+      const writer = new SnapshotWriter(), reader = new SnapshotReader();
+      for (let stage = 0; stage <= LEVELS.length; stage++) {
+        source.prepareRemoteLevel(stage); host.publish(writer.capture(source)); await settle();
+        reader.apply(target, clone(guest.snapshot!)); guest.acknowledgeState();
+        assert.equal(target.level.title, source.level.title); assert.equal(target.levelIndex, stage); assert.deepEqual(target.heroes.map(hero => hero.deity.id), ids);
+      }
+      host.loaded(true); guest.loaded(true); await settle(); assert.ok(host.canSimulate && guest.canSimulate);
+    } finally { await guest.close(); await host.close(); }
+  }
 });
 console.log(`\n${passed} pruebas de sincronización LAN aprobadas.`);

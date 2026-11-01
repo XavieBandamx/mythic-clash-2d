@@ -2,20 +2,23 @@ import assert from 'node:assert/strict';
 const storage = new Map<string, string>();
 Object.assign(globalThis, { localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) }, Image: class { onload: (() => void) | null = null; width = 2688; height = 984; set src(_: string) { this.onload?.(); } addEventListener() {} removeEventListener() {} } });
 const { ArcadeGame, Monster, Boss } = await import('../src/arcade/engine');
-const { DEITIES } = await import('../src/game/deities');
-const { LEVELS } = await import('../src/arcade/levels');
+const { DEITIES, REALM_PANTHEONS } = await import('../src/game/deities');
+const { LEVELS, BEASTS, BOSS_SPECIALS, buildWaves } = await import('../src/arcade/levels');
 const { createRoute, validRoute, gradePoints, gradeLetter, saveSurvivalRecord, survivalRecords } = await import('../src/arcade/run');
 const { SnapshotWriter, SnapshotReader } = await import('../src/lan/snapshot');
 const { fighterState, applyFighterState, applyFlow, readVersusInput, compactVersus, expandVersus, VersusMotion } = await import('../src/lan/versus');
 const { CanvasFighter } = await import('../src/App');
 const { MatchFlow } = await import('../src/game/match');
+const { situationalDamage } = await import('../src/game/styles');
+const { buildTower, TOWER_FLOORS, TOWER_ENDINGS } = await import('../src/game/tower');
+const { ORIGEN } = await import('../src/arcade/levels');
 const { sounds } = await import('../src/game/sound'); sounds.isMuted = true;
 const idle = { left: false, right: false, up: false, down: false, attack: false, jump: false, magic: false, tapLeft: false, tapRight: false };
 let passed = 0;
 function test(name: string, run: () => void) { run(); passed++; console.log(`✓ ${name}`); }
 const gods = ['anubis', 'amaterasu'].map(id => DEITIES.find(deity => deity.id === id)!);
 const make = (kind: 'arcade' | 'survival' = 'arcade') => new ArcadeGame(gods, 'NORMAL', { kind });
-test('Todas las parejas excluyen a sus dioses y visitan los cuatro reinos una sola vez', () => {
+test('Todas las parejas excluyen a sus dioses y visitan todos los reinos una sola vez', () => {
   for (const first of DEITIES) for (const second of DEITIES) { const route = createRoute([first.id, second.id], Math.random, false); assert.ok(validRoute(route, [first.id, second.id])); }
   const route = createRoute(['zeus', 'poseidon']); assert.equal(route.find(stop => stop.realm === 0)?.boss, 'hades');
 });
@@ -25,10 +28,10 @@ test('La ruta reciente evita repetir inicio y guardianes cuando hay alternativas
   for (const stop of first) assert.notEqual(stop.boss, next.find(item => item.realm === stop.realm)?.boss);
 });
 test('La posición determina dificultad y el reino conserva enemigos y arte', () => {
-  const game = make(); game.route = [{ realm: 3, boss: 'raijin' }, { realm: 2, boss: 'mictlantecuhtli' }, { realm: 1, boss: 'ra' }, { realm: 0, boss: 'zeus' }];
+  const game = make(); game.route = [{ realm: 3, boss: 'raijin' }, { realm: 2, boss: 'mictlantecuhtli' }, { realm: 1, boss: 'ra' }, { realm: 0, boss: 'zeus' }, { realm: 4, boss: 'thor' }];
   (game as any).startLevel(0); assert.equal(game.level, LEVELS[3]); assert.equal(game.stageDifficulty, 0); assert.equal((game as any).bossDeity.id, 'raijin');
   (game as any).startLevel(3); assert.equal(game.level, LEVELS[0]); assert.equal(game.stageDifficulty, 3);
-  (game as any).startLevel(4); assert.equal((game as any).bossDeity.id, 'origen');
+  (game as any).startLevel(LEVELS.length); assert.equal((game as any).bossDeity.id, 'origen');
 });
 test('Resultados acumulan cifras por etapa y promedian desempeño antes de convertir a letra', () => {
   const game = make(); game.tick = 6000; game.hero.kills = 10; game.hero.deaths = 1; game.hero.maxCombo = 8;
@@ -105,5 +108,55 @@ test('El invitado alcanza antes su propia posición sin predecir golpes y los re
   now += 17; motion.smooth(now); assert.equal(fighters[1].x, 1040); assert.ok(fighters[0].x > 280 && fighters[0].x < 320);
   motion.apply(fighters, [{ ...fighterState(fighters[0]), x: 280 }, { ...fighterState(fighters[1]), x: 1000 }], true);
   motion.smooth(now); assert.equal(fighters[0].x, 280); assert.equal(fighters[1].x, 1000);
+});
+test('El catálogo separa cinco reinos de Sun Wukong como invitado', () => {
+  assert.equal(DEITIES.length, 16); assert.equal(REALM_PANTHEONS.length, 5); assert.equal(LEVELS.length, 5);
+  assert.equal(DEITIES.find(deity => deity.id === 'sunwukong')?.pantheon, 'Invitado');
+  assert.ok(!LEVELS.some(level => level.bossOrder.includes('sunwukong')));
+  const route = createRoute(['odin', 'thor']); assert.equal(route.find(stop => LEVELS[stop.realm].pantheon === 'Nórdico')?.boss, 'loki');
+});
+test('Los cuatro súper nuevos conectan, consumen energía y vuelven a una fase jugable', () => {
+  for (const id of ['odin', 'thor', 'loki', 'sunwukong']) {
+    const fighter = new CanvasFighter(1, DEITIES.find(deity => deity.id === id)!, false, 300, 1);
+    const rival = new CanvasFighter(2, DEITIES[0], false, 400, -1); rival.hp = rival.maxHp = 300;
+    fighter.superMeter = 100; assert.equal(fighter.executeSpecial(rival), true);
+    for (let tick = 0; tick < 80; tick++) { fighter.update(1280, rival, 'NORMAL', []); rival.update(1280, fighter, 'NORMAL', []); }
+    assert.ok(rival.hp < 300, `${id} no conectó su súper`); assert.notEqual(fighter.state, 'SPECIAL'); assert.ok(fighter.superMeter < 100);
+  }
+});
+test('Las pasivas nuevas tienen condición y no sustituyen los perfiles existentes', () => {
+  assert.equal(situationalDamage('odin', true, 140, false, false, 0), 1.25); assert.equal(situationalDamage('odin', true, 80, false, false, 0), 1);
+  assert.equal(situationalDamage('thor', true, 80, false, true, 0), 1.25); assert.equal(situationalDamage('thor', false, 80, false, true, 0), 1);
+  assert.equal(situationalDamage('loki', false, 80, true, false, 0), 1.25); assert.equal(situationalDamage('loki', false, 80, false, false, 0), 1);
+  assert.equal(situationalDamage('sunwukong', false, 80, false, false, 2), 1.15); assert.equal(situationalDamage('sunwukong', false, 80, false, false, 1), 1);
+});
+test('El reino nórdico recorre sus oleadas, Vargr y poderes de jefes', () => {
+  const realm = LEVELS.findIndex(level => level.pantheon === 'Nórdico'); assert.ok(realm >= 0); assert.equal(BEASTS.Nórdico?.id, 'vargr');
+  const waves = buildWaves(realm, 0); assert.ok(waves.some(wave => wave.spawns.some(spawn => spawn.mounted)));
+  assert.ok(waves.some(wave => wave.spawns.some(spawn => spawn.kind === 'mini')));
+  const game = make(); game.route = [{ realm, boss: 'loki' }, ...game.route.filter(stop => stop.realm !== realm)];
+  (game as any).startLevel(0); game.step([idle, idle]);
+  for (let i = 0; i < 400; i++) { game.heroes.forEach(hero => hero.invuln = 1000); game.step([{ ...idle, right: true }, { ...idle, right: true }]); }
+  assert.ok(game.monsters.some(monster => monster.skin.spriteId === 'draugr'));
+  for (const id of ['odin', 'thor', 'loki']) for (const special of BOSS_SPECIALS[id]) {
+    const boss = new Boss(DEITIES.find(deity => deity.id === id)!, 800, game.hero.z, 1000, 1, 800); game.boss = boss;
+    (boss as any).currentSpecial = special; boss.setState('special');
+    for (let tick = 0; tick < 100; tick++) boss.update(game);
+    assert.ok(Number.isFinite(boss.x) && Number.isFinite(boss.hp));
+  }
+});
+test('Supervivencia reparte los encuentros de jefe entre los cinco reinos', () => {
+  const game = make('survival'), encountered = new Set<string>();
+  for (let wave = 5; wave <= 25; wave += 5) { (game as any).startLevel(wave - 1); encountered.add(game.level.pantheon); }
+  assert.equal(encountered.size, LEVELS.length);
+});
+test('La Torre integra nórdicos, mantiene diez rivales y permite final del invitado', () => {
+  for (const hero of DEITIES) {
+    const run = buildTower(hero, ORIGEN);
+    assert.equal(run.rivals.length, TOWER_FLOORS + 1); assert.equal(TOWER_FLOORS, 10); assert.equal(run.rivals.at(-1)?.id, 'origen');
+    assert.ok(!run.rivals.some(rival => rival.id === hero.id));
+    for (const realm of REALM_PANTHEONS) assert.equal(run.rivals.filter(rival => rival.pantheon === realm && rival.id !== 'origen').length, 2);
+    assert.ok(TOWER_ENDINGS[hero.id]);
+  }
 });
 console.log(`\n${passed} pruebas de rutas, supervivencia, resultados y versus aprobadas.`);

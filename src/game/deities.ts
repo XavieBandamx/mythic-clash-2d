@@ -1,6 +1,8 @@
 import type { FightStyle, Passive } from './styles';
 
-export type Pantheon = 'Grecia' | 'Egipto' | 'México' | 'Japón';
+export const REALM_PANTHEONS = ['Grecia', 'Egipto', 'México', 'Japón', 'Nórdico'] as const;
+export type RealmPantheon = typeof REALM_PANTHEONS[number];
+export type Pantheon = RealmPantheon | 'Invitado';
 
 export interface DeityStats {
   attack: number;
@@ -26,7 +28,7 @@ export interface DeityData {
   isUnique: boolean;
 }
 
-// Base de Datos de los 12 Dioses
+// Personajes jugables; Invitado no crea un reino del arcade.
 export const DEITIES: DeityData[] = [
   // Grecia
   {
@@ -238,5 +240,9 @@ export const DEITIES: DeityData[] = [
     style: 'Guardián',
     passive: { name: 'Tambores de Trueno', desc: 'Mientras ataca no se inmuta: aguanta golpes sin perder su ataque.' },
     isUnique: false
-  }
+  },
+  { id: "odin", name: "Odín", pantheon: "Nórdico", title: "Padre de las Runas", lore: "Guardián de los senderos de Asgard y de las raíces de Yggdrasil.", specialName: "Gungnir del Destino", specialDesc: "Fija una marca rúnica y castiga esa zona con dos impactos.", primaryColor: "#1e3a8a", secondaryColor: "#d4af37", accentColor: "#93c5fd", auraColor: "#93c5fd88", stats: { attack: 4, speed: 2, defense: 4 }, style: "Alcance", passive: { name: "Gungnir", desc: "El fuerte causa 25% más daño si conecta desde 120 px o más." }, isUnique: false },
+  { id: "thor", name: "Thor", pantheon: "Nórdico", title: "Portador de Mjölnir", lore: "Guardián de los senderos de Asgard y de las raíces de Yggdrasil.", specialName: "Regreso de Mjölnir", specialDesc: "Lanza el martillo y vuelve a golpear durante su regreso.", primaryColor: "#991b1b", secondaryColor: "#64748b", accentColor: "#7dd3fc", auraColor: "#7dd3fc88", stats: { attack: 5, speed: 2, defense: 3 }, style: "Poder", passive: { name: "Castigo del Trueno", desc: "El fuerte causa 25% más daño contra un enemigo que está atacando." }, isUnique: false },
+  { id: "loki", name: "Loki", pantheon: "Nórdico", title: "Tejedor de Engaños", lore: "Guardián de los senderos de Asgard y de las raíces de Yggdrasil.", specialName: "Paso del Embaucador", specialDesc: "Se desplaza a la espalda del rival y desata un tajo espectral.", primaryColor: "#14532d", secondaryColor: "#d4af37", accentColor: "#86efac", auraColor: "#86efac88", stats: { attack: 3, speed: 5, defense: 2 }, style: "Velocidad", passive: { name: "Traición", desc: "Los golpes por la espalda causan 25% más daño." }, isUnique: false },
+  { id: "sunwukong", name: "Sun Wukong", pantheon: "Invitado", title: "El Rey Mono", lore: "Un guerrero invitado de la tradición china, sin reino propio en esta aventura.", specialName: "Danza del Bastón Celeste", specialDesc: "Encadena tres barridos de alcance creciente con su bastón.", primaryColor: "#9f1239", secondaryColor: "#f59e0b", accentColor: "#fcd34d", auraColor: "#fcd34d88", stats: { attack: 3, speed: 4, defense: 3 }, style: "Alcance", passive: { name: "Ritmo del Rey Mono", desc: "Desde el tercer golpe de un combo, causa 15% más daño." }, isUnique: false }
 ];

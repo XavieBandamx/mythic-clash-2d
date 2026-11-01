@@ -21,6 +21,10 @@ export const COMBAT: Record<string, CombatProfile> = {
   amaterasu: { plan: 'Combina ataques rápidos y aprovecha la carga de súper.', lightReach: 78, heavyReach: 106, heavyStartup: 8, heavyDuration: 28, heavyDamage: 16 },
   susanoo: { plan: 'Amenaza la guardia con un tajo fuerte de preparación larga.', lightReach: 86, heavyReach: 140, heavyStartup: 14, heavyDuration: 39, heavyDamage: 21 },
   raijin: { plan: 'Aguanta el intercambio con tu fuerte; cuidado al fallarlo.', lightReach: 82, heavyReach: 122, heavyStartup: 13, heavyDuration: 38, heavyDamage: 23 },
+  odin: { plan: 'Controla con Gungnir y conecta el fuerte desde lejos.', lightReach: 88, heavyReach: 140, heavyStartup: 12, heavyDuration: 36, heavyDamage: 19 },
+  thor: { plan: 'Espera el ataque rival y castiga con Mjölnir.', lightReach: 74, heavyReach: 108, heavyStartup: 14, heavyDuration: 39, heavyDamage: 23 },
+  loki: { plan: 'Busca la espalda; usa el engaño para cambiar de lado.', lightReach: 70, heavyReach: 100, heavyStartup: 8, heavyDuration: 29, heavyDamage: 16 },
+  sunwukong: { plan: 'Enlaza golpes y controla el espacio con el bastón.', lightReach: 82, heavyReach: 126, heavyStartup: 10, heavyDuration: 32, heavyDamage: 18 },
   origen: { plan: 'El creador de los mundos.', lightReach: 110, heavyReach: 150, heavyStartup: 12, heavyDuration: 36, heavyDamage: 23 }
 };
 
