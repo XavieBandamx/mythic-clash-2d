@@ -1,3 +1,4 @@
+import { fighterState, VersusMotion, applyFlow } from './lan/versus';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -47,7 +48,7 @@ import type { SpriteAnimationName, SpriteSheetConfig, SpriteSheetEntry } from '.
    ========================================================================== */
 
 export type GameState = 'MAIN_MENU' | 'LAN_MENU' | 'DIFFICULTY_MENU' | 'CHAR_SELECT' | 'STAGE_SELECT' | 'TOWER_MAP' | 'TOWER_END' | 'CONTROLS_MENU' | 'FIGHT' | 'GAME_OVER' | 'ARCADE';
-export type GameMode = 'PVP' | 'PVE' | 'ARCADE' | 'ARCADE_COOP' | 'TOWER';
+export type GameMode = 'PVP' | 'PVE' | 'ARCADE' | 'ARCADE_COOP' | 'SURVIVAL' | 'SURVIVAL_COOP' | 'TOWER';
 
 export class Fighter {
   public playerNumber: 1 | 2;
@@ -1684,11 +1685,14 @@ export class OrigenFighter extends CanvasFighter {
 // ==========================================================================
 // COMPONENTE PRINCIPAL APP
 // ==========================================================================
-export default function App() {
+export default function App({ createLanSession }: { createLanSession?: (role: 'host' | 'guest') => LanSession } = {}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [gameState, setGameState] = useState<GameState>('MAIN_MENU');
   const [lanSession, setLanSession] = useState<LanSession | null>(null);
+  const [, refreshNetwork] = useState(0);
+  useEffect(() => lanSession?.subscribe(() => refreshNetwork(value => value + 1)), [lanSession]);
+  useEffect(() => { if (gameState === 'MAIN_MENU' && lanSession) { void lanSession.close(); setLanSession(null); } }, [gameState, lanSession]);
   const [gameMode, setGameMode] = useState<GameMode>('PVE');
   const [difficulty, setDifficulty] = useState<Difficulty>('NORMAL');
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -1780,11 +1784,13 @@ export default function App() {
     { label: `Jugar contra la IA (${difficulty})`, mode: 'PVE' as GameMode },
     { label: 'Modo Arcade: Camino de los Dioses', mode: 'ARCADE' as GameMode },
     { label: 'Arcade Cooperativo (2 Jugadores)', mode: 'ARCADE_COOP' as GameMode },
+    { label: 'Supervivencia infinita', mode: 'SURVIVAL' as GameMode },
+    { label: 'Supervivencia cooperativa', mode: 'SURVIVAL_COOP' as GameMode },
     { label: 'Torre de los Dioses', mode: 'TOWER' as GameMode },
-    ...(hasLocalWifi() ? [{ label: 'Cooperativo Wi-Fi', screen: 'LAN_MENU' as GameState }] : []),
+    ...(hasLocalWifi() ? [{ label: 'Sala Wi-Fi · Arcade / Supervivencia / Versus', screen: 'LAN_MENU' as GameState }] : []),
     { label: `Opciones de Dificultad: ${difficulty}`, screen: 'DIFFICULTY_MENU' as GameState },
     { label: 'Configurar Controles', screen: 'CONTROLS_MENU' as GameState }
-  ].filter(item => !(showTouchControls && (item.mode === 'PVP' || item.mode === 'ARCADE_COOP')));
+  ].filter(item => !(showTouchControls && (item.mode === 'PVP' || item.mode === 'ARCADE_COOP' || item.mode === 'SURVIVAL_COOP')));
   const menuIndex = Math.min(mainMenuSelected, menuItems.length - 1);
   const chooseMenuItem = (item: (typeof menuItems)[number]) => {
     sounds.playSelect();
@@ -1798,11 +1804,19 @@ export default function App() {
   // Teclas reasignadas en el menú de controles → teclas que el juego ya entiende
   useEffect(() => startKeyRemapper(), []);
 
+  const sendRemoteVersusKeys = () => {
+    if (lanSession?.config?.mode !== 'versus' || lanSession.role !== 'guest' || gameState !== 'FIGHT') return;
+    const keys = keysPressedRef.current;
+    lanSession.sendVersusInput({ left: !!(keys.KeyA || keys.a), right: !!(keys.KeyD || keys.d), up: !!(keys.KeyW || keys.w), down: !!(keys.KeyS || keys.s), light: !!(keys.KeyJ || keys.j), heavy: !!(keys.KeyK || keys.k), special: !!(keys.KeyL || keys.l) });
+    keys.KeyJ = keys.j = keys.KeyL = keys.l = false;
+  };
+
   // Teclado Dual Controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (gameState === 'LAN_MENU' && e.target instanceof HTMLElement && e.target.closest('input, select, textarea')) return;
       sounds.init();
+      if (lanSession?.config?.mode === 'versus' && e.key === 'Escape' && gameState === 'FIGHT') { lanSession.paused = !lanSession.paused; void lanSession.send('pause', lanSession.paused); keysPressedRef.current = {}; refreshNetwork(value => value + 1); return; }
 
       // Enter y espacio activan normalmente los controles de la barra superior.
       if ((gameState === 'MAIN_MENU' || gameState === 'DIFFICULTY_MENU' || gameState === 'STAGE_SELECT' || gameState === 'TOWER_MAP' || gameState === 'TOWER_END' || (gameState === 'GAME_OVER' && gameMode === 'TOWER')) && (e.key === 'Enter' || e.code === 'Space') &&
@@ -1811,8 +1825,10 @@ export default function App() {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault();
       }
+      if (lanSession?.config?.mode === 'versus' && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyU', 'KeyI', 'KeyO'].includes(e.code)) return;
       keysPressedRef.current[e.key.toLowerCase()] = true;
       keysPressedRef.current[e.code] = true;
+      sendRemoteVersusKeys();
 
       if (e.key.toLowerCase() === 'b') {
         setShowHitboxes(prev => !prev);
@@ -1882,14 +1898,14 @@ export default function App() {
           } else if (e.key === 'j' || e.key === 'J') {
             sounds.playSelect();
             setP1Ready(true);
-            if (gameMode === 'PVE' || gameMode === 'ARCADE' || gameMode === 'TOWER') {
+            if (gameMode === 'PVE' || gameMode === 'ARCADE' || gameMode === 'SURVIVAL' || gameMode === 'TOWER') {
               setP2Ready(true);
             }
           }
         }
 
         // En el arcade cooperativo el 2P también elige (y confirma además con su tecla de ataque)
-        if ((gameMode === 'PVP' || gameMode === 'ARCADE_COOP') && !p2Ready) {
+        if ((gameMode === 'PVP' || (gameMode === 'ARCADE_COOP' || gameMode === 'SURVIVAL_COOP')) && !p2Ready) {
           if (e.key === 'ArrowLeft') {
             setP2DeityIndex(i => (i > 0 ? i - 1 : DEITIES.length - 1));
             sounds.playNav();
@@ -1902,7 +1918,7 @@ export default function App() {
           } else if (e.key === 'ArrowDown') {
             setP2DeityIndex(i => moveRoster(i, 'down', DEITIES.length));
             sounds.playNav();
-          } else if (e.key === 'u' || e.key === 'U' || (gameMode === 'ARCADE_COOP' && (e.code === 'Numpad1' || e.code === 'Comma'))) {
+          } else if (e.key === 'u' || e.key === 'U' || ((gameMode === 'ARCADE_COOP' || gameMode === 'SURVIVAL_COOP') && (e.code === 'Numpad1' || e.code === 'Comma'))) {
             sounds.playSelect();
             setP2Ready(true);
           }
@@ -1963,6 +1979,7 @@ export default function App() {
         }
       }
       else if (gameState === 'GAME_OVER') {
+        if (lanSession) return;
         if (e.key === 'Enter' || e.key === 'j' || e.key === 'J' || e.key === ' ') {
           startFight();
         } else if (e.key === 'Escape' || e.key === 'k' || e.key === 'K') {
@@ -1972,15 +1989,16 @@ export default function App() {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (gameState === 'FIGHT' && matchFlowRef.current?.phase === 'fight') {
+      if ((!lanSession || lanSession.role === 'host') && gameState === 'FIGHT' && matchFlowRef.current?.phase === 'fight') {
         const fighter = e.code === 'KeyK' ? p1Ref.current : e.code === 'KeyI' && gameMode === 'PVP' ? p2Ref.current : null;
         if (fighter) fighter.releaseHeavyInput();
       }
       keysPressedRef.current[e.key.toLowerCase()] = false;
       keysPressedRef.current[e.code] = false;
+      sendRemoteVersusKeys();
     };
 
-    const clearKeys = () => { keysPressedRef.current = {}; };
+    const clearKeys = () => { keysPressedRef.current = {}; sendRemoteVersusKeys(); };
     window.addEventListener('blur', clearKeys);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
@@ -1989,12 +2007,12 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [gameState, gameMode, mainMenuSelected, diffMenuSelected, stageSelected, p1Ready, p2Ready, winner, showTouchControls, difficulty]);
+  }, [gameState, gameMode, mainMenuSelected, diffMenuSelected, stageSelected, p1Ready, p2Ready, winner, showTouchControls, difficulty, lanSession]);
 
   useEffect(() => {
     if (gameState === 'CHAR_SELECT' && p1Ready && p2Ready) {
       const timeout = setTimeout(() => {
-        if (gameMode === 'ARCADE' || gameMode === 'ARCADE_COOP') {
+        if (gameMode === 'ARCADE' || gameMode === 'SURVIVAL' || (gameMode === 'ARCADE_COOP' || gameMode === 'SURVIVAL_COOP')) {
           startFight();
           return;
         }
@@ -2018,8 +2036,9 @@ export default function App() {
   };
 
   const startFight = () => {
+    if (lanSession?.config?.mode === 'versus') { void lanSession.send('rematch'); if (lanSession.role === 'guest') return; }
     sounds.init();
-    if (gameMode === 'ARCADE' || gameMode === 'ARCADE_COOP') {
+    if (gameMode === 'ARCADE' || gameMode === 'SURVIVAL' || (gameMode === 'ARCADE_COOP' || gameMode === 'SURVIVAL_COOP')) {
       setGameState('ARCADE');
       return;
     }
@@ -2063,13 +2082,13 @@ export default function App() {
     }
   };
 
-  const beginFight = (p1: Fighter, p2: Fighter) => {
-    if (gameMode !== 'TOWER') {
+  const beginFight = (p1: Fighter, p2: Fighter, mode: GameMode = gameMode) => {
+    if (mode !== 'TOWER') {
       for (const f of [p1, p2]) f.hp = f.maxHp = f.displayHp = VERSUS_HEALTH;
     }
     p1Ref.current = p1;
     p2Ref.current = p2;
-    matchFlowRef.current = new MatchFlow(gameMode === 'TOWER' ? 1 : 2);
+    matchFlowRef.current = new MatchFlow(mode === 'TOWER' ? 1 : 2);
     roundClockRef.current = 0;
     keysPressedRef.current = {};
 
@@ -2116,6 +2135,13 @@ export default function App() {
 
     // Un paso de simulación = 1/60 s, independiente de la frecuencia del monitor
     const stepSimulation = () => {
+      if (lanSession?.config?.mode === 'versus') {
+        if (lanSession.paused || lanSession.error) keysPressedRef.current = {};
+        if (lanSession.role === 'guest' || lanSession.paused || !lanSession.connected || !lanSession.localLoaded || !lanSession.remoteLoaded || lanSession.error) return;
+        const remote = lanSession.consumeVersusInput(), keys = keysPressedRef.current;
+        if ((keys['KeyI'] || keys['i']) && !remote.heavy) p2Ref.current?.releaseHeavyInput();
+        Object.assign(keys, { ArrowLeft: remote.left, ArrowRight: remote.right, ArrowUp: remote.up, ArrowDown: remote.down, KeyU: remote.light, u: remote.light, KeyI: remote.heavy, i: remote.heavy, KeyO: remote.special, o: remote.special });
+      }
       frameCountRef.current++;
 
       if (cameraShakeRef.current > 0) {
@@ -2283,8 +2309,38 @@ export default function App() {
     };
 
     let lastTime = performance.now();
+    let lastNetwork = 0;
+    let lastRemoteState = lanSession?.versusState;
+    const remoteMotion = new VersusMotion();
     let accumulator = 0;
     const gameLoop = (now: number) => {
+      if (lanSession?.config?.mode === 'versus') {
+        lanSession.loaded(!fightLoading());
+        if (lanSession.role === 'guest') {
+          const keys = keysPressedRef.current;
+          if (now - lastNetwork >= 30) {
+            lanSession.sendVersusInput({ left: !!(keys.KeyA || keys.a), right: !!(keys.KeyD || keys.d), up: !!(keys.KeyW || keys.w), down: !!(keys.KeyS || keys.s), light: !!(keys.KeyJ || keys.j), heavy: !!(keys.KeyK || keys.k), special: !!(keys.KeyL || keys.l) });
+            keys.KeyJ = keys.j = keys.KeyL = keys.l = false; lastNetwork = now;
+          }
+          const remote = lanSession.versusState;
+          if (remote && remote !== lastRemoteState && p1Ref.current && p2Ref.current && matchFlowRef.current) {
+            try {
+              remoteMotion.apply([p1Ref.current, p2Ref.current], remote.fighters, matchFlowRef.current.round !== remote.flow.round); applyFlow(matchFlowRef.current, remote.flow);
+              matchTimerRef.current = remote.timer; frameCountRef.current = remote.frame; cameraShakeRef.current = remote.shake;
+              superCinematicRef.current = remote.cinematic ? { active: true, caster: remote.cinematic.caster === 1 ? p1Ref.current.deity : p2Ref.current.deity, timer: remote.cinematic.timer } : null;
+              if (matchFlowRef.current.phase === 'complete' && gameState !== 'GAME_OVER') { setWinner(matchFlowRef.current.roundWinner === 1 ? p1Ref.current.deity : p2Ref.current.deity); setGameState('GAME_OVER'); }
+              else if (gameState === 'GAME_OVER' && matchFlowRef.current.phase !== 'complete') { setWinner(null); setGameState('FIGHT'); }
+              lastRemoteState = remote;
+            } catch { lanSession.error = 'No se pudo sincronizar el duelo. Ambos necesitan la misma APK.'; refreshNetwork(value => value + 1); }
+          }
+        } else {
+          for (const command of lanSession.consumeCommands()) if (command.kind === 'rematch' && gameState === 'GAME_OVER') startFight();
+          if (now - lastNetwork >= 50 && p1Ref.current && p2Ref.current && matchFlowRef.current) {
+            const flow = matchFlowRef.current;
+            lanSession.publishVersus({ fighters: [fighterState(p1Ref.current), fighterState(p2Ref.current)], flow: { phase: flow.phase, elapsed: flow.elapsed, round: flow.round, wins: flow.wins, roundWinner: flow.roundWinner, reason: flow.reason }, timer: matchTimerRef.current, frame: frameCountRef.current, shake: cameraShakeRef.current, cinematic: superCinematicRef.current ? { caster: superCinematicRef.current.caster.id === p1Ref.current.deity.id ? 1 : 2, timer: superCinematicRef.current.timer } : null }); lastNetwork = now;
+          }
+        }
+      }
       // Tope de 250 ms: al volver de una pestaña en segundo plano no se simulan cientos de pasos de golpe
       accumulator += Math.min(now - lastTime, 250);
       lastTime = now;
@@ -2293,6 +2349,7 @@ export default function App() {
         accumulator -= SIM_STEP_MS;
       }
 
+      if (lanSession?.role === 'guest' && lanSession.config?.mode === 'versus') remoteMotion.smooth(now);
       if (gameState === 'FIGHT' || gameState === 'GAME_OVER') {
         renderFightScene(ctx, canvas.width, canvas.height);
       }
@@ -2302,7 +2359,7 @@ export default function App() {
 
     animationFrameId = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [gameState, gameMode, difficulty]);
+  }, [gameState, gameMode, difficulty, lanSession]);
 
   const triggerSpecialCinematic = (caster: Fighter) => {
     superCinematicRef.current = {
@@ -2981,12 +3038,14 @@ export default function App() {
           choose={chooseMenuItem}
         />}
 
-        {gameState === 'LAN_MENU' && <LanLobby back={() => setGameState('MAIN_MENU')}
+        {gameState === 'LAN_MENU' && <LanLobby createSession={createLanSession} back={() => setGameState('MAIN_MENU')}
           start={(session, config) => {
-            setLanSession(session); setGameMode('ARCADE_COOP'); setDifficulty(config.difficulty);
+            setLanSession(session); setGameMode(config.mode === 'versus' ? 'PVP' : config.mode === 'survival' ? 'SURVIVAL_COOP' : 'ARCADE_COOP'); setDifficulty(config.difficulty);
             setP1DeityIndex(DEITIES.findIndex(deity => deity.id === config.deities[0]));
             setP2DeityIndex(DEITIES.findIndex(deity => deity.id === config.deities[1]));
-            setShowTouchControls(true); setGameState('ARCADE');
+            setShowTouchControls(true);
+            if (config.mode === 'versus') { arenaRef.current = ARENAS[config.arena ?? 0]; beginFight(new CanvasFighter(1, DEITIES.find(deity => deity.id === config.deities[0])!, false, 280, 1), new CanvasFighter(2, DEITIES.find(deity => deity.id === config.deities[1])!, false, 1000, -1), 'PVP'); }
+            else setGameState('ARCADE');
           }} />}
         {gameState === 'CONTROLS_MENU' && <ControlsMenu onBack={() => setGameState('MAIN_MENU')} />}
 
@@ -3019,8 +3078,9 @@ export default function App() {
         {gameState === 'ARCADE' && (
           <ArcadeMode
             network={lanSession ?? undefined}
+            kind={gameMode === 'SURVIVAL' || gameMode === 'SURVIVAL_COOP' ? 'survival' : 'arcade'}
             touch={showTouchControls}
-            deities={gameMode === 'ARCADE_COOP' ? [DEITIES[p1DeityIndex], DEITIES[p2DeityIndex]] : [DEITIES[p1DeityIndex]]}
+            deities={(gameMode === 'ARCADE_COOP' || gameMode === 'SURVIVAL_COOP') ? [DEITIES[p1DeityIndex], DEITIES[p2DeityIndex]] : [DEITIES[p1DeityIndex]]}
             difficulty={difficulty}
             onExit={() => {
               setP1Ready(false);
@@ -3083,8 +3143,10 @@ export default function App() {
           </div>
         )}
 
+        {lanSession?.config?.mode === 'versus' && gameState === 'FIGHT' && !lanSession.error && <div className="lan-versus-badge"><span>WI-FI · CONTROLAS A {DEITIES[lanSession.player === 0 ? p1DeityIndex : p2DeityIndex].name.toUpperCase()}</span><button onClick={() => { lanSession.paused = !lanSession.paused; void lanSession.send('pause', lanSession.paused); refreshNetwork(value => value + 1); }}>Pausa</button></div>}
+        {lanSession?.config?.mode === 'versus' && (gameState === 'FIGHT' || gameState === 'GAME_OVER') && (!lanSession.connected || lanSession.error || lanSession.paused || !lanSession.remoteLoaded) && <div className="lan-overlay"><h2>{lanSession.error ? 'Conexión interrumpida' : lanSession.paused ? 'Duelo pausado' : 'Esperando al rival'}</h2><p>{lanSession.error || 'Mantengan ambos celulares conectados y el juego abierto.'}</p>{lanSession.connected && !lanSession.error && lanSession.remoteLoaded && <button className="arena-confirm" onClick={() => { lanSession.paused = false; void lanSession.send('pause', false); refreshNetwork(value => value + 1); }}>Reanudar</button>}<button onClick={() => setGameState('MAIN_MENU')}>Volver al menú</button></div>}
         {/* CONTROLES TÁCTILES: joystick y botones en versus, torre y arcade */}
-        {showTouchControls && gameState === 'FIGHT' && <TouchControls mode="versus" />}
+        {showTouchControls && gameState === 'FIGHT' && !lanSession?.paused && !lanSession?.error && <TouchControls mode="versus" />}
       </div>
     </div>
   );

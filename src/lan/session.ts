@@ -1,3 +1,5 @@
+import { readVersusInput, EMPTY_VERSUS_INPUT } from './versus';
+import type { VersusState, VersusInput } from './versus';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import type { PluginListenerHandle } from '@capacitor/core';
 import type { ArcadeInput } from '../arcade/engine';
@@ -27,7 +29,11 @@ export class LanSession {
   remoteReady = false;
   invitations: string[] = [];
   config: LanStart | null = null;
+  roomSettings: LanStart | null = null;
   snapshot: ArcadeSnapshot | null = null;
+  versusState: VersusState | null = null;
+  private heavyEdge = false;
+  private versusInput = { ...EMPTY_VERSUS_INPUT };
   paused = false;
   localLoaded = false;
   remoteLoaded = false;
@@ -57,6 +63,9 @@ export class LanSession {
     if (!packet || packet.version !== LAN_VERSION) return this.fail('Ambos celulares necesitan la misma versión del juego');
     this.lastRemote = Date.now();
     const { kind, value } = packet;
+    if (kind === 'versus-input' && this.role === 'host') { const next = readVersusInput(value); if (next.heavy && !this.versusInput.heavy) this.heavyEdge = true; next.light ||= this.versusInput.light; next.special ||= this.versusInput.special; this.versusInput = next; return; }
+    if (kind === 'versus-state' && this.role === 'guest') { this.versusState = value as VersusState; return; }
+    if (kind === 'settings' && this.role === 'guest') { this.roomSettings = readLanStart(value, DEITIES.map(deity => deity.id)); this.changed(); return; }
     if (kind === 'ping') return;
     if (kind === 'leave') return this.fail('Tu compañero salió de la sala');
     if (kind === 'selection' && value && typeof value === 'object') {
@@ -75,7 +84,7 @@ export class LanSession {
       return;
     } else if (kind === 'state' && this.role === 'guest') { this.snapshot = value as ArcadeSnapshot; return; }
     else if (kind === 'loaded') this.remoteLoaded = value === true;
-    else if (['pause', 'blessing', 'continue'].includes(kind)) {
+    else if (['pause', 'blessing', 'continue', 'rematch'].includes(kind)) {
       if (this.role === 'host') this.commands.push({ kind, value });
       if (kind === 'pause') this.paused = value === true;
     }
@@ -118,6 +127,9 @@ export class LanSession {
   copyInvite(text: string) { return this.transport.copy({ text }); }
   async start(config: LanStart) {
     if (this.role !== 'host' || !this.connected || !this.remoteReady) return;
+    const checked = readLanStart(config, DEITIES.map(deity => deity.id));
+    if (!checked) throw new Error('Configuración inválida');
+    config = checked;
     this.config = config; this.localLoaded = this.remoteLoaded = false;
     await this.send('start', config); this.changed();
   }
@@ -127,6 +139,9 @@ export class LanSession {
     for (const key of ['attack', 'jump', 'magic', 'tapLeft', 'tapRight'] as const) this.remoteInput[key] = false;
     return input;
   }
+  sendVersusInput(input: VersusInput) { if (this.role === 'guest') void this.send('versus-input', input); }
+  consumeVersusInput() { const input = { ...this.versusInput }; if (this.heavyEdge) { input.heavy = true; this.heavyEdge = false; } this.versusInput.light = this.versusInput.special = false; return input; }
+  publishVersus(value: VersusState) { if (this.role !== 'host' || this.stateSending) return; this.stateSending = true; void this.send('versus-state', value).finally(() => { this.stateSending = false; }); }
   consumeCommands() { const commands = this.commands; this.commands = []; return commands; }
   loaded(value: boolean) { if (this.localLoaded !== value) { this.localLoaded = value; void this.send('loaded', value); } }
   publish(value: ArcadeSnapshot) {

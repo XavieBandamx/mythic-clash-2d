@@ -1,3 +1,5 @@
+import { createRoute, gradePoints, gradeLetter, saveSurvivalRecord } from './run';
+import type { RouteStop, RunKind, RunStage } from './run';
 import { victoryFrame, heavyFrame, jumpFrame, castFrame } from '../game/spriteMotion';
 import { profileFor } from '../game/combat';
 import { awardMastery } from '../game/progression';
@@ -998,7 +1000,7 @@ export class Monster extends Actor {
     const hero = this.target ?? world.pickTarget(this, null);
     // Montado ataca con la bestia: más alcance y su embestida o salto
     const beastStrike = this.mount ? this.mount.strike : null;
-    const ranged = this.kind === 'runner' && !this.mount && (world.levelIndex === 1 || world.levelIndex === 3);
+    const ranged = this.kind === 'runner' && !this.mount && (world.realmIndex === 1 || world.realmIndex === 3);
     const reach = ranged ? 350 : beastStrike ? beastStrike.front : this.stats.reach;
     switch (this.state) {
       case 'windup':
@@ -1964,8 +1966,7 @@ interface LevelResult {
 
 // Calificación por nivel: sin morir, rápido y con combos largos
 export function levelRank(deaths: number, secs: number, maxCombo: number): LevelResult['rank'] {
-  const pts = (deaths === 0 ? 2 : deaths === 1 ? 1 : 0) + (secs < 150 ? 2 : secs < 210 ? 1 : 0) + (maxCombo >= 25 ? 2 : maxCombo >= 12 ? 1 : 0);
-  return pts >= 5 ? 'S' : pts >= 3 ? 'A' : pts >= 1 ? 'B' : 'C';
+  return gradeLetter(gradePoints(deaths, secs, maxCombo));
 }
 
 interface Banner {
@@ -1990,6 +1991,14 @@ export class ArcadeGame {
   public items: Item[] = [];
   public particles: Particle[] = [];
 
+  public route: RouteStop[];
+  public runKind: RunKind;
+  public history: RunStage[] = [];
+  public totals = { kills: 0, minis: 0, bosses: 0, deaths: 0, rescues: 0, continues: 0, secs: 0 };
+  public completedWaves = 0;
+  public finishedSeconds: number | null = null;
+  public get realmIndex() { return this.runKind === 'survival' ? this.route[this.levelIndex % 4].realm : this.route[this.levelIndex]?.realm ?? 4; }
+  public get stageDifficulty() { return this.runKind === 'survival' ? this.levelIndex * .35 : this.levelIndex; }
   public levelIndex: number = 0;
   public level: LevelDef = LEVELS[0];
   public camX: number = 0;
@@ -2008,7 +2017,7 @@ export class ArcadeGame {
   private lifeLossQueue: { hero: Hero; previous: number; remaining: number; elapsed: number }[] = [];
   public get lifeLoss() { return this.lifeLossQueue[0] ?? null; }
   private relicChosenAt = 0;
-  public get relicOfferReady() { return this.phase === 'levelClear' && this.levelIndex < LEVELS.length && this.phaseTimer >= 330; }
+  public get relicOfferReady() { return this.phase === 'levelClear' && (this.runKind === 'survival' ? this.completedWaves % 5 === 0 : this.levelIndex < LEVELS.length) && this.phaseTimer >= 330; }
   public scenery: { x: number; z: number; broken: boolean; drop: 'pot' | 'food' }[] = [];
   public hazards: { x: number; z: number; clock: number }[] = [];
   public phase: Phase = 'play';
@@ -2043,8 +2052,10 @@ export class ArcadeGame {
   private carriedPresses: Pick<ArcadeInput, 'attack' | 'jump' | 'magic' | 'tapLeft' | 'tapRight'>[];
 
   // Uno o dos dioses: con dos se juega en cooperativo
-  constructor(deities: DeityData | DeityData[], difficulty: Difficulty) {
+  constructor(deities: DeityData | DeityData[], difficulty: Difficulty, options: { kind?: RunKind; route?: RouteStop[]; remember?: boolean } = {}) {
     const list = Array.isArray(deities) ? deities : [deities];
+    this.runKind = options.kind ?? 'arcade';
+    this.route = options.route ?? createRoute(list.map(deity => deity.id), Math.random, options.remember !== false);
     this.difficulty = difficulty;
     this.calmFactor = difficulty === 'FACIL' ? 1.6 : difficulty === 'DIFICIL' ? 0.5 : 1;
     this.heroes = list.map((d, i) => new Hero(d, i));
@@ -2054,8 +2065,8 @@ export class ArcadeGame {
   }
 
   // Jugador 1 (las pruebas y el modo de un jugador lo usan directamente)
-  public prepareRemoteLevel(index: number) {
-    if (Number.isInteger(index) && index >= 0 && index <= LEVELS.length && index !== this.levelIndex) this.startLevel(index);
+  public prepareRemoteLevel(index: number, force = false) {
+    if (Number.isInteger(index) && index >= 0 && index <= 1000000 && (force || index !== this.levelIndex)) this.startLevel(index);
   }
 
   public get hero(): Hero {
@@ -2170,10 +2181,15 @@ export class ArcadeGame {
 
   private startLevel(index: number) {
     // Tras los cuatro reinos llega el nivel final: una sola pantalla contra Origen
-    const final = index >= LEVELS.length;
+    const final = this.runKind === 'arcade' && index >= LEVELS.length;
     this.levelIndex = index;
-    this.level = final ? FINAL_LEVEL : LEVELS[index];
-    this.waves = final ? [] : buildWaves(index);
+    if (this.runKind === 'survival') this.calmFactor = (this.difficulty === 'FACIL' ? 1.6 : this.difficulty === 'DIFICIL' ? .5 : 1) / (1 + index * .025);
+    this.level = final ? FINAL_LEVEL : LEVELS[this.realmIndex];
+    this.waves = final ? [] : buildWaves(this.realmIndex);
+    if (this.runKind === 'survival') {
+      const template = this.waves[Math.min(this.waves.length - 1, Math.floor(index / 5))];
+      this.waves = [{ camX: 0, spawns: [...template.spawns, ...Array.from({ length: Math.min(8, Math.floor(index / 3)) }, (_, i) => ({ kind: (i % 3 === 0 ? 'brute' : i % 3 === 1 ? 'runner' : 'grunt') as MonsterKind, side: (i % 2 ? 'left' : 'right') as 'left' | 'right', zFrac: .2 + (i % 4) * .2, delay: 90 + i * 45 }))] }];
+    }
     this.waveIndex = 0;
     this.waveActive = false;
     this.pending = [];
@@ -2190,6 +2206,7 @@ export class ArcadeGame {
     this.camX = final ? BOSS_CAM_X : 0;
     this.phase = 'play';
     this.phaseTimer = 0;
+    this.hitstop = 0; this.magicCast = null;
     this.lifeLossQueue = [];
     this.endCoopLink(); this.endCoopGuard();
     this.coopLinkedWave = -1; this.coopGuardCooldown = COOP_GUARD_INTERVAL; this.coopFeedback = null;
@@ -2219,7 +2236,7 @@ export class ArcadeGame {
 
     // El jefe nunca es el dios que controla alguno de los jugadores
     const playerIds = this.heroes.map(h => h.deity.id);
-    const bossId = this.level.bossOrder.find(id => !playerIds.includes(id)) ?? this.level.bossOrder[0];
+    const bossId = this.route[this.runKind === 'survival' ? index % 4 : index]?.boss ?? this.level.bossOrder.find(id => !playerIds.includes(id)) ?? this.level.bossOrder[0];
     this.bossDeity = final ? ORIGEN : DEITIES.find(d => d.id === bossId) ?? DEITIES[0];
     loadSpriteSheet(getSpriteSheetConfig(this.bossDeity).src);
     const bossExtra = getExtraSheetConfig(this.bossDeity);
@@ -2234,7 +2251,7 @@ export class ArcadeGame {
       loadSpriteSheet(`${import.meta.env.BASE_URL}props/${PROP_SLUG[this.level.pantheon]}-${i}.webp`)
     );
     // Objetos y trampas del nivel, para que no aparezcan dibujados por código mientras cargan
-    for (const name of ['magia', 'comida', `vasija-${index}`, `vasija-rota-${index}`, `trampa-${index}`]) {
+    for (const name of ['magia', 'comida', `vasija-${this.realmIndex}`, `vasija-rota-${this.realmIndex}`, `trampa-${this.realmIndex}`]) {
       loadSpriteSheet(`${import.meta.env.BASE_URL}items/${name}.webp`);
     }
     for (const skin of [...Object.values(this.level.skins), THIEF_SKIN]) {
@@ -2242,7 +2259,7 @@ export class ArcadeGame {
     }
 
     const levelName = final ? 'FINAL' : `${index + 1} · ${this.level.pantheon.toUpperCase()}`;
-    this.showBanner(`NIVEL ${levelName}`, `${this.level.title} — ${this.level.subtitle}`, final ? '#c4b5fd' : '#fbbf24', 220);
+    this.showBanner(this.runKind === 'survival' ? `OLEADA ${index + 1}${(index + 1) % 5 === 0 ? ' · JEFE' : ''}` : `NIVEL ${levelName}`, `${this.level.title} — ${this.level.subtitle}`, final ? '#c4b5fd' : '#fbbf24', 220);
   }
 
   private showBanner(title: string, subtitle: string, color: string, duration: number) {
@@ -2258,11 +2275,11 @@ export class ArcadeGame {
   }
 
   private get hpMul(): number {
-    return (0.85 + 0.15 * this.levelIndex) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_HP_MUL : 1);
+    return (0.85 + 0.15 * this.stageDifficulty) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_HP_MUL : 1);
   }
 
   private get dmgMul(): number {
-    return (0.75 + 0.15 * this.levelIndex) * DIFFICULTY_DMG[this.difficulty];
+    return (0.75 + 0.15 * this.stageDifficulty) * DIFFICULTY_DMG[this.difficulty];
   }
 
   private spawnMonster(kind: MonsterKind, side: 'left' | 'right', zFrac: number, mounted: boolean = false): Monster {
@@ -2329,6 +2346,12 @@ export class ArcadeGame {
     const active = this.heroes.filter(hero => !hero.gameOver);
     if (active.length === 0) return;
     if (this.waves.length === 0 && this.phaseTimer < 150) return; // Nivel final: deja leer el cartel antes del jefe
+    if (this.runKind === 'survival') {
+      if (this.waveIndex < this.waves.length) this.startWave();
+      else if ((this.levelIndex + 1) % 5 === 0) this.startBossIntro();
+      else this.clearSurvivalWave();
+      return;
+    }
     const nextStop = this.waveIndex < this.waves.length ? this.waves[this.waveIndex].camX : BOSS_CAM_X;
     // Sigue al que va delante, pero sin dejar fuera de cuadro al que se quedó atrás
     const lead = Math.max(...active.map(h => h.x));
@@ -2345,12 +2368,12 @@ export class ArcadeGame {
   private startBossIntro() {
     this.phase = 'bossIntro';
     this.phaseTimer = 0;
-    this.camX = BOSS_CAM_X;
+    this.camX = this.runKind === 'survival' ? 0 : BOSS_CAM_X;
     const final = this.bossDeity === ORIGEN;
-    const hp = Math.round(300 * (1 + 0.2 * this.levelIndex) * (final ? 1.6 : 1) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_BOSS_HP_MUL : 1));
+    const hp = Math.round(300 * (1 + 0.2 * this.stageDifficulty) * (final ? 1.6 : 1) * DIFFICULTY_HP[this.difficulty] * (this.coop ? COOP_BOSS_HP_MUL : 1));
     this.boss = new Boss(this.bossDeity, this.camX + VIEW_W + 120, DEPTH * 0.5, hp, this.dmgMul, this.camX + VIEW_W * 0.72);
     // Hades (nivel 1) apenas te lee; el jefe de Japón casi todo; Origen todo. Fácil los vuelve más torpes
-    this.boss.iq = clamp((final ? 1 : 0.4 + 0.15 * this.levelIndex) / this.calmFactor, 0.15, 1);
+    this.boss.iq = clamp((final ? 1 : 0.4 + 0.15 * this.stageDifficulty) / this.calmFactor, 0.15, 1);
     this.showBanner(`${final ? 'JEFE FINAL' : 'JEFE'} · ${this.bossDeity.name.toUpperCase()}`, this.bossDeity.title, this.bossDeity.accentColor, 180);
 
     // Bendición divina: los héroes siempre enfrentan al jefe con la vida completa
@@ -2609,15 +2632,15 @@ export class ArcadeGame {
       if (hazard.x < this.camX - 100 || hazard.x > this.camX + VIEW_W + 100) continue;
       hazard.clock = (hazard.clock + 1) % 300;
       // La arena y el viento desplazan; el fuego permanece; el rayo es puntual.
-      if (hazard.clock >= 240 && hazard.clock < 290 && (this.levelIndex === 1 || this.levelIndex === 3)) {
+      if (hazard.clock >= 240 && hazard.clock < 290 && (this.realmIndex === 1 || this.realmIndex === 3)) {
         for (const actor of [...this.activeHeroes, ...this.monsters]) {
           if (Math.abs(actor.x - hazard.x) < 95 && Math.abs(actor.z - hazard.z) < 42 && actor.y < 60 && !actor.isDown) {
-            if (this.levelIndex === 1) { actor.vx *= 0.5; actor.vz *= 0.5; actor.x += Math.sign(hazard.x - actor.x) * 0.7; }
+            if (this.realmIndex === 1) { actor.vx *= 0.5; actor.vz *= 0.5; actor.x += Math.sign(hazard.x - actor.x) * 0.7; }
             else actor.x += actor.x >= hazard.x ? 3.5 : -3.5;
           }
         }
       }
-      const eruption = hazard.clock === 240 || (this.levelIndex === 2 && (hazard.clock === 255 || hazard.clock === 270));
+      const eruption = hazard.clock === 240 || (this.realmIndex === 2 && (hazard.clock === 255 || hazard.clock === 270));
       if (!eruption) continue;
       this.dust(hazard.x, hazard.z, 16);
       for (const actor of [...this.activeHeroes, ...this.monsters]) {
@@ -2724,7 +2747,7 @@ export class ArcadeGame {
     const labelY = screenY(m.z, m.y) - m.height - 20;
     const mult = comboMultiplier(hero.combo);
     hero.score += m.stats.score * mult;
-    hero.kills++;
+    hero.kills++; this.totals.kills++; if (m.kind === 'mini') this.totals.minis++;
     this.floatingText(m.x, labelY, `+${m.stats.score * mult}${mult > 1 ? ` ×${mult}` : ''}`, mult > 1 ? '#fb923c' : '#fde68a');
     if (m.kind === 'mini') {
       this.spawnItem('food', m.x - 30, m.z);
@@ -2787,6 +2810,7 @@ export class ArcadeGame {
 
   private revivePartner(hero: Hero) {
     this.rescues.delete(hero);
+    this.totals.rescues++;
     hero.hp = Math.ceil(hero.maxHp * .35); hero.displayHp = hero.hp;
     hero.y = 0; hero.vx = hero.vz = hero.vy = 0;
     hero.setState('getup'); hero.invuln = 120;
@@ -2802,7 +2826,8 @@ export class ArcadeGame {
     if (loss.remaining > 0) this.respawnHero(loss.hero);
     else { loss.hero.gameOver = true; loss.hero.setState('dead'); }
     if (this.lifeLossQueue.length === 0 && this.heroes.every(hero => hero.gameOver)) {
-      this.phase = 'gameOver'; this.continueTimer = CONTINUE_TICKS;
+      if (this.runKind === 'survival') this.endRun('finalOver');
+      else { this.phase = 'gameOver'; this.continueTimer = CONTINUE_TICKS; }
     }
   }
 
@@ -2978,8 +3003,8 @@ export class ArcadeGame {
       if (hero.comboTimer > 0 && --hero.comboTimer === 0) hero.combo = 0;
     }
     if (this.heroes.every(h => h.gameOver)) {
-      this.phase = 'gameOver';
-      this.continueTimer = CONTINUE_TICKS;
+      if (this.runKind === 'survival') this.endRun('finalOver');
+      else { this.phase = 'gameOver'; this.continueTimer = CONTINUE_TICKS; }
       sounds.playKO();
       return;
     }
@@ -2989,7 +3014,7 @@ export class ArcadeGame {
     this.updateCoopTactics();
 
     // Cada enemigo elige al héroe más cercano; solo los más próximos a cada héroe atacan a la vez
-    const maxEngaged = 2 + (this.levelIndex >= 2 ? 1 : 0);
+    const maxEngaged = this.runKind === 'survival' ? Math.min(5, 2 + Math.floor(this.levelIndex / 5)) : 2 + (this.levelIndex >= 2 ? 1 : 0);
     const fighters = this.monsters.filter(m => m.kind !== 'thief' && !m.isDown);
     for (const m of fighters) m.target = m.coopAssignment !== null && this.teamStanding
       ? this.heroes[m.coopAssignment] : this.pickTarget(m, m.target);
@@ -3033,16 +3058,19 @@ export class ArcadeGame {
           ? 'Nivel completado · +5000 puntos'
           : 'Algo despierta más allá de los reinos...';
       this.showBanner(`¡${this.boss.deity.name.toUpperCase()} HA CAÍDO!`, subtitle, '#fbbf24', 120);
+      this.totals.bosses++;
+      if (this.runKind === 'survival') this.completedWaves++;
       this.results = this.computeResults();
+      this.rememberStage();
       for (const m of this.monsters) m.receiveHit({ damage: 999, knockdown: true, heavy: true, dir: m.x >= this.boss.x ? 1 : -1, magic: true });
       this.orbs = [];
       this.thunders = [];
-    } else if (this.phase === 'levelClear' && ((this.relicsComplete && this.tick - this.relicChosenAt >= 75) || (this.levelIndex >= LEVELS.length && this.phaseTimer >= RESULTS_TICKS))) {
-      if (this.levelIndex < LEVELS.length) {
+    } else if (this.phase === 'levelClear' && ((this.relicsComplete && this.tick - this.relicChosenAt >= 75) || (this.runKind === 'arcade' && this.levelIndex >= LEVELS.length && this.phaseTimer >= RESULTS_TICKS) || (this.runKind === 'survival' && this.completedWaves % 5 !== 0 && this.phaseTimer >= 150))) {
+      if (this.runKind === 'survival' || this.levelIndex < LEVELS.length) {
         // Recompensa entre niveles: media vida y una vasija de magia
         for (const hero of this.activeHeroes) {
-          hero.hp = Math.min(hero.maxHp, hero.hp + hero.maxHp * 0.5);
-          hero.magic = Math.min(MAX_MAGIC, hero.magic + 1);
+          if (this.runKind !== 'survival' || this.completedWaves % 5 === 0) hero.hp = Math.min(hero.maxHp, hero.hp + hero.maxHp * 0.5);
+          if (this.runKind !== 'survival' || this.completedWaves % 5 === 0) hero.magic = Math.min(MAX_MAGIC, hero.magic + 1);
         }
         this.startLevel(this.levelIndex + 1);
       } else {
@@ -3052,12 +3080,31 @@ export class ArcadeGame {
     }
   }
 
+  private clearSurvivalWave() {
+    this.completedWaves++;
+    this.phase = 'levelClear'; this.phaseTimer = 0;
+    this.results = this.computeResults(); this.rememberStage();
+    this.showBanner(`OLEADA ${this.completedWaves} SUPERADA`, 'Prepárense para la siguiente', '#fbbf24', 120);
+    for (const hero of this.activeHeroes) hero.celebrate();
+  }
+
+  private rememberStage() {
+    const secs = Math.round((this.tick - this.levelStartTick) / 60);
+    this.totals.secs += secs;
+    this.totals.deaths += this.heroes.reduce((sum, hero) => sum + hero.deaths, 0);
+    this.history.push({ realm: this.level === FINAL_LEVEL ? 'Más allá de los reinos' : this.level.pantheon, boss: this.boss?.deity.name ?? 'Oleada', secs,
+      players: this.heroes.map(hero => ({ id: hero.deity.id, kills: hero.kills, deaths: hero.deaths, combo: hero.maxCombo, grade: gradePoints(hero.deaths, secs, hero.maxCombo) })) });
+    if (this.runKind === 'survival' && this.history.length > 10) this.history.shift();
+  }
+  public get finalGrade() { const players = this.history.flatMap(stage => stage.players); return gradeLetter(players.reduce((sum, player) => sum + player.grade, 0) / Math.max(1, players.length)); }
+  public get elapsedSeconds() { return this.finishedSeconds ?? this.totals.secs + (this.phase === 'finalOver' ? Math.max(0, Math.round((this.tick - this.levelStartTick) / 60)) : 0); }
+
   // Bonos del nivel: se suman a los puntos al terminarlo
   private computeResults(): LevelResult[] {
     const secs = Math.round((this.tick - this.levelStartTick) / 60);
     return this.activeHeroes.map(hero => {
-      const timeBonus = Math.max(0, (240 - secs) * 40);
-      const noDeathBonus = hero.deaths === 0 ? 5000 : 0;
+      const timeBonus = this.runKind === 'survival' ? Math.max(0, (60 - secs) * 10) : Math.max(0, (240 - secs) * 40);
+      const noDeathBonus = hero.deaths === 0 ? (this.runKind === 'survival' ? 500 : 5000) : 0;
       const comboBonus = hero.maxCombo * 150;
       hero.score += timeBonus + noDeathBonus + comboBonus;
       awardMastery(hero.deity.id, { clears: 1, bestCombo: hero.maxCombo, bestRank: levelRank(hero.deaths, secs, hero.maxCombo) });
@@ -3067,8 +3114,15 @@ export class ArcadeGame {
 
   // Fin de la partida: guarda el récord por dios (o pareja de dioses en cooperativo)
   private endRun(phase: 'finalOver' | 'victory') {
+    if (this.finishedSeconds !== null) return;
+    this.finishedSeconds = this.totals.secs + (phase === 'finalOver' ? Math.max(0, Math.round((this.tick - this.levelStartTick) / 60)) : 0);
+    if (phase === 'finalOver') this.totals.deaths += this.heroes.reduce((sum, hero) => sum + hero.deaths, 0);
     this.phase = phase;
     this.phaseTimer = 0;
+    if (this.runKind === 'survival') {
+      saveSurvivalRecord({ characters: this.heroes.map(hero => hero.deity.id), wave: this.completedWaves, score: this.heroes.reduce((sum, hero) => sum + hero.score, 0), difficulty: this.difficulty, date: new Date().toISOString() });
+      return;
+    }
     const key = this.heroes.map(h => h.deity.id).join('+');
     const score = Math.max(...this.heroes.map(h => h.score));
     let records: Record<string, number> = {};
@@ -3100,7 +3154,8 @@ export class ArcadeGame {
 
   // Continuación: 3 vidas nuevas, de vuelta en pantalla junto al compañero si lo hay
   private continueHero(hero: Hero) {
-    if (!hero.gameOver) return;
+    if (!hero.gameOver || this.runKind === 'survival') return;
+    this.totals.continues++;
     hero.score = Math.floor(hero.score / 2);
     const partner = this.activeHeroes.find(h => h !== hero);
     hero.lives = 3;
@@ -3255,14 +3310,14 @@ export class ArcadeGame {
 
     for (const hazard of this.hazards) {
       if (hazard.clock < 165 || this.phase !== 'play') continue;
-      const active = hazard.clock >= 240 && hazard.clock < (this.levelIndex === 0 ? 260 : 290);
-      const color = ['#93c5fd', '#fbbf24', '#fb7185', '#86efac'][this.levelIndex] ?? '#fff';
+      const active = hazard.clock >= 240 && hazard.clock < (this.realmIndex === 0 ? 260 : 290);
+      const color = ['#93c5fd', '#fbbf24', '#fb7185', '#86efac'][this.realmIndex] ?? '#fff';
       drawTelegraph(ctx, hazard.x, screenY(hazard.z), 95, Math.min(1, (hazard.clock - 165) / 75), color);
-      if (active && !drawHazard(ctx, this.levelIndex, hazard.x, screenY(hazard.z), this.tick)) {
+      if (active && !drawHazard(ctx, this.realmIndex, hazard.x, screenY(hazard.z), this.tick)) {
         ctx.save(); ctx.globalAlpha = 0.65; ctx.fillStyle = color;
-        if (this.levelIndex === 1) {
+        if (this.realmIndex === 1) {
           ctx.beginPath(); ctx.ellipse(hazard.x, screenY(hazard.z), 90, 28, 0, 0, Math.PI * 2); ctx.fill();
-        } else if (this.levelIndex === 3) {
+        } else if (this.realmIndex === 3) {
           ctx.strokeStyle = color; ctx.lineWidth = 3;
           for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.ellipse(hazard.x, screenY(hazard.z) - i * 25, 85 - i * 12, 16, this.tick * 0.02, 0, Math.PI * 1.5); ctx.stroke(); }
         } else ctx.fillRect(hazard.x - 35, screenY(hazard.z) - 150, 70, 150);
@@ -3270,7 +3325,7 @@ export class ArcadeGame {
       }
     }
     for (const prop of this.scenery) {
-      if (drawBreakable(ctx, this.levelIndex, prop.broken, prop.x, screenY(prop.z))) {
+      if (drawBreakable(ctx, this.realmIndex, prop.broken, prop.x, screenY(prop.z))) {
         // Brillo encima de la vasija: verde suelta comida, azul suelta magia
         if (!prop.broken) {
           const y = screenY(prop.z) - 62 + Math.sin(this.tick * 0.08) * 3;
@@ -3283,7 +3338,7 @@ export class ArcadeGame {
       if (prop.broken) continue;
       const y = screenY(prop.z);
       ctx.fillStyle = '#0005'; ctx.beginPath(); ctx.ellipse(prop.x, y, 26, 9, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = ['#a77b57', '#c6a66a', '#627f67', '#857578'][this.levelIndex] ?? '#958579';
+      ctx.fillStyle = ['#a77b57', '#c6a66a', '#627f67', '#857578'][this.realmIndex] ?? '#958579';
       ctx.beginPath(); ctx.moveTo(prop.x - 15, y - 48); ctx.lineTo(prop.x + 15, y - 48); ctx.bezierCurveTo(prop.x + 9, y - 32, prop.x + 36, y - 16, prop.x + 17, y); ctx.lineTo(prop.x - 17, y); ctx.bezierCurveTo(prop.x - 36, y - 16, prop.x - 9, y - 32, prop.x - 15, y - 48); ctx.fill();
       ctx.strokeStyle = '#e7c788'; ctx.lineWidth = 3; ctx.strokeRect(prop.x - 15, y - 49, 30, 5);
       ctx.fillStyle = prop.drop === 'food' ? '#86efac' : '#93c5fd'; ctx.fillRect(prop.x - 4, y - 25, 8, 8);
@@ -3335,7 +3390,7 @@ export class ArcadeGame {
 
     // Objetos por delante y partículas de ambiente del reino
     const props = this.props.filter(e => e.status === 'ready').map(e => e.image);
-    drawForeground(ctx, props, this.camX, this.levelIndex);
+    drawForeground(ctx, props, this.camX, this.realmIndex);
     drawAmbient(ctx, this.level.pantheon, this.tick, this.camX, this.level === FINAL_LEVEL);
 
     // Destello de la magia
@@ -3466,7 +3521,7 @@ export class ArcadeGame {
     });
     ctx.font = '13px sans-serif';
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillText(`NIVEL ${this.levelIndex + 1} · ${this.level.title.toUpperCase()}`, VIEW_W - 24, 62 + (this.heroes.length - 1) * 24);
+    ctx.fillText(`${this.runKind === 'survival' ? 'OLEADA' : 'NIVEL'} ${this.levelIndex + 1} · ${this.level.title.toUpperCase()}`, VIEW_W - 24, 62 + (this.heroes.length - 1) * 24);
 
     // Barra del jefe
     const boss = this.boss;
@@ -3516,7 +3571,7 @@ export class ArcadeGame {
     }
 
     // Ayuda de controles al empezar
-    if (this.levelIndex === 0 && this.tick < 900) {
+    if (this.realmIndex === 0 && this.tick < 900) {
       const coopHelp = getControls().keyboard.map((keys, player) =>
         `${player + 1}P · ${keyLabel(keys.up)} / ${keyLabel(keys.down)} / ${keyLabel(keys.left)} / ${keyLabel(keys.right)}: mover · ${keyLabel(keys.light)}: ataque · ${keyLabel(keys.heavy)}: salto · ${keyLabel(keys.special)}: magia`);
       const lines = this.coop

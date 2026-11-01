@@ -6,6 +6,15 @@ Juego de peleas 2D en navegador (React + Canvas) con dioses de **Grecia, Egipto,
 - **Publicado:** https://mythic-clash-2d.vercel.app. **Cada push a `main` se publica solo en Vercel**, así que commit + push equivale a actualizar el juego en línea.
 - Todo el texto del juego y los comentarios del código están en **español**.
 
+## Estado vigente — actualización de Codex, 1 de noviembre de 2026
+
+Esta guía describe la implementación actual, incluidas las mejoras de rutas, resultados, supervivencia y versus por Wi-Fi. No usar el orden fijo de reinos ni la selección del primer jefe disponible como referencia del arcade. Los detalles de estos modos están en `MODOS.md` y los de la APK en `ANDROID.md`.
+
+- Android **1.1**, versionCode **2**, identificador `mx.mythicclash.game`. APK de depuración para pruebas; conservar su firma al actualizarla.
+- Protocolo LAN **2**: ambos dispositivos deben actualizarse. Se juega por Wi-Fi local o punto de acceso sin datos. Bluetooth queda para después.
+- El usuario y su hijo completaron el arcade cooperativo anterior en celulares físicos. Los modos nuevos necesitan otra prueba física; la prueba entre pestañas no demuestra su respuesta sobre una red real.
+- Las fuentes y los recursos están incluidos en la APK. No duplicar sprites ni publicar originales o APK dentro de Git; las APK se adjuntan a versiones de GitHub.
+
 ## Cómo correrlo
 
 - **Android / LAN:** ver `ANDROID.md`. Capacitor 8 empaqueta `dist` sin servidor remoto; `npm run android:apk` genera la APK de depuración. El menú Wi-Fi solo aparece en Android. `src/lan` gestiona sesiones y copias visuales; el anfitrión ejecuta el motor, el invitado solo renderiza. El plugin nativo `LocalWifiPlugin` usa `LanTransport` para TCP local y ZXing para QR sin internet. No agregar un servidor externo ni `server.url` para resolver la LAN. `npm run test:lan` y `tools/test-lan-native.ps1` verifican la sincronización y el transporte.
@@ -14,6 +23,7 @@ Juego de peleas 2D en navegador (React + Canvas) con dioses de **Grecia, Egipto,
 - `npm install`
 - `npm start` (o `npm run dev`): servidor en http://localhost:3000.
 - `npm run lint`: revisión de tipos con `tsc --noEmit`. Correrlo después de cada cambio.
+- `npm test`: regresiones del combate; `npm run test:runs`: rutas, resultados, supervivencia y récords; `npm run test:lan`: sincronización y versus.
 - `npm run build`: genera `dist/`. Solo sirve para revisar que compile; Vercel compila solo.
 
 ## Cómo trabajar con el usuario
@@ -22,6 +32,7 @@ Juego de peleas 2D en navegador (React + Canvas) con dioses de **Grecia, Egipto,
 - **No hacer commit ni push sin que lo pida.** Cuando dice "publícalo" quiere decir commit + push a `main`.
 - Mensajes de commit en español, con un título y viñetas.
 - **No quiere letreros flotantes de reacción** sobre los jefes ("¡BLOQUEA!", "¡CASTIGO!", "¡SE ZAFA!", "ORIGEN APRENDE…"): se quitaron por cursis. Sí se quedan los carteles de juego (nivel, jefe, mini-jefe, resultados).
+- **No quiere figuras religiosas actuales como personajes:** nada de Jesucristo, Buda ni similares. Al proponer mitologías nuevas, preferir las que ya no se practican (nórdica, inca, celta, mesopotámica, china clásica como Sun Wukong) y tratar con cuidado las religiones vivas (hindú, yoruba).
 - **No le gustó pixelear ni homologar el tamaño del pixel** de los sprites ("se ven horribles"). Para mejorar arte se piden versiones en alta resolución a Gemini.
 - Lo juega y lo enseña **en celular** (Brave/Android), en vertical y en horizontal. Todo cambio de pantalla debe probarse en tamaño celular y **sin scroll** en las pantallas principales.
 - Genera el arte él mismo. Desde el rediseño usa **ChatGPT** (de pago) para hojas de personajes, bestias, monstruos y medallones; antes usaba **Gemini Pro**. Los fondos y objetos los hace en **Grok**. Claude no genera imágenes: hay que darle **prompts completos, uno por personaje, listos para copiar** (no plantillas con huecos que llenar).
@@ -50,7 +61,15 @@ src/
     levels.ts          Niveles, oleadas, monstruos y sus estadísticas, mini-jefes, bestias, ORIGEN y FINAL_LEVEL
     draw.ts            Fondos con parallax, suelo, ambiente por reino, objetos de primer plano, dibujo de monstruos
     ArcadeMode.tsx     Canvas del arcade, teclado y botones tocables (continuar / volver)
-    ArcadeRouteCard.tsx Tarjeta de la ruta del arcade en la selección
+    run.ts             Sorteo de ruta, desempeño y récords de supervivencia
+    RunScreens.tsx      Mapa previo y resultados finales adaptables
+    ArcadeRouteCard.tsx Componente antiguo sin uso en el flujo actual
+  lan/
+    LanLobby.tsx        Sala privada: personajes, modo, dificultad y arena
+    protocol.ts        Validación y versión del protocolo LAN
+    session.ts         Transporte nativo, entradas, carga, pausa y comandos
+    snapshot.ts        Copias visuales del arcade y supervivencia
+    versus.ts          Estado, controles e interpolación del duelo Wi-Fi
 public/
   portraits/*.webp             Medallones (12 dioses + Origen), 256x256 con fondo transparente
   arenas/*.webp                Arenas del versus
@@ -59,6 +78,7 @@ public/
   props/<reino>-N.webp         Objetos de primer plano del arcade (6 por reino: grecia, egipto, mexico, japon)
 assets/sprites/                Todas las hojas: <id>.webp / <id>-extra.webp y sus fuentes <id>-original.webp / <id>-extra-original.webp
 art-src/                       Otros originales (fondos, objetos y medallones; no se publican)
+art-src/logo/                  Logo (logo-v1) e ícono (icono-v1) sobre fondo verde: aprobados pero AÚN NO se usan en el juego
 tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales con los pies alineados
 ```
 
@@ -68,12 +88,15 @@ Los originales y los recortes están juntos en `assets/sprites/`: 47 hojas de ju
 
 ### Modos de juego (menú principal)
 - **Versus local (P1 vs P2)** y **contra la IA**, con 3 dificultades. Hay 5 arenas pintadas: Coliseo del Olimpo, Tribunal de Osiris, Cancha de Tenochtitlan, Dojo de la Tormenta y Torre de Babel. Antes de pelear se elige la arena (o aleatoria).
-- **Arcade (Camino de los Dioses)**: beat 'em up de 4 niveles (Grecia, Egipto, México, Japón) y un nivel final contra **Origen**, el Tejedor de Mundos, un jefe no jugable al doble de tamaño. Rediseñado como titán cósmico con máscara dorada, con sus dos hojas (`assets/sprites/origen-original.webp` y `origen-extra-v2.webp`).
+- **Arcade (Camino de los Dioses)**: beat 'em up de cuatro reinos en orden variable (Grecia, Egipto, México, Japón), guardianes sorteados entre los dioses que no usan los jugadores, dificultad por etapa y un nivel final contra **Origen**, el Tejedor de Mundos, un jefe no jugable al doble de tamaño. Rediseñado como titán cósmico con máscara dorada, con sus dos hojas (`assets/sprites/origen-original.webp` y `origen-extra-v2.webp`).
 - **Arcade cooperativo** para 2 jugadores. Al caer, si el compañero sigue vivo hay 8 segundos para rescatarlo: acercarse (100 px en X y 36 en profundidad) y mantener abajo 1.5 segundos, sin recibir golpes. El rescatado vuelve con 35% de vida, sin gastar vida ni ganar magia. Si expira el plazo o caen ambos, se procesa la pérdida de vida normal; vencer al jefe recupera al compañero que siga caído. Continuar cuesta la mitad de los puntos del jugador que regresa, tanto individualmente como cuando caen ambos. Cada jugador activo elige su propia bendición con sus controles o su panel; el siguiente reino espera ambas confirmaciones. Un jugador sin vidas no bloquea la elección y puede continuar en el siguiente combate.
 - **Tácticas cooperativas:** una pareja de enemigos por oleada se enlaza, recibe 60% del daño y reparte sus objetivos. Dos jugadores deben golpear a miembros distintos dentro de 120 ticks para romper el enlace y abrirlos. Los jefes pueden plantar una guardia de 240 ticks con orientación fija: dos jugadores golpeando desde lados opuestos en 120 ticks la rompen y dejan una apertura. Solo se activa con espacio lateral y no interrumpe poderes ni introducciones. Anillos en el suelo y un aviso en el HUD explican las tácticas; se cancelan cuando no quedan dos jugadores en pie. Los rayos alternan jugadores y fijan su posición al aparecer el círculo. La vida adicional cooperativa baja a ×1.15 en monstruos y ×1.25 en jefes. El modo individual conserva su comportamiento. `MYTHIC_COOP_SOAK=1` ejecuta recorridos automáticos de dos parejas además de las pruebas normales.
 - **Torre de los Dioses**: 8 pisos de versus contra rivales al azar (2 por reino), IA que sube de nivel, 3 continues, Origen en la cima y un final escrito para cada dios.
 - **Configurar Controles**: reasignar teclado (P1 y P2), botones del control y tamaño/lado de los botones táctiles.
-- Con controles táctiles (en celular salen solos) se ocultan Versus Local y Arcade Cooperativo, porque no hay controles para un segundo jugador.
+- **Supervivencia** individual o cooperativa: arenas con oleadas sin etapa final, dificultad creciente por estadísticas y presión, jefes y bendiciones cada cinco oleadas. Conserva vidas/rescates, pero no permite continuaciones. Récords por oleada superada y después puntos del equipo, separados por modalidad y dificultad; muestran los personajes y se guardan localmente en ambos dispositivos al recibir el cierre.
+- **Sala Wi-Fi (Android):** arcade cooperativo, supervivencia cooperativa o versus 1 contra 1. El anfitrión decide modo/arena y simula; el invitado controla a P2 desde sus controles habituales de P1. Pausa compartida, rondas, K.O. y revancha en versus. Al desconectarse se detiene la partida; no existe reconexión o migración de anfitrión.
+- Con controles táctiles se ocultan Versus Local, Arcade Cooperativo local y Supervivencia Cooperativa local; sus variantes entre dispositivos se eligen en la sala Wi-Fi.
+- **Vistas previas aprobadas:** versus local Zeus/Ra; supervivencia Minotauro/Guardián Chacal; supervivencia cooperativa Escorpión/Oni Gigante/Guerrero Águila con tamaños grandes y el Águila dibujado delante del Oni; Torre Hades/Susanoo/Mictlantecuhtli. La sala Wi-Fi tiene ilustración de controles y conexión, sin repetir una pareja de dioses. No reducir los monstruos para resolver su superposición: ajustar el orden de dibujo.
 
 ### Dioses
 - 12 dioses, cada uno con un **estilo** (Poder, Velocidad, Guardián, Alcance), una **pasiva única** (rayo de Zeus, quemadura de Ra, esquiva de Anubis, renacer de Osiris, doble salto de Quetzalcóatl…) y un **súper propio** en versus.
@@ -88,6 +111,7 @@ Los originales y los recortes están juntos en `assets/sprites/`: 47 hojas de ju
 - **Puntuación:**
   - **Combo** con multiplicador hasta ×5 (`comboMultiplier`).
   - **Resultados por nivel** con bonos de tiempo, sin morir y combo, más calificación **S/A/B/C** (`levelRank`).
+  - **Resultados de toda la aventura:** rango global desde el promedio de valores de desempeño de todas las etapas y jugadores, desglose por etapa, puntos del equipo, tiempo, enemigos comunes, minijefes, jefes, caídas, continuaciones y rescates. El tiempo final queda congelado.
   - **Récord por dios** en localStorage (`mythic-clash-records`).
 - **¿CONTINUAR?** con cuenta regresiva de 10 s y botón tocable. Continuar cuesta la mitad de los puntos.
 - **Ambiente animado por reino** (hojas, arena, brasas, pétalos, polvo de estrellas) y **objetos de primer plano con parallax**: 6 por reino en los 4 reinos.
@@ -153,19 +177,16 @@ Layout (very important):
 Plain solid pure black background. No text, no labels, no numbers, no grid lines, no floor, no other characters.
 ```
 
-## Lo que falta (en orden de prioridad)
+## Pendientes actuales (en orden de prioridad)
 
-1. **Música:** hoy solo hay sonidos sintetizados. Faltan una pista por reino, una de menú, una de jefe y una de Origen, de OpenGameArt o Pixabay Music (gratis y libres). Suno gratis no deja descargar.
-2. **Fondos del arcade en capas** para un parallax real. Hoy cada fondo es una sola imagen.
-3. **Lo que hace volver a jugar:** desbloquear dioses, logros, aspectos alternos de colores y reto diario.
-4. **Ajustes pendientes de probar jugando:**
-   - Dificultad de Origen (en arcade y torre).
-   - Dureza de los mini-jefes.
-   - Que el joystick se sienta bien en un celular real.
-5. **Detalles chicos:**
-   - Las poses de agachado de la segunda hoja no se usan (el juego no distingue entre bloquear de pie y agachado).
-   - `tools/process_sprites.py` guarda PNG, que luego hay que pasar a WebP a mano.
-   - Los textos de ayuda que mencionan J/K/L no cambian si el jugador reasigna las teclas.
+1. **Prueba física de la versión 1.1:** versus Wi-Fi (respuesta de golpes, bloqueo, carga fuerte y revancha), supervivencia larga, récords en ambos dispositivos y resultados de un arcade completo con ruta variable. Probar también con punto de acceso sin datos.
+2. **Conexión y balance:** medir los tropiezos iniciales reportados; señal del router, carga y sincronización son hipótesis, no diagnósticos confirmados. Evaluar latencia del invitado y escalado de oleadas antes de ajustar valores. No atribuir el problema a velocidad de internet: la LAN no requiere salida a internet.
+3. **Android para distribución estable:** firma de lanzamiento y respaldo de la clave, icono/pantalla inicial definitivos. La APK sigue firmada para depuración. Los logos aprobados de `art-src/logo/` aún no están integrados y quedan fuera de esta publicación.
+4. **Audio y presentación:** música de menú/reinos/jefes con licencia comprobada y fondos del arcade en capas. Hoy hay efectos sintetizados y fondos de una sola imagen.
+5. **Más adelante, a decisión del usuario:** personajes nuevos (el punto 5 se pospuso expresamente), progresión/logros/aspectos/reto diario y Bluetooth. No dar estos elementos por autorizados o terminados.
+6. **Detalles heredados:** poses de agachado extra sin uso, conversión WebP manual en la herramienta de recorte y ayudas de teclado que todavía muestran J/K/L cuando se reasignan controles.
+
+Validación de esta entrega: 58 regresiones de combate, 12 de rutas/supervivencia/resultados y 6 LAN; recorridos automáticos con los 12 dioses y dos parejas; compilaciones web y Android. Interfaz de ruta/resultados revisada en vertical 360×640 y 390×844 y horizontal 844×390. El versus se comprobó entre dos instancias reales de App con transporte simulado (sala, personajes, movimiento remoto y pausa compartida).
 
 ## Cómo probar sin jugar a mano
 

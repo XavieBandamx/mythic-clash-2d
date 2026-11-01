@@ -60,7 +60,7 @@ interface Props {
   confirm: () => void; back: () => void;
 }
 export default function CharacterSelect({ mode, difficulty, p1, p2, ready1, ready2, select, confirm, back }: Props) {
-  const duo = mode === 'PVP' || mode === 'ARCADE_COOP';
+  const duo = mode === 'PVP' || (mode === 'ARCADE_COOP' || mode === 'SURVIVAL_COOP');
   const [player, setPlayer] = useState<1 | 2>(1);
   const active = player === 1 ? p1 : p2;
   const [page, setPage] = useState(Math.floor(active / ROSTER_PAGE_SIZE));
@@ -69,7 +69,7 @@ export default function CharacterSelect({ mode, difficulty, p1, p2, ready1, read
   const deity = DEITIES[active], rival = DEITIES[p2];
   const mastery = readMastery(deity.id);
   const pages = Math.max(1, Math.ceil(DEITIES.length / ROSTER_PAGE_SIZE));
-  const modeName = { PVE: 'Versus · Primero en ganar 2 rondas', PVP: 'Versus local · Primero en ganar 2 rondas', ARCADE: 'Camino de los Dioses', ARCADE_COOP: 'Arcade cooperativo', TOWER: 'Torre de los Dioses' }[mode];
+  const modeName = { PVE: 'Versus · Primero en ganar 2 rondas', PVP: 'Versus local · Primero en ganar 2 rondas', ARCADE: 'Camino de los Dioses', ARCADE_COOP: 'Arcade cooperativo', SURVIVAL: 'Supervivencia infinita', SURVIVAL_COOP: 'Supervivencia cooperativa', TOWER: 'Torre de los Dioses' }[mode];
   const preview = (d: DeityData, side: 'left' | 'right') => <div className={`select-contender select-${side}`} style={{ '--contender-color': d.accentColor } as React.CSSProperties}>
     <div className="select-figure"><FighterPreview deity={d} /></div>
     <div className="select-identity"><span>{side === 'left' ? `JUGADOR ${player}` : duo ? `JUGADOR ${player === 1 ? 2 : 1}` : 'RIVAL IA'} / {d.pantheon}</span><h3>{d.name}</h3><p>{d.style} · {d.passive.name}</p></div>
@@ -78,7 +78,7 @@ export default function CharacterSelect({ mode, difficulty, p1, p2, ready1, read
     <header className="select-heading"><div><span>MYTHIC CLASH / {modeName}</span><h2>ELIGE TU LUCHADOR</h2></div><small>{difficulty}</small></header>
     <div className="select-stage">
       {preview(deity, 'left')}
-      <div className="select-center"><b>{mode === 'ARCADE' || mode === 'ARCADE_COOP' ? 'ARCADE' : mode === 'TOWER' ? 'TORRE' : 'VS'}</b><span>{masteryTitle(mastery)} · {mastery.wins} victorias</span><p>{profileFor(deity.id).plan}</p></div>
+      <div className="select-center"><b>{mode === 'SURVIVAL' || mode === 'ARCADE' || (mode === 'ARCADE_COOP' || mode === 'SURVIVAL_COOP') ? (mode === 'SURVIVAL' || mode === 'SURVIVAL_COOP' ? 'RESISTE' : 'ARCADE') : mode === 'TOWER' ? 'TORRE' : 'VS'}</b><span>{masteryTitle(mastery)} · {mastery.wins} victorias</span><p>{profileFor(deity.id).plan}</p></div>
       {(duo || mode === 'PVE') && preview(player === 2 ? DEITIES[p1] : rival, 'right')}
     </div>
     <div className="select-roster">

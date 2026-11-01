@@ -13,6 +13,7 @@
     "test": "node tools/test-combat.mjs",
     "android:sync": "npm run build && cap sync android",
     "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "test:runs": "node tools/test-combat.mjs tools/run-regression.ts",
     "test:lan": "node tools/test-combat.mjs tools/lan-regression.ts",
     "test:lan-native": "pwsh -NoProfile -File tools/test-lan-native.ps1"
   },

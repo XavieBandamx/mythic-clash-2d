@@ -1,3 +1,6 @@
+import { saveSurvivalRecord } from './run';
+import { RunRoute, RunResults } from './RunScreens';
+import type { RouteStop, RunKind } from './run';
 import { useEffect, useRef, useState } from 'react';
 import type { DeityData } from '../game/deities';
 import { SIM_STEP_MS } from '../game/core';
@@ -18,6 +21,7 @@ interface ArcadeModeProps {
   onExit: () => void;
   touch?: boolean;
   network?: LanSession;
+  kind?: RunKind;
 }
 
 interface KeyMap {
@@ -59,7 +63,10 @@ const GAME_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', '
 // ==========================================================================
 // COMPONENTE DEL MODO ARCADE: canvas propio, teclado y bucle a paso fijo
 // ==========================================================================
-export default function ArcadeMode({ deities, difficulty, onExit, touch = false, network }: ArcadeModeProps) {
+export default function ArcadeMode({ deities, difficulty, onExit, touch = false, network, kind = 'arcade' }: ArcadeModeProps) {
+  const [route, setRoute] = useState<RouteStop[]>([]);
+  const [routeReady, setRouteReady] = useState(false);
+  const routeReadyRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
@@ -86,10 +93,10 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const game = new ArcadeGame(deities, difficulty);
+    const game = new ArcadeGame(deities, difficulty, { kind, route: network?.config?.route, remember: !network || network.role === 'host' });
     const writer = new SnapshotWriter(), reader = new SnapshotReader();
     let lastSnapshot = network?.snapshot, lastPublish = 0, lastInput = 0;
-    gameRef.current = game;
+    gameRef.current = game; setRoute(game.route);
     let shownPhase = game.phase;
     let shownRelic = game.relicChoice;
     let shownRelics = false;
@@ -165,7 +172,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
     const loop = (now: number) => {
       accumulator += Math.min(now - lastTime, 250);
       lastTime = now;
-      network?.loaded(!game.loading);
+      network?.loaded(!game.loading && routeReadyRef.current);
       if (network?.role === 'guest') {
         const input = readInput(SOLO_KEYS);
         if (now - lastInput >= 30 || input.attack || input.jump || input.magic || input.tapLeft || input.tapRight) { network.input(input); lastInput = now; pressed.clear(); }
@@ -182,7 +189,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
         }
         game.paused = network.paused || !network.connected || !!network.error;
       }
-      const ready = !network || network.role === 'host' && network.connected && !network.error && network.localLoaded && network.remoteLoaded;
+      const ready = routeReadyRef.current && (!network || network.role === 'host' && network.connected && !network.error && network.localLoaded && network.remoteLoaded);
       if (network?.paused || network?.error) { held.clear(); pressed.clear(); }
       if (!ready) accumulator = 0;
       while (accumulator >= SIM_STEP_MS) {
@@ -198,7 +205,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
         lastHud = now;
         const hero = game.heroes[playerIndex];
         const next = { hp: Math.max(0, Math.ceil(hero.hp)), maxHp: hero.maxHp, lives: hero.lives, magic: hero.magic,
-          realm: game.level.pantheon ?? 'El encuentro final', background: game.level.art?.background ?? 'grecia-fondo.webp' };
+          realm: kind === 'survival' ? `Oleada ${game.levelIndex + 1} · ${game.level.pantheon}` : game.level.pantheon ?? 'El encuentro final', background: game.level.art?.background ?? 'grecia-fondo.webp' };
         setMobileHud(previous => Object.keys(next).every(key => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next);
       }
       const loss = game.lifeLoss;
@@ -216,6 +223,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
         if (signature !== shownPlayers) { shownPlayers = signature; setBlessingPlayers(players); }
       }
       if (game.phase !== shownPhase) {
+        if (network?.role === 'guest' && game.runKind === 'survival' && game.phase === 'finalOver') saveSurvivalRecord({ characters: game.heroes.map(hero => hero.deity.id), wave: game.completedWaves, score: game.heroes.reduce((sum, hero) => sum + hero.score, 0), difficulty, date: new Date().toISOString() });
         shownPhase = game.phase;
         setPhase(game.phase);
       }
@@ -242,7 +250,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
       {touch && <img className="arcade-ambient" src={`${import.meta.env.BASE_URL}backgrounds/${mobileHud.background}`} alt="" />}
       <div className="arcade-console">
       {touch && <div className="arcade-mobile-hud">
-        <div><span>CAMINO DE LOS DIOSES / {mobileHud.realm}</span><strong>{deities[playerIndex].name}</strong></div>
+        <div><span>{kind === 'survival' ? 'SUPERVIVENCIA' : 'CAMINO DE LOS DIOSES'} / {mobileHud.realm}</span><strong>{deities[playerIndex].name}</strong></div>
         <div className="arcade-mobile-health"><span>VIDA <b>{mobileHud.hp} / {mobileHud.maxHp}</b></span><progress value={mobileHud.hp} max={mobileHud.maxHp} aria-label={`Vida del jugador ${playerIndex + 1}`} /></div>
         <div className="arcade-mobile-resources"><span><b>{mobileHud.lives}</b> VIDAS</span><span><b>{mobileHud.magic}</b> MAGIA</span></div>
       </div>}
@@ -254,21 +262,23 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
         className="arcade-canvas"
       />
       </div>
-      {touch && !showRelics && !network?.paused && !network?.error && (phase === 'play' || phase === 'boss' || phase === 'bossIntro') && <TouchControls mode="arcade" docked />}
+      {routeReady && touch && !showRelics && !network?.paused && !network?.error && (phase === 'play' || phase === 'boss' || phase === 'bossIntro') && <TouchControls mode="arcade" docked />}
       </div>
+      {!routeReady && route.length > 0 && <RunRoute route={route} survival={kind === 'survival'} ready={() => { routeReadyRef.current = true; setRouteReady(true); }} />}
+      {routeReady && (phase === 'victory' || phase === 'finalOver') && gameRef.current && <RunResults game={gameRef.current} difficulty={difficulty} exit={() => onExitRef.current()} />}
       <div className="sr-only" role="status" aria-live="assertive">{lifeMessage}</div>
-      {showRelics && <BlessingMenu choice={relic} cursor={relicCursor} coop={deities.length > 1} players={blessingPlayers} choose={(index, player = 0) => {
+      {routeReady && showRelics && <BlessingMenu choice={relic} cursor={relicCursor} coop={deities.length > 1} players={blessingPlayers} choose={(index, player = 0) => {
         if (network && player !== playerIndex) return;
         if (network?.role === 'guest') void network.send('blessing', index);
         else gameRef.current?.chooseRelic(index, player);
       }} />}
-      {network && (!network.connected || network.error || !network.remoteLoaded || network.paused) && <div className="lan-overlay" role="status">
+      {routeReady && network && (!network.connected || network.error || !network.remoteLoaded || network.paused) && <div className="lan-overlay" role="status">
         <h2>{network.error ? 'Conexión interrumpida' : network.paused ? 'Partida pausada' : 'Esperando al compañero'}</h2>
         <p>{network.error || 'Mantengan ambos dispositivos conectados a la misma red y el juego abierto.'}</p>
         {network.connected && !network.error && network.remoteLoaded && network.paused && <button className="arena-confirm" onClick={togglePause}>Reanudar partida</button>}
         <button className="options-back" onClick={() => onExitRef.current()}>Volver al menú</button>
       </div>}
-      {(phase === 'gameOver' || phase === 'finalOver' || phase === 'victory') && (
+      {routeReady && phase === 'gameOver' && (
         <div className="absolute left-1/2 -translate-x-1/2 bottom-[20%] portrait:bottom-auto portrait:top-[42%] z-30 flex gap-3">
           {phase === 'gameOver' && (
             <button

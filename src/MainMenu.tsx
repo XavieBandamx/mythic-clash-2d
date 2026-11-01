@@ -3,26 +3,32 @@ import { ArrowUpRight, Swords, Flame, Users, Mountain, SlidersHorizontal, Gamepa
 import type { GameMode, GameState } from './App';
 import { DEITIES } from './game/deities';
 import { ARENAS } from './game/arenas';
-import { getSpriteSheetConfig, loadSpriteSheet } from './game/sprites';
+import { GRID_4X4_ANIMATIONS, spriteAssetSrc, getSpriteSheetConfig, loadSpriteSheet } from './game/sprites';
+import { MONSTER_SPRITES } from './arcade/levels';
+import type { SpriteSheetConfig } from './game/sprites';
 import { getControls, keyLabel } from './game/controls';
 
 export interface MainMenuItem { label: string; mode?: GameMode; screen?: GameState }
 
 const MODES = {
-  PVP: { title: 'Versus local', tag: '2 JUGADORES', icon: Swords, description: 'Frente a frente. Dos rondas ganadas deciden quién se queda con la arena.', pair: ['zeus', 'susanoo'] },
+  PVP: { title: 'Versus local', tag: '2 JUGADORES', icon: Swords, description: 'Frente a frente. Dos rondas ganadas deciden quién se queda con la arena.', pair: ['zeus', 'ra'] },
   PVE: { title: 'Duelo contra IA', tag: '1 JUGADOR', icon: Swords, description: 'Elige a tu dios y mide tu técnica contra un rival de otro reino.', pair: ['amaterasu', 'anubis'] },
   ARCADE: { title: 'Camino de los Dioses', tag: 'ARCADE', icon: Flame, description: 'Cruza cuatro reinos, domina sus bestias y alcanza el encuentro con Origen.', pair: ['quetzalcoatl', 'raijin'] },
   ARCADE_COOP: { title: 'Arcade cooperativo', tag: '2 JUGADORES', icon: Users, description: 'Dos dioses, un mismo camino. Conquista los cuatro reinos en compañía.', pair: ['poseidon', 'huitzilopochtli'] },
-  TOWER: { title: 'Torre de los Dioses', tag: 'DESAFÍO', icon: Mountain, description: 'Ocho rivales y un creador. Asciende hasta la cima y descubre tu final.', pair: ['susanoo'] }
+  SURVIVAL: { title: 'Supervivencia', tag: 'SIN LÍMITES', icon: Flame, description: 'Resiste oleadas cada vez más difíciles. Sin continuaciones: supera tu récord.', pair: ['minotauro', 'guardian-chacal'] },
+  SURVIVAL_COOP: { title: 'Supervivencia cooperativa', tag: '2 JUGADORES', icon: Users, description: 'Resistan juntos. Jefes cada cinco oleadas y récords por pareja.', pair: ['escorpion', 'oni-gigante', 'guerrero-aguila'] },
+  TOWER: { title: 'Torre de los Dioses', tag: 'DESAFÍO', icon: Mountain, description: 'Ocho rivales y un creador. Asciende hasta la cima y descubre tu final.', pair: ['hades', 'susanoo', 'mictlantecuhtli'] }
 } as const;
 
 // Composición de portada: cada pareja necesita espacio según sus armas y siluetas.
 const TITLE_POSES: Record<GameMode, readonly { x: number; y: number; height: number }[]> = {
-  PVP: [{ x: 270, y: 627, height: 430 }, { x: 565, y: 581, height: 375 }],
+  PVP: [{ x: 245, y: 620, height: 415 }, { x: 590, y: 610, height: 405 }],
   PVE: [{ x: 205, y: 615, height: 355 }, { x: 595, y: 610, height: 420 }],
   ARCADE: [{ x: 270, y: 627, height: 430 }, { x: 565, y: 581, height: 375 }],
   ARCADE_COOP: [{ x: 220, y: 615, height: 365 }, { x: 590, y: 610, height: 425 }],
-  TOWER: [{ x: 420, y: 620, height: 445 }]
+  SURVIVAL: [{ x: 230, y: 620, height: 390 }, { x: 600, y: 615, height: 365 }],
+  SURVIVAL_COOP: [{ x: 175, y: 625, height: 300 }, { x: 415, y: 605, height: 405 }, { x: 665, y: 625, height: 305 }],
+  TOWER: [{ x: 175, y: 625, height: 315 }, { x: 415, y: 600, height: 415 }, { x: 665, y: 625, height: 315 }]
 };
 
 function TitleFighters({ mode }: { mode: GameMode }) {
@@ -32,8 +38,10 @@ function TitleFighters({ mode }: { mode: GameMode }) {
     if (!canvas || !ctx) return;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const sheets = MODES[mode].pair.map(id => {
-      const deity = DEITIES.find(d => d.id === id)!;
-      const cfg = getSpriteSheetConfig(deity);
+      const monster = MONSTER_SPRITES[id];
+      const cfg: SpriteSheetConfig = monster
+        ? { src: spriteAssetSrc(id), frameWidth: monster.frameWidth, frameHeight: monster.frameHeight, scale: 1, footOffset: 0, pixelArt: monster.pixelArt ?? false, animations: GRID_4X4_ANIMATIONS }
+        : getSpriteSheetConfig(DEITIES.find(deity => deity.id === id)!);
       return { cfg, entry: loadSpriteSheet(cfg.src) };
     });
     let handle = 0, lastDraw = -Infinity;
@@ -42,8 +50,9 @@ function TitleFighters({ mode }: { mode: GameMode }) {
       if (now - lastDraw < 32) return;
       lastDraw = now;
       ctx.clearRect(0, 0, 820, 670);
-      // El rival queda ligeramente detrás; se usan las mismas hojas del combate.
-      for (let index = sheets.length - 1; index >= 0; index--) {
+      // En supervivencia cooperativa el Águila queda delante del Oni.
+      const drawOrder = mode === 'SURVIVAL_COOP' ? [1, 0, 2] : sheets.map((_, index) => index).reverse();
+      for (const index of drawOrder) {
         const { cfg, entry } = sheets[index];
         if (entry.status !== 'ready') continue;
         const { x, y, height } = TITLE_POSES[mode][index];
@@ -76,7 +85,7 @@ interface Props {
 export default function MainMenu({ items, selected, difficulty, touch, highlight, choose }: Props) {
   const active = items[selected];
   const mode = active?.screen === 'LAN_MENU' ? 'ARCADE_COOP' : active?.mode ?? 'PVE';
-  const details = active?.screen === 'LAN_MENU' ? { ...MODES.ARCADE_COOP, title: 'Cooperativo Wi-Fi', tag: '2 DISPOSITIVOS', description: 'Crea una sala privada y juega con otro celular en la misma red, sin internet.' } : MODES[mode];
+  const details = active?.screen === 'LAN_MENU' ? { ...MODES.ARCADE_COOP, title: 'Sala Wi-Fi', tag: '2 DISPOSITIVOS', description: 'Crea una sala privada y juega con otro celular en la misma red, sin internet.' } : MODES[mode];
   const settings = active?.screen === 'LAN_MENU' ? undefined : active?.screen;
   const controls = getControls().keyboard[0];
   const navigate = `${keyLabel(controls.up)} / ${keyLabel(controls.down)}`;
@@ -96,7 +105,7 @@ export default function MainMenu({ items, selected, difficulty, touch, highlight
         <div className="title-menu-heading"><span>ELIGE TU CAMINO</span><i /></div>
         {items.map((item, index) => {
           if (!item.mode && item.screen !== 'LAN_MENU') return null;
-          const entry = item.screen === 'LAN_MENU' ? { title: 'Cooperativo Wi-Fi', tag: '2 DISPOSITIVOS', icon: Wifi } : MODES[item.mode!], Icon = entry.icon;
+          const entry = item.screen === 'LAN_MENU' ? { title: 'Sala Wi-Fi', tag: '2 DISPOSITIVOS', icon: Wifi } : MODES[item.mode!], Icon = entry.icon;
           return <button key={item.mode ?? item.screen} type="button" className="title-mode" data-active={selected === index}
             aria-label={`${entry.title} · ${entry.tag}`} onMouseEnter={() => highlight(index)} onFocus={() => highlight(index)} onClick={() => choose(item)}>
             <span className="title-mode-index">{String(index + 1).padStart(2, '0')}</span>
@@ -121,7 +130,7 @@ export default function MainMenu({ items, selected, difficulty, touch, highlight
         <div className="title-slash title-slash-blue" aria-hidden="true" />
         <div className="title-slash title-slash-red" aria-hidden="true" />
         <div className="title-stage-caption" aria-hidden="true">GRECIA / EGIPTO / MÉXICO / JAPÓN</div>
-        <div className="title-fighters" key={mode}><TitleFighters mode={mode} /></div>
+        {active?.screen === 'LAN_MENU' ? <div className="title-network-art" aria-hidden="true"><Gamepad2 className="title-network-pad" /><Wifi className="title-network-signal" /><Gamepad2 className="title-network-pad" /></div> : settings ? <div className="title-network-art title-options-art" aria-hidden="true">{settings === 'DIFFICULTY_MENU' ? <SlidersHorizontal /> : <Gamepad2 />}</div> : <div className="title-fighters" key={mode}><TitleFighters mode={mode} /></div>}
         <div className="title-stage-floor" aria-hidden="true" />
         <div className="title-feature" aria-live="polite">
           <span>{settings ? 'A TU MANERA' : details.tag}</span>

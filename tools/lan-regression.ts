@@ -98,4 +98,20 @@ await test('Sala enlaza personajes, controles, carga y comandos sin permitir que
     await guest.send('leave'); assert.ok(host.error); assert.equal(host.paused, true);
   } finally { await guest.close(); await host.close(); }
 });
+await test('Versus conserva toques breves, carga fuerte, marcador y autoridad del anfitrión', async () => {
+  const a = new FakeWifi(), b = new FakeWifi(); a.peer = b; b.peer = a;
+  const host = new LanSession('host', a), guest = new LanSession('guest', b);
+  try {
+    await host.host(); await guest.join(host.invitations[0]); await guest.select(gods[1].id, true);
+    await host.start({ deities: [gods[0].id, gods[1].id], difficulty: 'NORMAL', mode: 'versus', arena: 3 });
+    assert.equal(guest.config?.mode, 'versus'); assert.equal(guest.config?.arena, 3);
+    guest.sendVersusInput({ left: false, right: false, up: false, down: false, light: true, heavy: true, special: true });
+    guest.sendVersusInput({ left: true, right: false, up: false, down: false, light: false, heavy: false, special: false });
+    const input = host.consumeVersusInput(); assert.ok(input.left && input.light && input.heavy && input.special);
+    const next = host.consumeVersusInput(); assert.ok(next.left && !next.light && !next.heavy && !next.special);
+    await guest.send('versus-state', { fake: true }); assert.equal(host.versusState, null);
+    await guest.send('pause', true); assert.equal(host.paused, true); await host.send('pause', false); assert.equal(guest.paused, false);
+    await guest.send('rematch'); assert.ok(host.consumeCommands().some(command => command.kind === 'rematch'));
+  } finally { await guest.close(); await host.close(); }
+});
 console.log(`\n${passed} pruebas de sincronización LAN aprobadas.`);

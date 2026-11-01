@@ -35,6 +35,12 @@ npm run android:apk
 
 La salida queda en `android/app/build/outputs/apk/debug/app-debug.apk`. `capacitor.config.ts` no contiene `server.url`: se cargan los recursos incluidos. `android:sync` reconstruye y copia `dist` a la app; las copias generadas no se versionan ni duplican los sprites fuente en Git.
 
+## Modos y actualización 1.1
+
+La sala ahora permite arcade, supervivencia cooperativa y versus 1 contra 1. El anfitrión selecciona el modo y, en versus, la arena. Ambos teléfonos deben instalar la versión nueva: el protocolo Wi-Fi es versión 2. Se conserva el identificador de la aplicación y la firma de depuración para actualizar la instalación anterior.
+
+Consulta [MODOS.md](MODOS.md) para las rutas variables, resultados finales, reglas de supervivencia, récords y pruebas de los modos nuevos. La confirmación del usuario en celulares físicos corresponde al arcade cooperativo anterior; los modos nuevos todavía requieren esa prueba.
+
 ## Arquitectura y pruebas
 
 - `LocalWifiPlugin.java` conecta la interfaz Capacitor con `LanTransport.java` (sockets TCP y marcos UTF-8 con longitud).

@@ -1,3 +1,4 @@
+import { validRoute } from '../arcade/run';
 import { ArcadeGame, Hero, Monster, Boss, Beast } from '../arcade/engine';
 import { BEASTS, ORIGEN } from '../arcade/levels';
 import { DEITIES } from '../game/deities';
@@ -6,9 +7,9 @@ import type { MonsterKind, MonsterSkin } from '../arcade/levels';
 type Ref = { r: number };
 type Value = null | string | number | boolean | Ref;
 interface Node { id: number; type: string; meta?: unknown[]; fields: Record<string, Value>; values?: Value[] }
-export interface ArcadeSnapshot { version: 1; level: number; nodes: Node[]; root: Ref }
+export interface ArcadeSnapshot { version: 1; level: number; route?: import('../arcade/run').RouteStop[]; kind?: import('../arcade/run').RunKind; nodes: Node[]; root: Ref }
 const SKIP = new Set(['cfg', 'sheet', 'extraCfg', 'extraSheet', 'sprite', 'art', 'props', 'waves', 'pending', 'deity', 'stats', 'skin', 'def', 'bossDeity']);
-const GAME_KEYS = new Set(['heroes', 'monsters', 'beasts', 'boss', 'orbs', 'thunders', 'items', 'scenery', 'hazards', 'particles', 'camX', 'tick', 'relicChoice', 'relicChoices', 'relicCursors', 'relicCursor', 'rescues', 'lifeLossQueue', 'phase', 'paused', 'continueTimer', 'phaseTimer', 'banner', 'goTimer', 'results', 'record', 'magicCast', 'coopLink', 'coopGuard', 'coopFeedback', 'levelStartTick', 'coop', 'exitRequested', 'shakeTicks', 'shakeIntensity', 'shakeDuration']);
+const GAME_KEYS = new Set(['finishedSeconds', 'runKind', 'history', 'totals', 'completedWaves', 'heroes', 'monsters', 'beasts', 'boss', 'orbs', 'thunders', 'items', 'scenery', 'hazards', 'particles', 'camX', 'tick', 'relicChoice', 'relicChoices', 'relicCursors', 'relicCursor', 'rescues', 'lifeLossQueue', 'phase', 'paused', 'continueTimer', 'phaseTimer', 'banner', 'goTimer', 'results', 'record', 'magicCast', 'coopLink', 'coopGuard', 'coopFeedback', 'levelStartTick', 'coop', 'exitRequested', 'shakeTicks', 'shakeIntensity', 'shakeDuration']);
 const FORBIDDEN = new Set(['__proto__', 'prototype', 'constructor']);
 
 // Solo el anfitrión simula. La copia remota recibe estado visual, nunca imágenes ni entradas ajenas.
@@ -41,7 +42,7 @@ export class SnapshotWriter {
       }
       return { r: id };
     };
-    return { version: 1, level: game.levelIndex, root: encode(game) as Ref, nodes };
+    return { version: 1, level: game.levelIndex, route: game.route, kind: game.runKind, root: encode(game) as Ref, nodes };
   }
 }
 
@@ -60,11 +61,14 @@ export class SnapshotReader {
     if (this.camera.game) this.camera.game.camX = this.camera.from + (this.camera.to - this.camera.from) * mix;
   }
   apply(game: ArcadeGame, raw: ArcadeSnapshot) {
-    if (!raw || raw.version !== 1 || !Number.isInteger(raw.level) || raw.level < 0 || raw.level > 4 || !Array.isArray(raw.nodes) || raw.nodes.length > 12000) throw new Error('Estado de partida inválido');
+    if (!raw || raw.version !== 1 || !Number.isInteger(raw.level) || raw.level < 0 || raw.level > 1000000 || !Array.isArray(raw.nodes) || raw.nodes.length > 12000) throw new Error('Estado de partida inválido');
+    const previousRealm = game.realmIndex;
+    if (raw.route) { if (!validRoute(raw.route, game.heroes.map(hero => hero.deity.id))) throw new Error('Ruta inválida'); game.route = raw.route; }
+    if (raw.kind === 'arcade' || raw.kind === 'survival') game.runKind = raw.kind;
     const sameLevel = raw.level === game.levelIndex;
     const previous = sameLevel ? new Map([...this.actors].map(([id, actor]) => [id, [actor.x, actor.z, actor.y]])) : new Map<number, number[]>();
     const oldCamera = game.camX;
-    game.prepareRemoteLevel(raw.level);
+    game.prepareRemoteLevel(raw.level, previousRealm !== game.realmIndex);
     const objects = new Map<number, unknown>(), currentActors = new Map<number, Hero | Monster | Boss | Beast>();
     const deity = (id: unknown) => DEITIES.find(item => item.id === id) ?? (id === ORIGEN.id ? ORIGEN : null);
     for (const node of raw.nodes) {
