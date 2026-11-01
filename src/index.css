@@ -847,3 +847,7 @@
 .title-network-pad:last-child { transform:rotate(12deg); }
 .title-network-signal { width:20%; height:auto; stroke-width:1.1; color:#f2d18c; }
 .title-options-art>svg { width:40%; height:auto; stroke-width:.8; }
+
+.lan-versus-badge { max-width:calc(100% - 20px); }
+.lan-versus-badge>span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.lan-versus-badge>button { flex-shrink:0; }

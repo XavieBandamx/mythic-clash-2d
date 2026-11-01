@@ -13,6 +13,8 @@ const { readLanInput, readLanInvite, readLanStart, EMPTY_LAN_INPUT } = await imp
 const { LanSession } = await import('../src/lan/session');
 import type { NativeWifi } from '../src/lan/session';
 const gods = DEITIES.slice(0, 2);
+const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+const firstVersusState = (frame = 0) => ({ fighters: [{ x: 280 }, { x: 1000 }], flow: { phase: 'intro', wins: [0, 0] }, timer: 99, frame, shake: 0, cinematic: null });
 let passed = 0;
 async function test(name: string, run: () => void | Promise<void>) { await run(); passed++; console.log(`✓ ${name}`); }
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -89,12 +91,14 @@ await test('Sala enlaza personajes, controles, carga y comandos sin permitir que
     await host.select(gods[0].id, true); await guest.select(gods[1].id, true);
     assert.equal(host.remoteDeity, gods[1].id); assert.equal(guest.remoteDeity, gods[0].id);
     await host.start({ deities: [gods[0].id, gods[1].id], difficulty: 'NORMAL' }); assert.deepEqual(guest.config, host.config);
+    host.publish(new SnapshotWriter().capture(new ArcadeGame(gods, 'NORMAL'))); guest.acknowledgeState();
     host.loaded(true); guest.loaded(true); await Promise.resolve(); assert.ok(host.remoteLoaded && guest.remoteLoaded);
     guest.input({ ...EMPTY_LAN_INPUT, attack: true, right: true }); guest.input({ ...EMPTY_LAN_INPUT, right: false });
+    await settle();
     const input = host.consumeInput(); assert.equal(input.attack, true); assert.equal(input.right, false); assert.equal(host.consumeInput().attack, false);
     await guest.send('blessing', 2); assert.deepEqual(host.consumeCommands(), [{ kind: 'blessing', value: 2 }]);
     await guest.send('state', { fake: true }); assert.equal(host.snapshot, null);
-    const snapshot = new SnapshotWriter().capture(new ArcadeGame(gods, 'NORMAL')); host.publish(snapshot); await Promise.resolve(); assert.equal(guest.snapshot?.version, 1);
+    const snapshot = new SnapshotWriter().capture(new ArcadeGame(gods, 'NORMAL')); host.publish(snapshot); await settle(); assert.equal(guest.snapshot?.version, 1);
     await guest.send('leave'); assert.ok(host.error); assert.equal(host.paused, true);
   } finally { await guest.close(); await host.close(); }
 });
@@ -104,14 +108,96 @@ await test('Versus conserva toques breves, carga fuerte, marcador y autoridad de
   try {
     await host.host(); await guest.join(host.invitations[0]); await guest.select(gods[1].id, true);
     await host.start({ deities: [gods[0].id, gods[1].id], difficulty: 'NORMAL', mode: 'versus', arena: 3 });
+    host.publishVersus(firstVersusState()); guest.acknowledgeState(); host.loaded(true); guest.loaded(true); await settle();
     assert.equal(guest.config?.mode, 'versus'); assert.equal(guest.config?.arena, 3);
     guest.sendVersusInput({ left: false, right: false, up: false, down: false, light: true, heavy: true, special: true });
     guest.sendVersusInput({ left: true, right: false, up: false, down: false, light: false, heavy: false, special: false });
+    await settle();
     const input = host.consumeVersusInput(); assert.ok(input.left && input.light && input.heavy && input.special);
     const next = host.consumeVersusInput(); assert.ok(next.left && !next.light && !next.heavy && !next.special);
     await guest.send('versus-state', { fake: true }); assert.equal(host.versusState, null);
     await guest.send('pause', true); assert.equal(host.paused, true); await host.send('pause', false); assert.equal(guest.paused, false);
     await guest.send('rematch'); assert.ok(host.consumeCommands().some(command => command.kind === 'rematch'));
+  } finally { await guest.close(); await host.close(); }
+});
+await test('El anfitrión espera recursos y confirmación del primer estado antes de avanzar', async () => {
+  const a = new FakeWifi(), b = new FakeWifi(); a.peer = b; b.peer = a;
+  const host = new LanSession('host', a), guest = new LanSession('guest', b);
+  try {
+    await host.host(); await guest.join(host.invitations[0]); await guest.select(gods[1].id, true);
+    await host.start({ deities: [gods[0].id, gods[1].id], difficulty: 'NORMAL', mode: 'versus' });
+    host.loaded(true); guest.loaded(true); await settle(); assert.ok(!host.canSimulate && !guest.canSimulate);
+    host.publishVersus(firstVersusState()); await settle(); assert.ok(!host.canSimulate && !guest.canSimulate); guest.acknowledgeState(); await settle(); assert.ok(host.canSimulate && guest.canSimulate);
+    guest.loaded(false); assert.ok(!host.canSimulate && !guest.canSimulate); guest.loaded(true); assert.ok(host.canSimulate && guest.canSimulate);
+  } finally { await guest.close(); await host.close(); }
+});
+
+class SlowWifi extends FakeWifi {
+  hold = false;
+  sent: string[] = [];
+  waiting: { message: { data: string }; resolve: () => void }[] = [];
+  async send(message: { data: string }) {
+    this.sent.push(message.data);
+    if (!this.hold) return super.send(message);
+    await new Promise<void>(resolve => this.waiting.push({ message, resolve }));
+  }
+  flush() { const next = this.waiting.shift(); if (next) { this.peer.emit('message', { data: next.message.data }); next.resolve(); } }
+}
+await test('Una red lenta conserva solo el estado más reciente y no crea una cola de cuadros', async () => {
+  const a = new SlowWifi(), b = new SlowWifi(); a.peer = b; b.peer = a;
+  const host = new LanSession('host', a), guest = new LanSession('guest', b);
+  try {
+    await host.host(); await guest.join(host.invitations[0]); await guest.select(gods[1].id, true);
+    await host.start({ deities: [gods[0].id, gods[1].id], difficulty: 'NORMAL', mode: 'versus' });
+    host.publishVersus(firstVersusState()); guest.acknowledgeState(); host.loaded(true); guest.loaded(true); await settle();
+    a.hold = true;
+    for (let frame = 1; frame <= 100; frame++) host.publishVersus(firstVersusState(frame));
+    assert.equal(a.waiting.length, 1); a.flush(); await settle(); assert.equal(a.waiting.length, 1); assert.equal(guest.versusState?.frame, 1);
+    a.flush(); await settle(); assert.equal(a.waiting.length, 0); assert.equal(guest.versusState?.frame, 100);
+  } finally { a.hold = b.hold = false; await guest.close(); await host.close(); }
+});
+await test('Controles lentos conservan ataque, súper y toque fuerte sin repetirlos ni dejar movimiento pegado', async () => {
+  let now = 1000;
+  const a = new SlowWifi(), b = new SlowWifi(); a.peer = b; b.peer = a;
+  const host = new LanSession('host', a, () => now), guest = new LanSession('guest', b, () => now);
+  try {
+    await host.host(); await guest.join(host.invitations[0]); await guest.select(gods[1].id, true);
+    await host.start({ deities: [gods[0].id, gods[1].id], difficulty: 'NORMAL', mode: 'versus' });
+    host.publishVersus(firstVersusState()); guest.acknowledgeState(); host.loaded(true); guest.loaded(true); await settle(); b.hold = true;
+    const neutral = { left: false, right: false, up: false, down: false, light: false, heavy: false, special: false };
+    guest.sendVersusInput(neutral);
+    guest.sendVersusInput({ ...neutral, light: true }); guest.sendVersusInput({ ...neutral, heavy: true, special: true }); guest.sendVersusInput(neutral);
+    assert.equal(b.waiting.length, 1); b.flush(); await settle(); b.flush(); await settle();
+    const input = host.consumeVersusInput(); assert.ok(input.light && input.heavy && input.special && !input.left);
+    const next = host.consumeVersusInput(); assert.ok(!next.light && !next.heavy && !next.special);
+    b.hold = false; guest.sendVersusInput({ ...neutral, right: true }); await settle(); assert.equal(host.consumeVersusInput().right, true);
+    now += 251; assert.equal(host.consumeVersusInput().right, false);
+    const before = b.sent.length; guest.sendVersusInput(neutral); await settle();
+    for (let i = 0; i < 100; i++) guest.sendVersusInput(neutral); await settle(); assert.equal(b.sent.length, before + 1);
+  } finally { a.hold = b.hold = false; await guest.close(); await host.close(); }
+});
+await test('La revancha descarta estados, controles y carga pertenecientes al combate anterior', async () => {
+  const a = new SlowWifi(), b = new SlowWifi(); a.peer = b; b.peer = a;
+  const host = new LanSession('host', a), guest = new LanSession('guest', b);
+  try {
+    await host.host(); await guest.join(host.invitations[0]); await guest.select(gods[1].id, true);
+    await host.start({ deities: [gods[0].id, gods[1].id], difficulty: 'NORMAL', mode: 'versus' });
+    host.publishVersus(firstVersusState(500)); guest.acknowledgeState(); host.loaded(true); guest.loaded(true); await settle();
+    const old = a.sent.find(data => JSON.parse(data).kind === 'versus-state')!;
+    host.prepareRematch(); await settle(); assert.equal(guest.round, 2); assert.ok(!guest.ready && !host.ready);
+    b.emit('message', { data: old }); assert.equal(guest.versusState, null);
+    host.loaded(true); guest.loaded(true); await settle(); assert.ok(!host.canSimulate);
+    host.publishVersus(firstVersusState()); await settle(); assert.ok(!host.canSimulate && !guest.canSimulate); guest.acknowledgeState(); await settle(); assert.ok(host.canSimulate && guest.canSimulate); assert.equal((guest.versusState as import('../src/lan/versus').VersusState | null)?.frame, 0);
+  } finally { await guest.close(); await host.close(); }
+});
+await test('La carga tolera demoras, la conexión mide ida y vuelta y una ausencia real sí se detecta', async () => {
+  let now = 1000;
+  const a = new FakeWifi(), b = new FakeWifi(); a.peer = b; b.peer = a;
+  const host = new LanSession('host', a, () => now), guest = new LanSession('guest', b, () => now);
+  try {
+    await host.host(); await guest.join(host.invitations[0]);
+    now += 20000; host.pollConnection(); await settle(); assert.equal(host.error, ''); assert.equal(host.roundTripMs, 0);
+    now += 61000; host.pollConnection(); assert.ok(host.error); assert.equal(host.connected, false);
   } finally { await guest.close(); await host.close(); }
 });
 console.log(`\n${passed} pruebas de sincronización LAN aprobadas.`);

@@ -22,9 +22,9 @@
 
 - El anfitrión elige arcade, supervivencia o versus; en versus también selecciona la arena.
 - Cada jugador controla su personaje con los controles habituales de P1 en su dispositivo. El anfitrión representa a P1 y el invitado a P2.
-- Versus conserva rondas, K.O., victorias y revancha compartida. El anfitrión ejecuta el combate y reloj; el invitado interpola las posiciones. Los toques breves se conservan hasta el siguiente paso de simulación.
+- Versus conserva rondas, K.O., victorias y revancha compartida. El anfitrión ejecuta el combate y reloj; publica a 30 Hz después de simular y el invitado interpola las posiciones. El inicio espera recursos y confirmación del estado inicial; los mensajes anteriores no se reutilizan en una revancha. Los toques breves se conservan hasta el siguiente paso de simulación.
 - Pausa compartida y detención al perder la conexión. Dos dispositivos en la misma red privada o punto de acceso, sin servidores externos ni Bluetooth.
-- El protocolo cambia a versión 2: ambos dispositivos deben actualizar la APK. Android conserva el identificador y usa versionCode 2 / versionName 1.1.
+- El protocolo usa versión 3: ambos dispositivos deben actualizar la APK. Android conserva el identificador y usa versionCode 3 / versionName 1.2.
 
 ## Verificación
 

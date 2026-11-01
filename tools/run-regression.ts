@@ -6,7 +6,7 @@ const { DEITIES } = await import('../src/game/deities');
 const { LEVELS } = await import('../src/arcade/levels');
 const { createRoute, validRoute, gradePoints, gradeLetter, saveSurvivalRecord, survivalRecords } = await import('../src/arcade/run');
 const { SnapshotWriter, SnapshotReader } = await import('../src/lan/snapshot');
-const { fighterState, applyFighterState, applyFlow, readVersusInput } = await import('../src/lan/versus');
+const { fighterState, applyFighterState, applyFlow, readVersusInput, compactVersus, expandVersus, VersusMotion } = await import('../src/lan/versus');
 const { CanvasFighter } = await import('../src/App');
 const { MatchFlow } = await import('../src/game/match');
 const { sounds } = await import('../src/game/sound'); sounds.isMuted = true;
@@ -88,5 +88,22 @@ test('Versus transmite combate y marcador sin reemplazar recursos, clases o mét
   assert.equal(guest.hp, 74); assert.equal(guest.state, 'KNOCKDOWN'); assert.equal(guest.x, 612); assert.ok(guest.sheet); assert.equal(typeof guest.render, 'function');
   const flow = new MatchFlow(); applyFlow(flow, { phase: 'ko', wins: [1, 2], elapsed: 80, round: 3, roundWinner: 2, reason: 'ko' }); assert.deepEqual(flow.wins, [1, 2]); assert.equal(flow.roundWinner, 2);
   assert.equal(readVersusInput({ light: 'true', heavy: true }).light, false); assert.equal(readVersusInput({ heavy: true }).heavy, true);
+});
+test('El formato compacto conserva todos los campos y reduce el tamaño del duelo', () => {
+  const fighters = [new CanvasFighter(1, gods[0], false, 280, 1), new CanvasFighter(2, gods[1], false, 1000, -1)];
+  const state = { fighters: fighters.map(fighterState), flow: { phase: 'fight', wins: [0, 0] }, timer: 99, frame: 100, shake: 0, cinematic: null };
+  const compact = compactVersus(state), restored = expandVersus(JSON.parse(JSON.stringify(compact)));
+  assert.deepEqual(restored.fighters, state.fighters);
+  const before = JSON.stringify(state).length, after = JSON.stringify(compact).length;
+  assert.ok(after < before * .85); console.log(`  Cuadro versus: ${before} → ${after} bytes`);
+});
+test('El invitado alcanza antes su propia posición sin predecir golpes y los reinicios no se arrastran', () => {
+  let now = 1000;
+  const fighters = [new CanvasFighter(1, gods[0], false, 280, 1), new CanvasFighter(2, gods[1], false, 1000, -1)];
+  const motion = new VersusMotion(() => now);
+  motion.apply(fighters, [{ ...fighterState(fighters[0]), x: 320 }, { ...fighterState(fighters[1]), x: 1040 }]);
+  now += 17; motion.smooth(now); assert.equal(fighters[1].x, 1040); assert.ok(fighters[0].x > 280 && fighters[0].x < 320);
+  motion.apply(fighters, [{ ...fighterState(fighters[0]), x: 280 }, { ...fighterState(fighters[1]), x: 1000 }], true);
+  motion.smooth(now); assert.equal(fighters[0].x, 280); assert.equal(fighters[1].x, 1000);
 });
 console.log(`\n${passed} pruebas de rutas, supervivencia, resultados y versus aprobadas.`);

@@ -1749,8 +1749,9 @@ export default function App({ createLanSession }: { createLanSession?: (role: 'h
     sounds.isMuted = isMuted;
   }, [isMuted]);
 
-  // Precarga todas las hojas de sprites para que la selección no muestre el dibujo procedural mientras descargan
+  // En Android cada pantalla carga sus recursos; la sala prepara solo el combate elegido.
   useEffect(() => {
+    if (hasLocalWifi()) return;
     DEITIES.forEach(d => {
       loadSpriteSheet(getSpriteSheetConfig(d).src);
       const extra = getExtraSheetConfig(d);
@@ -2036,7 +2037,7 @@ export default function App({ createLanSession }: { createLanSession?: (role: 'h
   };
 
   const startFight = () => {
-    if (lanSession?.config?.mode === 'versus') { void lanSession.send('rematch'); if (lanSession.role === 'guest') return; }
+    if (lanSession?.config?.mode === 'versus') { if (lanSession.role === 'guest') { void lanSession.send('rematch'); return; } lanSession.prepareRematch(); }
     sounds.init();
     if (gameMode === 'ARCADE' || gameMode === 'SURVIVAL' || (gameMode === 'ARCADE_COOP' || gameMode === 'SURVIVAL_COOP')) {
       setGameState('ARCADE');
@@ -2137,7 +2138,7 @@ export default function App({ createLanSession }: { createLanSession?: (role: 'h
     const stepSimulation = () => {
       if (lanSession?.config?.mode === 'versus') {
         if (lanSession.paused || lanSession.error) keysPressedRef.current = {};
-        if (lanSession.role === 'guest' || lanSession.paused || !lanSession.connected || !lanSession.localLoaded || !lanSession.remoteLoaded || lanSession.error) return;
+        if (lanSession.role === 'guest' || !lanSession.canSimulate) return;
         const remote = lanSession.consumeVersusInput(), keys = keysPressedRef.current;
         if ((keys['KeyI'] || keys['i']) && !remote.heavy) p2Ref.current?.releaseHeavyInput();
         Object.assign(keys, { ArrowLeft: remote.left, ArrowRight: remote.right, ArrowUp: remote.up, ArrowDown: remote.down, KeyU: remote.light, u: remote.light, KeyI: remote.heavy, i: remote.heavy, KeyO: remote.special, o: remote.special });
@@ -2309,8 +2310,8 @@ export default function App({ createLanSession }: { createLanSession?: (role: 'h
     };
 
     let lastTime = performance.now();
-    let lastNetwork = 0;
-    let lastRemoteState = lanSession?.versusState;
+    let lastNetwork = 0, nextStateAt = 0;
+    let lastRemoteState: LanSession['versusState'] = null;
     const remoteMotion = new VersusMotion();
     let accumulator = 0;
     const gameLoop = (now: number) => {
@@ -2318,27 +2319,23 @@ export default function App({ createLanSession }: { createLanSession?: (role: 'h
         lanSession.loaded(!fightLoading());
         if (lanSession.role === 'guest') {
           const keys = keysPressedRef.current;
-          if (now - lastNetwork >= 30) {
+          if (now - lastNetwork >= 100) {
             lanSession.sendVersusInput({ left: !!(keys.KeyA || keys.a), right: !!(keys.KeyD || keys.d), up: !!(keys.KeyW || keys.w), down: !!(keys.KeyS || keys.s), light: !!(keys.KeyJ || keys.j), heavy: !!(keys.KeyK || keys.k), special: !!(keys.KeyL || keys.l) });
             keys.KeyJ = keys.j = keys.KeyL = keys.l = false; lastNetwork = now;
           }
           const remote = lanSession.versusState;
           if (remote && remote !== lastRemoteState && p1Ref.current && p2Ref.current && matchFlowRef.current) {
             try {
-              remoteMotion.apply([p1Ref.current, p2Ref.current], remote.fighters, matchFlowRef.current.round !== remote.flow.round); applyFlow(matchFlowRef.current, remote.flow);
+              remoteMotion.apply([p1Ref.current, p2Ref.current], remote.fighters, matchFlowRef.current.round !== remote.flow.round || remote.frame < frameCountRef.current); applyFlow(matchFlowRef.current, remote.flow);
               matchTimerRef.current = remote.timer; frameCountRef.current = remote.frame; cameraShakeRef.current = remote.shake;
               superCinematicRef.current = remote.cinematic ? { active: true, caster: remote.cinematic.caster === 1 ? p1Ref.current.deity : p2Ref.current.deity, timer: remote.cinematic.timer } : null;
               if (matchFlowRef.current.phase === 'complete' && gameState !== 'GAME_OVER') { setWinner(matchFlowRef.current.roundWinner === 1 ? p1Ref.current.deity : p2Ref.current.deity); setGameState('GAME_OVER'); }
               else if (gameState === 'GAME_OVER' && matchFlowRef.current.phase !== 'complete') { setWinner(null); setGameState('FIGHT'); }
-              lastRemoteState = remote;
+              lastRemoteState = remote; lanSession.acknowledgeState();
             } catch { lanSession.error = 'No se pudo sincronizar el duelo. Ambos necesitan la misma APK.'; refreshNetwork(value => value + 1); }
           }
         } else {
           for (const command of lanSession.consumeCommands()) if (command.kind === 'rematch' && gameState === 'GAME_OVER') startFight();
-          if (now - lastNetwork >= 50 && p1Ref.current && p2Ref.current && matchFlowRef.current) {
-            const flow = matchFlowRef.current;
-            lanSession.publishVersus({ fighters: [fighterState(p1Ref.current), fighterState(p2Ref.current)], flow: { phase: flow.phase, elapsed: flow.elapsed, round: flow.round, wins: flow.wins, roundWinner: flow.roundWinner, reason: flow.reason }, timer: matchTimerRef.current, frame: frameCountRef.current, shake: cameraShakeRef.current, cinematic: superCinematicRef.current ? { caster: superCinematicRef.current.caster.id === p1Ref.current.deity.id ? 1 : 2, timer: superCinematicRef.current.timer } : null }); lastNetwork = now;
-          }
         }
       }
       // Tope de 250 ms: al volver de una pestaña en segundo plano no se simulan cientos de pasos de golpe
@@ -2349,6 +2346,14 @@ export default function App({ createLanSession }: { createLanSession?: (role: 'h
         accumulator -= SIM_STEP_MS;
       }
 
+      if (lanSession?.role === 'host' && lanSession.config?.mode === 'versus') {
+          if (now >= nextStateAt && p1Ref.current && p2Ref.current && matchFlowRef.current) {
+            const flow = matchFlowRef.current;
+            lanSession.publishVersus({ fighters: [fighterState(p1Ref.current), fighterState(p2Ref.current)], flow: { phase: flow.phase, elapsed: flow.elapsed, round: flow.round, wins: flow.wins, roundWinner: flow.roundWinner, reason: flow.reason }, timer: matchTimerRef.current, frame: frameCountRef.current, shake: cameraShakeRef.current, cinematic: superCinematicRef.current ? { caster: superCinematicRef.current.caster.id === p1Ref.current.deity.id ? 1 : 2, timer: superCinematicRef.current.timer } : null });
+            const interval = lanSession.paused ? 250 : lanSession.canSimulate ? 1000 / 30 : 100;
+            nextStateAt += interval; if (nextStateAt <= now) nextStateAt = now + interval;
+          }
+      }
       if (lanSession?.role === 'guest' && lanSession.config?.mode === 'versus') remoteMotion.smooth(now);
       if (gameState === 'FIGHT' || gameState === 'GAME_OVER') {
         renderFightScene(ctx, canvas.width, canvas.height);
@@ -3143,10 +3148,10 @@ export default function App({ createLanSession }: { createLanSession?: (role: 'h
           </div>
         )}
 
-        {lanSession?.config?.mode === 'versus' && gameState === 'FIGHT' && !lanSession.error && <div className="lan-versus-badge"><span>WI-FI · CONTROLAS A {DEITIES[lanSession.player === 0 ? p1DeityIndex : p2DeityIndex].name.toUpperCase()}</span><button onClick={() => { lanSession.paused = !lanSession.paused; void lanSession.send('pause', lanSession.paused); refreshNetwork(value => value + 1); }}>Pausa</button></div>}
-        {lanSession?.config?.mode === 'versus' && (gameState === 'FIGHT' || gameState === 'GAME_OVER') && (!lanSession.connected || lanSession.error || lanSession.paused || !lanSession.remoteLoaded) && <div className="lan-overlay"><h2>{lanSession.error ? 'Conexión interrumpida' : lanSession.paused ? 'Duelo pausado' : 'Esperando al rival'}</h2><p>{lanSession.error || 'Mantengan ambos celulares conectados y el juego abierto.'}</p>{lanSession.connected && !lanSession.error && lanSession.remoteLoaded && <button className="arena-confirm" onClick={() => { lanSession.paused = false; void lanSession.send('pause', false); refreshNetwork(value => value + 1); }}>Reanudar</button>}<button onClick={() => setGameState('MAIN_MENU')}>Volver al menú</button></div>}
+        {lanSession?.config?.mode === 'versus' && gameState === 'FIGHT' && !lanSession.error && <div className="lan-versus-badge"><span>{lanSession.connectionLabel} · CONTROLAS A {DEITIES[lanSession.player === 0 ? p1DeityIndex : p2DeityIndex].name.toUpperCase()}</span><button onClick={() => { lanSession.paused = !lanSession.paused; void lanSession.send('pause', lanSession.paused); refreshNetwork(value => value + 1); }}>Pausa</button></div>}
+        {lanSession?.config?.mode === 'versus' && (gameState === 'FIGHT' || gameState === 'GAME_OVER') && (!lanSession.connected || lanSession.error || lanSession.paused || !lanSession.canSimulate) && <div className="lan-overlay"><h2>{lanSession.error ? 'Conexión interrumpida' : lanSession.paused ? 'Duelo pausado' : 'Preparando el duelo'}</h2><p>{lanSession.error || (lanSession.paused ? 'Mantengan ambos celulares conectados y el juego abierto.' : lanSession.startupMessage)}</p>{lanSession.connected && !lanSession.error && lanSession.ready && lanSession.paused && <button className="arena-confirm" onClick={() => { lanSession.paused = false; void lanSession.send('pause', false); refreshNetwork(value => value + 1); }}>Reanudar</button>}<button onClick={() => setGameState('MAIN_MENU')}>Volver al menú</button></div>}
         {/* CONTROLES TÁCTILES: joystick y botones en versus, torre y arcade */}
-        {showTouchControls && gameState === 'FIGHT' && !lanSession?.paused && !lanSession?.error && <TouchControls mode="versus" />}
+        {showTouchControls && gameState === 'FIGHT' && !lanSession?.paused && !lanSession?.error && (!lanSession || lanSession.canSimulate) && <TouchControls mode="versus" />}
       </div>
     </div>
   );

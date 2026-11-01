@@ -11,3 +11,7 @@ __pycache__/
 artifacts/
 *.jks
 *.keystore
+
+# Arte fuente y APK se respaldan/distribuyen fuera del código versionado.
+assets/sprites/*-original.webp
+*.apk

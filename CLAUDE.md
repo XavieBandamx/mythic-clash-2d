@@ -10,10 +10,11 @@ Juego de peleas 2D en navegador (React + Canvas) con dioses de **Grecia, Egipto,
 
 Esta guía describe la implementación actual, incluidas las mejoras de rutas, resultados, supervivencia y versus por Wi-Fi. No usar el orden fijo de reinos ni la selección del primer jefe disponible como referencia del arcade. Los detalles de estos modos están en `MODOS.md` y los de la APK en `ANDROID.md`.
 
-- Android **1.1**, versionCode **2**, identificador `mx.mythicclash.game`. APK de depuración para pruebas; conservar su firma al actualizarla.
-- Protocolo LAN **2**: ambos dispositivos deben actualizarse. Se juega por Wi-Fi local o punto de acceso sin datos. Bluetooth queda para después.
+- Android **1.2**, versionCode **3**, identificador `mx.mythicclash.game`. APK de depuración para pruebas; conservar su firma al actualizarla.
+- Protocolo LAN **3**: ambos dispositivos deben actualizarse. Se juega por Wi-Fi local o punto de acceso sin datos. Bluetooth queda para después.
 - El usuario y su hijo completaron el arcade cooperativo anterior en celulares físicos. Los modos nuevos necesitan otra prueba física; la prueba entre pestañas no demuestra su respuesta sobre una red real.
-- Las fuentes y los recursos están incluidos en la APK. No duplicar sprites ni publicar originales o APK dentro de Git; las APK se adjuntan a versiones de GitHub.
+- **Pulido Wi-Fi 1.2:** ver `ANDROID.md`. Inicio confirmado por ambos dispositivos tras aplicar el primer estado; versus a 30 Hz después de simular, formato compacto, una escritura activa y una reciente pendiente, controles agrupados sin perder toques breves, RTT visible, espera de carga tolerante y revanchas aisladas. Las pruebas con retrasos no sustituyen medir el juego en celulares físicos.
+- Las fuentes y los recursos están incluidos en la APK. No duplicar sprites ni volver a añadir originales o APK a Git; las APK se adjuntan a versiones de GitHub.
 
 ## Cómo correrlo
 
@@ -67,7 +68,8 @@ src/
   lan/
     LanLobby.tsx        Sala privada: personajes, modo, dificultad y arena
     protocol.ts        Validación y versión del protocolo LAN
-    session.ts         Transporte nativo, entradas, carga, pausa y comandos
+    session.ts         Sesiones, inicio confirmado, RTT, controles y comandos
+    outbox.ts          Escritura activa y copia reciente pendiente, sin cola de cuadros
     snapshot.ts        Copias visuales del arcade y supervivencia
     versus.ts          Estado, controles e interpolación del duelo Wi-Fi
 public/
@@ -76,19 +78,21 @@ public/
   backgrounds/*.webp           Fondos y suelos del arcade + Telar del Cosmos
   items/*.webp                 Magia, comida, vasija-N / vasija-rota-N y trampa-N del arcade (N = nivel 0 Grecia … 3 Japón)
   props/<reino>-N.webp         Objetos de primer plano del arcade (6 por reino: grecia, egipto, mexico, japon)
-assets/sprites/                Todas las hojas: <id>.webp / <id>-extra.webp y sus fuentes <id>-original.webp / <id>-extra-original.webp
+assets/sprites/                Solo las 47 hojas de juego: <id>.webp / <id>-extra.webp
 art-src/                       Otros originales (fondos, objetos y medallones; no se publican)
 art-src/logo/                  Logo (logo-v1) e ícono (icono-v1) sobre fondo verde: aprobados pero AÚN NO se usan en el juego
 tools/process_sprites.py       Recorta una hoja 4x4 irregular a cuadros iguales con los pies alineados
 ```
 
-Los originales y los recortes están juntos en `assets/sprites/`: 47 hojas de juego y 47 originales con sufijo `-original.webp`. `spriteAssetSrc()` resuelve las mismas URLs y caché para todos los modos. El glob de Vite excluye los originales del empaquetado; solo publica los recortes. No duplicar hojas en `public`, en `characters` ni por modo. Se retiraron las versiones antiguas con reemplazo vigente.
+`assets/sprites/` contiene únicamente las **47 hojas usadas por el juego**: 26 de dioses/Origen (principal y extra), 17 de monstruos y 4 de bestias. `spriteAssetSrc()` comparte las mismas URLs y caché entre modos. Los 47 originales de edición se retiraron del árbol de Git por solicitud del usuario y se respaldaron, con hashes SHA-256 verificados, en **`D:/Repositorios/mythic-clash-2d-fuentes-sprites/`** (`SHA256.json`). No eliminarlos del respaldo ni volver a incorporarlos al repositorio. Los originales también siguen recuperables desde el historial anterior; no se reescribió la historia de Git.
+
+En `artifacts/android/` se conserva solo `mythic-clash-2d-wifi-fluido-1.2.apk` y su archivo `.sha256`, ambos ignorados por Git. Publicar esos dos archivos como adjuntos de la versión Android 1.2; retirar APK/sumas antiguas de versiones previas y conservar el historial de cambios. Los originales de fondos, objetos y medallones en `art-src/` son fuentes de otros recursos y no forman parte de la limpieza de sprites.
 
 ## Lo que ya existe
 
 ### Modos de juego (menú principal)
 - **Versus local (P1 vs P2)** y **contra la IA**, con 3 dificultades. Hay 5 arenas pintadas: Coliseo del Olimpo, Tribunal de Osiris, Cancha de Tenochtitlan, Dojo de la Tormenta y Torre de Babel. Antes de pelear se elige la arena (o aleatoria).
-- **Arcade (Camino de los Dioses)**: beat 'em up de cuatro reinos en orden variable (Grecia, Egipto, México, Japón), guardianes sorteados entre los dioses que no usan los jugadores, dificultad por etapa y un nivel final contra **Origen**, el Tejedor de Mundos, un jefe no jugable al doble de tamaño. Rediseñado como titán cósmico con máscara dorada, con sus dos hojas (`assets/sprites/origen-original.webp` y `origen-extra-v2.webp`).
+- **Arcade (Camino de los Dioses)**: beat 'em up de cuatro reinos en orden variable (Grecia, Egipto, México, Japón), guardianes sorteados entre los dioses que no usan los jugadores, dificultad por etapa y un nivel final contra **Origen**, el Tejedor de Mundos, un jefe no jugable al doble de tamaño. Rediseñado como titán cósmico con máscara dorada, con sus dos hojas activas (`assets/sprites/origen.webp` y `assets/sprites/origen-extra.webp`).
 - **Arcade cooperativo** para 2 jugadores. Al caer, si el compañero sigue vivo hay 8 segundos para rescatarlo: acercarse (100 px en X y 36 en profundidad) y mantener abajo 1.5 segundos, sin recibir golpes. El rescatado vuelve con 35% de vida, sin gastar vida ni ganar magia. Si expira el plazo o caen ambos, se procesa la pérdida de vida normal; vencer al jefe recupera al compañero que siga caído. Continuar cuesta la mitad de los puntos del jugador que regresa, tanto individualmente como cuando caen ambos. Cada jugador activo elige su propia bendición con sus controles o su panel; el siguiente reino espera ambas confirmaciones. Un jugador sin vidas no bloquea la elección y puede continuar en el siguiente combate.
 - **Tácticas cooperativas:** una pareja de enemigos por oleada se enlaza, recibe 60% del daño y reparte sus objetivos. Dos jugadores deben golpear a miembros distintos dentro de 120 ticks para romper el enlace y abrirlos. Los jefes pueden plantar una guardia de 240 ticks con orientación fija: dos jugadores golpeando desde lados opuestos en 120 ticks la rompen y dejan una apertura. Solo se activa con espacio lateral y no interrumpe poderes ni introducciones. Anillos en el suelo y un aviso en el HUD explican las tácticas; se cancelan cuando no quedan dos jugadores en pie. Los rayos alternan jugadores y fijan su posición al aparecer el círculo. La vida adicional cooperativa baja a ×1.15 en monstruos y ×1.25 en jefes. El modo individual conserva su comportamiento. `MYTHIC_COOP_SOAK=1` ejecuta recorridos automáticos de dos parejas además de las pruebas normales.
 - **Torre de los Dioses**: 8 pisos de versus contra rivales al azar (2 por reino), IA que sube de nivel, 3 continues, Origen en la cima y un final escrito para cada dios.
@@ -101,8 +105,8 @@ Los originales y los recortes están juntos en `assets/sprites/`: 47 hojas de ju
 ### Dioses
 - 12 dioses, cada uno con un **estilo** (Poder, Velocidad, Guardián, Alcance), una **pasiva única** (rayo de Zeus, quemadura de Ra, esquiva de Anubis, renacer de Osiris, doble salto de Quetzalcóatl…) y un **súper propio** en versus.
 - Las hojas principales están en **alta resolución** (~250–300 px de alto) y se escalan hacia abajo en `SPRITE_SHEET_OVERRIDES` (`sprites.ts`).
-- **Rediseño:** las hojas principales de 11 dioses se rehicieron en ChatGPT con **Susanoo como modelo** de altura, complexión y estilo (mismo tamaño en los 16 cuadros, de pie sin auras ni nubes). Los originales están en `assets/sprites/<dios>-original.webp`. Después Susanoo también se rehízo, con Amaterasu nueva como modelo, para que no quedara atrás. Todas comparten una sola escala (`REDESIGN_SCALE` en `sprites.ts`), porque medir por la altura en idle encoge a los de corona o penacho alto.
-- Con el mismo modelo se rehicieron también las **4 bestias**, los **17 monstruos y mini-jefes** y los **13 medallones** (originales en `assets/sprites`, `assets/sprites` y `art-src/portraits`, con sufijo `-v2`).
+- **Rediseño:** las hojas principales de 11 dioses se rehicieron en ChatGPT con **Susanoo como modelo** de altura, complexión y estilo (mismo tamaño en los 16 cuadros, de pie sin auras ni nubes). Los originales se conservan fuera de Git en `<fuentes>/<dios>-original.webp`, donde `<fuentes>` es el respaldo indicado arriba. Después Susanoo también se rehízo, con Amaterasu nueva como modelo, para que no quedara atrás. Todas comparten una sola escala (`REDESIGN_SCALE` en `sprites.ts`), porque medir por la altura en idle encoge a los de corona o penacho alto.
+- Con el mismo modelo se rehicieron también las **4 bestias**, los **17 monstruos y mini-jefes** y los **13 medallones** (fuentes de hojas en el respaldo externo; fuentes de medallones en `art-src/portraits`).
 - **Segunda hoja** (filas: salto, defensa, súper, golpe fuerte + victoria): **los 12 dioses y Origen la tienen**, hecha en ChatGPT a partir de su hoja rediseñada (`EXTRA_SHEET_OVERRIDES`): en versus se usa para salto, bloqueo, súper, golpe fuerte y victoria; en arcade, para salto, magia, remate del combo y embestida del héroe, y para poderes, guardia y salto de los jefes. Sin ella, el dios usa la hoja principal.
 
 ### Arcade
@@ -125,8 +129,8 @@ Los originales y los recortes están juntos en `assets/sprites/`: 47 hojas de ju
 
 ## Flujo para meter arte nuevo
 
-1. Guarda el original de una hoja en `assets/sprites/<id>-original.webp` (o `<id>-extra-original.webp`). Para fondos, props y otros tipos se conserva `art-src/...`.
-2. Recorta la hoja 4x4: `python tools/process_sprites.py assets/sprites <carpeta_temporal> id=id-original.webp`. Genera `id.png`, `_debug_id.png` (para revisar los cortes) y `_meta.json` con `frameWidth`, `frameHeight` e `idleHeight`. Usa una carpeta temporal para estos archivos intermedios; a `assets/sprites` solo regresa el WebP final.
+1. Guarda el original fuera del repositorio en `<fuentes>/<id>-original.webp` (o `<id>-extra-original.webp`), junto al respaldo de fuentes. Para fondos, props y otros tipos se conserva `art-src/...`.
+2. Recorta la hoja 4x4: `python tools/process_sprites.py <fuentes> <carpeta_temporal> id=id-original.webp`. Genera `id.png`, `_debug_id.png` (para revisar los cortes) y `_meta.json` con `frameWidth`, `frameHeight` e `idleHeight`. Usa una carpeta temporal para estos archivos intermedios; a `assets/sprites` solo regresa el WebP final.
    - Si salen chispas sueltas pegadas a otro cuadro, bórralas en el original y vuelve a procesar.
    - Cuidado: el script conserva una regla de recorte para hojas antiguas de `hades` o `quetzalcoatl`; no se aplica a los originales actuales `-original.webp`.
 3. Convierte a WebP (calidad 90) en `assets/sprites/<id>.webp` (o `<id>-extra.webp`) y nunca subas PNG grandes:
@@ -147,11 +151,11 @@ Los originales y los recortes están juntos en `assets/sprites/`: 47 hojas de ju
 - **Bestias:** `height` en `BEASTS` (`levels.ts`) = `idleHeight` × 0.73 (la escala de los dioses). `seat` es el punto de la silla en px de hoja desde el centro y desde los pies; se ajusta montando a un dios y viendo que se siente en la silla.
 
 ### Prompts que sí funcionaron
-- **Rediseño con modelo (ChatGPT):** adjuntar primero la hoja a corregir y luego `assets/sprites/susanoo-original.webp`, diciendo "MASTER REFERENCE for size, body proportions and art quality only. Do NOT draw Susanoo". Pedir mismo tamaño en los 16 cuadros, idle de pie sin auras, efectos solo en el ataque, 4x4, 1536x1024 y fondo negro.
+- **Rediseño con modelo (ChatGPT):** adjuntar primero la hoja a corregir y luego `<fuentes>/susanoo-original.webp`, diciendo "MASTER REFERENCE for size, body proportions and art quality only. Do NOT draw Susanoo". Pedir mismo tamaño en los 16 cuadros, idle de pie sin auras, efectos solo en el ataque, 4x4, 1536x1024 y fondo negro.
 - **Medallones (ChatGPT):** adjuntar un medallón nuevo del mismo reino como modelo y pedir el **símbolo o animal sagrado** del dios tallado en relieve (no su cara), mismo aro dorado y mismo borde por reino (meandro griego, jeroglíficos con disco alado, escalonado azteca, olas y nubes con torii).
 - **Mejorar resolución de una hoja (Gemini Pro, chat nuevo, adjuntar la hoja):** pedir "high resolution upscale… This is an upscale, NOT a new drawing… keep the exact same 4x4 layout… copy every pose exactly… 4K… at least 250 pixels tall".
 - **Personaje nuevo con estilo de referencia (Gemini):** decir explícitamente "Use it ONLY as a reference for the art style… Do NOT draw the character from the reference". Si no, dibuja al de la referencia.
-- **Segunda hoja de un dios:** adjuntar su hoja rediseñada (`assets/sprites/<dios>-original.webp`) y usar esta plantilla, cambiando los rasgos y el súper de cada dios:
+- **Segunda hoja de un dios:** adjuntar su hoja rediseñada (`<fuentes>/<dios>-original.webp`) y usar esta plantilla, cambiando los rasgos y el súper de cada dios:
 
 ```text
 The attached image is the sprite sheet of a character from my 2D fighting game. I need a SECOND sprite sheet of this exact same character with new animations.
@@ -179,14 +183,14 @@ Plain solid pure black background. No text, no labels, no numbers, no grid lines
 
 ## Pendientes actuales (en orden de prioridad)
 
-1. **Prueba física de la versión 1.1:** versus Wi-Fi (respuesta de golpes, bloqueo, carga fuerte y revancha), supervivencia larga, récords en ambos dispositivos y resultados de un arcade completo con ruta variable. Probar también con punto de acceso sin datos.
+1. **Prueba física de la versión 1.2:** versus Wi-Fi (respuesta de golpes, bloqueo, carga fuerte y revancha), supervivencia larga, récords en ambos dispositivos y resultados de un arcade completo con ruta variable. Probar también con punto de acceso sin datos.
 2. **Conexión y balance:** medir los tropiezos iniciales reportados; señal del router, carga y sincronización son hipótesis, no diagnósticos confirmados. Evaluar latencia del invitado y escalado de oleadas antes de ajustar valores. No atribuir el problema a velocidad de internet: la LAN no requiere salida a internet.
 3. **Android para distribución estable:** firma de lanzamiento y respaldo de la clave, icono/pantalla inicial definitivos. La APK sigue firmada para depuración. Los logos aprobados de `art-src/logo/` aún no están integrados y quedan fuera de esta publicación.
 4. **Audio y presentación:** música de menú/reinos/jefes con licencia comprobada y fondos del arcade en capas. Hoy hay efectos sintetizados y fondos de una sola imagen.
 5. **Más adelante, a decisión del usuario:** personajes nuevos (el punto 5 se pospuso expresamente), progresión/logros/aspectos/reto diario y Bluetooth. No dar estos elementos por autorizados o terminados.
 6. **Detalles heredados:** poses de agachado extra sin uso, conversión WebP manual en la herramienta de recorte y ayudas de teclado que todavía muestran J/K/L cuando se reasignan controles.
 
-Validación de esta entrega: 58 regresiones de combate, 12 de rutas/supervivencia/resultados y 6 LAN; recorridos automáticos con los 12 dioses y dos parejas; compilaciones web y Android. Interfaz de ruta/resultados revisada en vertical 360×640 y 390×844 y horizontal 844×390. El versus se comprobó entre dos instancias reales de App con transporte simulado (sala, personajes, movimiento remoto y pausa compartida).
+Validación de esta entrega (incluye limpieza de inventario): 58 regresiones de combate, 14 de rutas/supervivencia/resultados y 11 LAN; recorridos automáticos con los 12 dioses y dos parejas; compilaciones web y Android. Interfaz de ruta/resultados revisada en vertical 360×640 y 390×844 y horizontal 844×390. El versus se comprobó entre dos instancias reales de App con transporte simulado (sala, personajes, movimiento remoto y pausa compartida).
 
 ## Cómo probar sin jugar a mano
 

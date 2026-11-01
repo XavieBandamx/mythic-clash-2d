@@ -3,7 +3,7 @@ import type { RouteStop } from '../arcade/run';
 import type { ArcadeInput } from '../arcade/engine';
 import type { Difficulty } from '../game/core';
 
-export const LAN_VERSION = 2;
+export const LAN_VERSION = 3;
 export const EMPTY_LAN_INPUT: ArcadeInput = { left: false, right: false, up: false, down: false, attack: false, jump: false, magic: false, tapLeft: false, tapRight: false };
 export function readLanInput(value: unknown): ArcadeInput {
   const record = value && typeof value === 'object' ? value as Record<string, unknown> : {};

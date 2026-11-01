@@ -52,11 +52,11 @@ test('Las hojas principales y extra de cada dios coinciden con su cuadrÃ­cula 4Ã
     }
   }
 });
-test('El inventario compartido coincide con los personajes usados y sus originales', () => {
+test('El inventario compartido contiene solo las hojas usadas por el juego', () => {
   const ids = [...DEITIES, ORIGEN].flatMap(d => [d.id, `${d.id}-extra`]);
   ids.push(...Object.keys(MONSTER_SPRITES), ...Object.values(BEASTS).map(b => b.id));
   assert.equal(new Set(ids).size, ids.length, 'No debe haber IDs de sprite duplicados');
-  assert.deepEqual(readdirSync('assets/sprites').sort(), ids.flatMap(id => [`${id}.webp`, `${id}-original.webp`]).sort());
+  assert.deepEqual(readdirSync('assets/sprites').sort(), ids.map(id => `${id}.webp`).sort());
   for (const [id, meta] of Object.entries(MONSTER_SPRITES)) {
     assert.deepEqual(webpSize(`.${spriteAssetSrc(id)}`), [meta.frameWidth * 4, meta.frameHeight * 4]);
   }

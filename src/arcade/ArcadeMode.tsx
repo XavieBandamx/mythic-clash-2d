@@ -95,7 +95,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
 
     const game = new ArcadeGame(deities, difficulty, { kind, route: network?.config?.route, remember: !network || network.role === 'host' });
     const writer = new SnapshotWriter(), reader = new SnapshotReader();
-    let lastSnapshot = network?.snapshot, lastPublish = 0, lastInput = 0;
+    let lastSnapshot: LanSession['snapshot'] = null, lastPublish = 0, lastInput = 0;
     gameRef.current = game; setRoute(game.route);
     let shownPhase = game.phase;
     let shownRelic = game.relicChoice;
@@ -177,7 +177,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
         const input = readInput(SOLO_KEYS);
         if (now - lastInput >= 30 || input.attack || input.jump || input.magic || input.tapLeft || input.tapRight) { network.input(input); lastInput = now; pressed.clear(); }
         if (network.snapshot && network.snapshot !== lastSnapshot) {
-          try { reader.apply(game, network.snapshot); lastSnapshot = network.snapshot; }
+          try { reader.apply(game, network.snapshot); lastSnapshot = network.snapshot; network.acknowledgeState(); }
           catch { network.error = 'No se pudo sincronizar la partida. Ambos necesitan la misma APK.'; network.paused = true; connectionChanged(value => value + 1); }
         }
         accumulator = 0;
@@ -189,7 +189,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
         }
         game.paused = network.paused || !network.connected || !!network.error;
       }
-      const ready = routeReadyRef.current && (!network || network.role === 'host' && network.connected && !network.error && network.localLoaded && network.remoteLoaded);
+      const ready = routeReadyRef.current && (!network || network.role === 'host' && network.canSimulate);
       if (network?.paused || network?.error) { held.clear(); pressed.clear(); }
       if (!ready) accumulator = 0;
       while (accumulator >= SIM_STEP_MS) {
@@ -197,7 +197,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
         pressed.clear(); // Cada pulsación se consume en un solo paso
         accumulator -= SIM_STEP_MS;
       }
-      if (network?.role === 'host' && now - lastPublish >= 50) { network.publish(writer.capture(game)); lastPublish = now; }
+      if (network?.role === 'host' && now - lastPublish >= (network.canSimulate ? 50 : 200)) { network.publish(writer.capture(game)); lastPublish = now; }
       if (network?.role === 'guest') reader.smooth(now);
       game.render(ctx);
       // El HUD legible de la consola vertical se actualiza sin cambiar la simulación.
@@ -262,7 +262,7 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
         className="arcade-canvas"
       />
       </div>
-      {routeReady && touch && !showRelics && !network?.paused && !network?.error && (phase === 'play' || phase === 'boss' || phase === 'bossIntro') && <TouchControls mode="arcade" docked />}
+      {routeReady && touch && !showRelics && !network?.paused && !network?.error && (!network || network.canSimulate) && (phase === 'play' || phase === 'boss' || phase === 'bossIntro') && <TouchControls mode="arcade" docked />}
       </div>
       {!routeReady && route.length > 0 && <RunRoute route={route} survival={kind === 'survival'} ready={() => { routeReadyRef.current = true; setRouteReady(true); }} />}
       {routeReady && (phase === 'victory' || phase === 'finalOver') && gameRef.current && <RunResults game={gameRef.current} difficulty={difficulty} exit={() => onExitRef.current()} />}
@@ -272,10 +272,10 @@ export default function ArcadeMode({ deities, difficulty, onExit, touch = false,
         if (network?.role === 'guest') void network.send('blessing', index);
         else gameRef.current?.chooseRelic(index, player);
       }} />}
-      {routeReady && network && (!network.connected || network.error || !network.remoteLoaded || network.paused) && <div className="lan-overlay" role="status">
-        <h2>{network.error ? 'Conexión interrumpida' : network.paused ? 'Partida pausada' : 'Esperando al compañero'}</h2>
-        <p>{network.error || 'Mantengan ambos dispositivos conectados a la misma red y el juego abierto.'}</p>
-        {network.connected && !network.error && network.remoteLoaded && network.paused && <button className="arena-confirm" onClick={togglePause}>Reanudar partida</button>}
+      {routeReady && network && (!network.connected || network.error || !network.canSimulate || network.paused) && <div className="lan-overlay" role="status">
+        <h2>{network.error ? 'Conexión interrumpida' : network.paused ? 'Partida pausada' : 'Preparando la partida'}</h2>
+        <p>{network.error || (network.paused ? 'Mantengan ambos dispositivos conectados a la misma red y el juego abierto.' : network.startupMessage)}</p>
+        {network.connected && !network.error && network.ready && network.paused && <button className="arena-confirm" onClick={togglePause}>Reanudar partida</button>}
         <button className="options-back" onClick={() => onExitRef.current()}>Volver al menú</button>
       </div>}
       {routeReady && phase === 'gameOver' && (

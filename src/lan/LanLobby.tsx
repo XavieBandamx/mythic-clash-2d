@@ -1,3 +1,4 @@
+import { getSpriteSheetConfig, getExtraSheetConfig, loadSpriteSheet } from '../game/sprites';
 import { createRoute } from '../arcade/run';
 import { ARENAS } from '../game/arenas';
 import { useEffect, useRef, useState } from 'react';
@@ -40,6 +41,16 @@ export default function LanLobby({ back, start, createSession = role => new LanS
   }, [room, start]);
   useEffect(() => { if (room?.connected) void room.select(deity, ready); }, [room, deity, ready, room?.connected]);
   useEffect(() => { if (room?.role === 'host' && room.connected) void room.send('settings', { deities: [deity, room.remoteDeity ?? deity], difficulty, mode, arena }); }, [room, room?.connected, deity, difficulty, mode, arena]);
+  useEffect(() => {
+    if (!room?.connected) return;
+    for (const id of [deity, room.remoteDeity]) {
+      const fighter = DEITIES.find(item => item.id === id); if (!fighter) continue;
+      loadSpriteSheet(getSpriteSheetConfig(fighter).src);
+      const extra = getExtraSheetConfig(fighter); if (extra) loadSpriteSheet(extra.src);
+    }
+    const selectedArena = room.role === 'host' ? arena : room.roomSettings?.arena ?? 0;
+    loadSpriteSheet(ARENAS[selectedArena].src);
+  }, [room, room?.connected, deity, room?.remoteDeity, arena, room?.roomSettings?.arena]);
   const connect = async (role: 'host' | 'guest') => {
     setBusy(true); setError('');
     const session = createSession(role); active.current = session; setRoom(session);
@@ -60,7 +71,7 @@ export default function LanLobby({ back, start, createSession = role => new LanS
           <button className="options-reset" disabled={busy || !invite.trim()} onClick={() => void connect('guest')}>Unirme a la sala</button></>}
         {!room && <button className="options-reset" disabled={busy} onClick={() => void LanSession.scanInvite().then(value => { if (value) setInvite(value); }).catch(() => setError('No se pudo leer el QR. Puedes pegar la invitación.'))}>Escanear QR del anfitrión</button>}
         {room?.role === 'host' && code && <div className="lan-invite">{qr && <img className="lan-qr" src={qr} alt="QR de la sala privada" />}{room.invitations.length > 1 && <select aria-label="Dirección de la sala" value={address} onChange={event => setAddress(Number(event.target.value))}>{room.invitations.map((value, index) => <option key={value} value={index}>{value.split('#')[0]}</option>)}</select>}<code>{code}</code><button aria-label="Copiar invitación" onClick={() => void room.copyInvite(code).then(() => setCopied(true))}><Copy size={16} />{copied ? 'Copiada' : 'Copiar'}</button></div>}
-        {room && <p role="status">{busy ? 'Preparando conexión…' : room.error || (room.connected ? 'Compañero conectado' : 'Esperando al compañero…')}</p>}
+        {room && <p role="status">{busy ? 'Preparando conexión…' : room.error || (room.connected ? `Compañero conectado · ${room.connectionLabel}` : 'Esperando al compañero…')}</p>}
         {room?.role === 'host' && <p>Comparte la invitación o escríbela en el otro celular. Si aparecen varias direcciones, usa la de la red que comparten.</p>}
         {error && <p className="lan-error" role="alert">{error}</p>}
       </section>
